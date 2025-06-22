@@ -1,24 +1,37 @@
 
+impl<C,V> AI<Vec<Vec<V>>,Vec<Vec<V>>> for Graph<C,V>{
+	fn forward(&self,input:Vec<Vec<V>>)->Vec<Vec<V>>{
+		let (connections,connectivity)=(&self.connections,&self.connectivity);
+		let (hidden,inputs,outputs)=(self.hidden,self.inputs,self.outputs);
+		let mut slots=input;
+		slots.resize_with(hidden+inputs+outputs,Default::default);
 
-impl Block for Connection{
-	fn config(&self)->Box<dyn AnyBlock>{Box::new(Self::from_existing_data(self.block.config(),self.inputname.clone(),self.outputname.clone()))}
-	fn duplicate(&self)->Box<dyn AnyBlock>{Box::new(self.clone())}
-	fn forward(&self,input:Box<dyn AnyBlock>)->Box<dyn AnyBlock>{self.inner.forward(input)}
-	fn init(&self)->Box<dyn AnyBlock>{Box::new(Self::from_existing_data(self.block.init(),self.inputname.clone(),self.outputname.clone()))}
-}
-impl Clone for Connection{
-	fn clone(&self)->Self{Self::from_existing_data(self.block.duplicate(),self.inputname.clone(),self.outputname.clone())}
-}
-impl Connection{
-	fn from_existing_data(block:Box<dyn AnyBlock>,inputname:String,outputname:String)->Self{
-		Self{block,inputname,outputname}
+		connectivity.iter().for_each(|&(c,x,y)|{
+			let x=take(&mut slots[x]);
+			slots[y].extend(connections[c].forward(x));
+		});
+		slots.drain(0..hidden+inputs);
+		slots
+	}
+	fn forward_mut(&mut self,input:Vec<Vec<V>>)->Vec<Vec<V>>{
+		let (connections,connectivity)=(&mut self.connections,&self.connectivity);
+		let (hidden,inputs,outputs)=(self.hidden,self.inputs,self.outputs);
+		let mut slots=input;
+		slots.resize_with(hidden+inputs+outputs,Default::default);
+
+		connectivity.iter().for_each(|&(c,x,y)|{
+			let x=take(&mut slots[x]);
+			slots[y].extend(connections[c].forward_mut(x));
+		});
+		slots.drain(0..hidden+inputs);
+		slots
 	}
 }
 
-/// block graph connection
-pub struct Connection{block:Box<dyn AnyBlock>,inputname:String,outputname:String}
 
-/// block graph
-pub struct Graph{connections:Vec<Connection>,indexstructure:Vec<(bool,usize,usize)>}
+/// graphs like ai operation structure
+pub struct Graph<C,V>{connections:Vec<Box<dyn DynAI<C,Vec<V>,Vec<V>>>>,connectivity:Vec<(usize,usize,usize)>,hidden:usize,inputs:usize,outputs:usize}
 
-use crate::block::{AnyBlock,Block};
+
+use crate::ai::{AI,DynAI};
+use std::mem::take;
