@@ -349,6 +349,10 @@ impl<B:Backend,K:TensorKind<B>,const N:usize> Decompose for Tensor<B,N,K>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
 }
+impl<B:Backend,const N:usize> AI<Tensor<B,N>,Tensor<B,N>> for AccQ<()>{
+	fn forward(&self,input:Tensor<B,N>)->Tensor<B,N>{accumulate_q_burn(self.gamma,input)}
+	fn forward_mut(&mut self,input:Tensor<B,N>)->Tensor<B,N>{accumulate_q_burn(self.gamma,input)}
+}
 impl<B:Backend,const N:usize> AI<Tensor<B,N>,Tensor<B,N>> for Dropout{
 	fn forward(&self,input:Tensor<B,N>)->Tensor<B,N>{Dropout::forward(self,input)}
 }
@@ -422,7 +426,7 @@ pub struct Composite<A>(pub A);
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 #[repr(transparent)]
 /// module for cloning things
-pub struct Duplicate<A>(pub A);
+pub struct Duplicate<A>(pub A);//TODO replicate that has a number and makes a vec
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 #[repr(transparent)]
 /// wrapper for applying ai modules sequentially
@@ -445,10 +449,6 @@ pub trait AI<X,Y>{
 	/// applies to the input, possibly updating internal caches
 	fn forward_mut(&mut self,input:X)->Y{self.forward(input)}
 }
-/// trait for constructing dyn ai from concrete enums
-pub trait Concrete<X,Y>:Sized{
-	fn dyn_ai(self)->Box<dyn DynAI<Self,X,Y>>;
-}
 /// trait to decompose AI modules into components that implement other libraries' traits
 pub trait Decompose{
 	/// recreates from the decomposition
@@ -459,10 +459,6 @@ pub trait Decompose{
 	fn decompose_cloned(&self)->Self::Decomposition;
 	/// the decomposed type
 	type Decomposition;
-}
-/// ai trait for decomposable dyn convenience
-pub trait DynAI<C,X,Y>:AI<X,Y>+Send+Sync{
-	fn concrete(&self)->C;
 }
 /// composition trait
 pub trait Op{
@@ -480,6 +476,8 @@ pub trait Op{
 	fn composite(self)->Composite<Self> where Self:Sized{Composite(self)}
 	/// wraps with a duplicate operation
 	fn duplicate(self)->Duplicate<Self> where Duplicate<Self>:Op,Self:Sized{Duplicate(self)}
+	/// set type but with the same input and output
+	fn fix_type<Z>(self)->SetType<Self,Z,Z> where Self:AI<Z,Z>+Sized{self.set_type()}
 	/// creates an autoregressive inference
 	fn infer_autoregressive<X,Y>(self,input:X)->Autoregression<Self,Y> where Self:AI<X,Y>+AI<Y,Y>+Sized,Y:Clone{
 		let mut ai=self;
