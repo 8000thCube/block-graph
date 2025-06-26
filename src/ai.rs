@@ -395,6 +395,78 @@ impl<B:Backend> Decompose for Linear<B>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
 }
+impl<B:Backend> From<Tensor<B,1,Bool>> for BurnValue<B>{
+	fn from(value:Tensor<B,1,Bool>)->Self{Self::B1(value)}
+}
+impl<B:Backend> From<Tensor<B,2,Bool>> for BurnValue<B>{
+	fn from(value:Tensor<B,2,Bool>)->Self{Self::B2(value)}
+}
+impl<B:Backend> From<Tensor<B,3,Bool>> for BurnValue<B>{
+	fn from(value:Tensor<B,3,Bool>)->Self{Self::B3(value)}
+}
+impl<B:Backend> From<Tensor<B,4,Bool>> for BurnValue<B>{
+	fn from(value:Tensor<B,4,Bool>)->Self{Self::B4(value)}
+}
+impl<B:Backend> From<Tensor<B,5,Bool>> for BurnValue<B>{
+	fn from(value:Tensor<B,5,Bool>)->Self{Self::B5(value)}
+}
+impl<B:Backend> From<Tensor<B,6,Bool>> for BurnValue<B>{
+	fn from(value:Tensor<B,6,Bool>)->Self{Self::B6(value)}
+}
+impl<B:Backend> From<Tensor<B,7,Bool>> for BurnValue<B>{
+	fn from(value:Tensor<B,7,Bool>)->Self{Self::B7(value)}
+}
+impl<B:Backend> From<Tensor<B,8,Bool>> for BurnValue<B>{
+	fn from(value:Tensor<B,8,Bool>)->Self{Self::B8(value)}
+}
+impl<B:Backend> From<Tensor<B,1,Float>> for BurnValue<B>{
+	fn from(value:Tensor<B,1,Float>)->Self{Self::F1(value)}
+}
+impl<B:Backend> From<Tensor<B,2,Float>> for BurnValue<B>{
+	fn from(value:Tensor<B,2,Float>)->Self{Self::F2(value)}
+}
+impl<B:Backend> From<Tensor<B,3,Float>> for BurnValue<B>{
+	fn from(value:Tensor<B,3,Float>)->Self{Self::F3(value)}
+}
+impl<B:Backend> From<Tensor<B,4,Float>> for BurnValue<B>{
+	fn from(value:Tensor<B,4,Float>)->Self{Self::F4(value)}
+}
+impl<B:Backend> From<Tensor<B,5,Float>> for BurnValue<B>{
+	fn from(value:Tensor<B,5,Float>)->Self{Self::F5(value)}
+}
+impl<B:Backend> From<Tensor<B,6,Float>> for BurnValue<B>{
+	fn from(value:Tensor<B,6,Float>)->Self{Self::F6(value)}
+}
+impl<B:Backend> From<Tensor<B,7,Float>> for BurnValue<B>{
+	fn from(value:Tensor<B,7,Float>)->Self{Self::F7(value)}
+}
+impl<B:Backend> From<Tensor<B,8,Float>> for BurnValue<B>{
+	fn from(value:Tensor<B,8,Float>)->Self{Self::F8(value)}
+}
+impl<B:Backend> From<Tensor<B,1,Int>> for BurnValue<B>{
+	fn from(value:Tensor<B,1,Int>)->Self{Self::I1(value)}
+}
+impl<B:Backend> From<Tensor<B,2,Int>> for BurnValue<B>{
+	fn from(value:Tensor<B,2,Int>)->Self{Self::I2(value)}
+}
+impl<B:Backend> From<Tensor<B,3,Int>> for BurnValue<B>{
+	fn from(value:Tensor<B,3,Int>)->Self{Self::I3(value)}
+}
+impl<B:Backend> From<Tensor<B,4,Int>> for BurnValue<B>{
+	fn from(value:Tensor<B,4,Int>)->Self{Self::I4(value)}
+}
+impl<B:Backend> From<Tensor<B,5,Int>> for BurnValue<B>{
+	fn from(value:Tensor<B,5,Int>)->Self{Self::I5(value)}
+}
+impl<B:Backend> From<Tensor<B,6,Int>> for BurnValue<B>{
+	fn from(value:Tensor<B,6,Int>)->Self{Self::I6(value)}
+}
+impl<B:Backend> From<Tensor<B,7,Int>> for BurnValue<B>{
+	fn from(value:Tensor<B,7,Int>)->Self{Self::I7(value)}
+}
+impl<B:Backend> From<Tensor<B,8,Int>> for BurnValue<B>{
+	fn from(value:Tensor<B,8,Int>)->Self{Self::I8(value)}
+}
 impl<B:Backend> Op for Embedding<B>{
 	type Output=Tensor<B,3>;
 }
@@ -407,6 +479,12 @@ impl<B:Backend> Op for Linear<B>{
 impl<X> AI<X,X> for (){
 	fn forward(&self,input:X)->X{input}
 }
+#[derive(Debug,Module)] //TODO more layers
+/// enumerates some burn layers
+pub enum BurnLayer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Relu(Relu)}
+#[derive(Debug,Module)]
+/// enumerates burn tensors up to 8 dimensions //TODO scalars and error type
+pub enum BurnValue<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>)}
 #[derive(Clone,Copy,Debug,Default)]
 /// accumulates cumulative
 pub struct AccQ<A>{layer:A,gamma:f32}
