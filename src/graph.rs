@@ -36,11 +36,34 @@ impl VertexLabels{
 	/// gets or adds an index associated with the string
 	pub fn produce_index(&mut self,label:String)->usize{self._produce_index(label)}
 }
+impl<B:Backend> Merge for BurnValue<B>{
+	fn merge(&mut self,other:Self){
+		match (take(self),other){
+			(BurnValue::Multi(mut u),BurnValue::Multi(v))=>{
+				u.extend(v);
+				*self=u.into();
+			},
+			(BurnValue::Multi(mut u),v)=>if u.len()==0{
+				*self=v;
+			}else{
+				u.push(v);
+				*self=u.into();
+			},
+			(u,BurnValue::Multi(mut v))=>if v.len()==0{
+				*self=u;
+			}else{
+				v.push(u);
+				*self=v.into();
+			},
+			(u,v)=>*self=vec![u,v].into()
+		}
+	}
+}
 impl<C:AI<V,V>,V:Default+Merge> AI<Vec<V>,Vec<V>> for Graph<C>{
 	fn forward(&self,input:Vec<V>)->Vec<V>{
 		let (connections,connectivity)=(&self.connections,&self.connectivity);
-		let hidden=connectivity.iter().flat_map(|&(_connection,input,output)|[input,output]).filter(|&x|x>=0).max().map(|x|x as usize+1).unwrap_or(0);
 		let inputs=connectivity.iter().map(|&(_connection,input,_output)|!input).filter(|&x|x>=0).max().map(|x|x as usize+1).unwrap_or(0);
+		let hidden=connectivity.iter().flat_map(|&(_connection,input,output)|[input,output]).filter(|&x|x>=0).max().map(|x|x as usize+1).unwrap_or(0);
 		let outputs=connectivity.iter().map(|&(_connection,_input,output)|!output).filter(|&x|x>=0).max().map(|x|x as usize+1).unwrap_or(0);
 		let mut slots=input;
 
@@ -132,6 +155,26 @@ impl<E> Merge for Vec<E>{
 macro_rules! labeled{
 	($labels:ident,$($arg:tt)*)=>($labels.produce_index(format!($($arg)*)));
 }
+mod tests{
+	#[test]
+	fn learn_xor(){
+		let mut graph:Graph<BurnLayer<Wgpu>>=Graph::new();
+		let mut l=VertexLabels::new();
+		graph.add_connection(BurnLayer::linear(true,2,5,1.0),GraphIn(0),labeled!(l,"intermediate 1"));
+		graph.add_connection(BurnLayer::relu(),labeled!(l,"intermediate 1"),labeled!(l,"intermediate 2"));
+		graph.add_connection(BurnLayer::linear(false,5,1,1.0),labeled!(l,"intermediate 2"),GraphOut(0));
+		let inputval=BurnValue::from(Tensor::<Wgpu,2>::from_data(TensorData::new([1.0,1.0].to_vec(),[1,2]),&Default::default()));
+		let outputval=graph.forward(vec![inputval]).into_iter().next().unwrap();
+		if let BurnValue::F2(o)=outputval{
+			println!("{o}");
+		}
+
+		//panic!("h");
+	}
+	use burn::backend::Wgpu;
+	use crate::ai::BurnLayer;
+	use super::*;
+}
 #[derive(Clone,Copy,Debug,Eq,PartialEq)]
 /// enum for whether a node index is a hidden input or output node
 pub enum GraphIO{Hidden(usize),Input(usize),Output(usize)}
@@ -153,5 +196,6 @@ pub trait Merge{
 	fn merge(&mut self,other:Self);
 }
 pub use labeled;
-use crate::ai::{AI,Decompose,Op};
+use burn::prelude::*;
+use crate::ai::{AI,BurnValue,Decompose,Op};
 use std::{borrow::Cow,collections::HashMap,mem::take};
