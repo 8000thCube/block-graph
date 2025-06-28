@@ -47,6 +47,9 @@ impl Op for (){
 impl Op for Dropout{
 	type Output=();
 }
+impl Op for MseLoss{
+	type Output=();
+}
 impl Op for Relu{
 	type Output=();
 }
@@ -198,6 +201,10 @@ impl<A:AI<X,Y>,X,Y> AI<X,Y> for Composite<A>{
 }
 impl<A:AI<X,Y>,X,Y> Op for SetType<A,X,Y>{
 	type Output=Y;
+}
+impl<A:AutodiffBackend,B:Decompose+Send+Sync> AutodiffModule<A> for Composite<B> where B::Decomposition:AutodiffModule<A>{
+	fn valid(&self)->Self::InnerModule{self.0.decompose_cloned().valid()}
+	type InnerModule=<B::Decomposition as AutodiffModule<A>>::InnerModule;
 }
 impl<A:Copy+Decompose> Copy for Composite<A> where A::Decomposition:Clone{}
 impl<A:Decompose+Send+Sync,B:Backend> Module<B> for Composite<A> where A::Decomposition:Module<B>{
@@ -352,6 +359,9 @@ impl<B:Backend,K:TensorKind<B>,const N:usize> Decompose for Tensor<B,N,K>{
 impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for BurnValue<B>{
 	fn from(value:&S)->Self{Self::Incompatible(value.as_ref().to_string())}
 }
+impl<B:Backend,const N:usize> AI<(Tensor<B,N>,Tensor<B,N>),Tensor<B,1>> for MseLoss{
+	fn forward(&self,(output,target):(Tensor<B,N>,Tensor<B,N>))->Tensor<B,1>{self.forward_no_reduction(output,target).mean()}
+}
 impl<B:Backend,const N:usize> AI<Tensor<B,N>,Tensor<B,N>> for AccQ<()>{
 	fn forward(&self,input:Tensor<B,N>)->Tensor<B,N>{accumulate_q_burn(self.gamma,input)}
 	fn forward_mut(&mut self,input:Tensor<B,N>)->Tensor<B,N>{accumulate_q_burn(self.gamma,input)}
@@ -379,13 +389,13 @@ impl<B:Backend,const N:usize> AI<Tensor<B,N>,u32> for SoftChoose<()>{
 }
 impl<B:Backend> AI<BurnValue<B>,BurnValue<B>> for BurnLayer<B>{
 	fn forward(&self,input:BurnValue<B>)->BurnValue<B>{
-		match self{BurnLayer::Dropout(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::Embedding(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::LayerNorm(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::Linear(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::Relu(a)=>a.fix_type::<BurnValue<B>>().forward(input)}
+		match self{BurnLayer::Dropout(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::Embedding(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::LayerNorm(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::Linear(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::Mse(a)=>a.fix_type::<BurnValue<B>>().forward(input),BurnLayer::Relu(a)=>a.fix_type::<BurnValue<B>>().forward(input)}
 	}
 }
 impl<B:Backend> AI<BurnValue<B>,BurnValue<B>> for Dropout{
 	fn forward(&self,input:BurnValue<B>)->BurnValue<B>{
 		match input{
-			BurnValue::F0(x)=>if !B::ad_enabled(){x}else if random::<f64>()<self.prob{0.0}else{x/(1.0-self.prob as f32)}.into(),BurnValue::F1(x)=>self.forward(x).into(),BurnValue::F2(x)=>self.forward(x).into(),BurnValue::F3(x)=>self.forward(x).into(),BurnValue::F4(x)=>self.forward(x).into(),BurnValue::F5(x)=>self.forward(x).into(),BurnValue::F6(x)=>self.forward(x).into(),BurnValue::F7(x)=>self.forward(x).into(),BurnValue::F8(x)=>self.forward(x).into(),_=>"dropout is only available for floats".into()
+			BurnValue::F1(x)=>self.forward(x).into(),BurnValue::F2(x)=>self.forward(x).into(),BurnValue::F3(x)=>self.forward(x).into(),BurnValue::F4(x)=>self.forward(x).into(),BurnValue::F5(x)=>self.forward(x).into(),BurnValue::F6(x)=>self.forward(x).into(),BurnValue::F7(x)=>self.forward(x).into(),BurnValue::F8(x)=>self.forward(x).into(),BurnValue::Incompatible(x)=>x.into(),BurnValue::Multi(x)=>x.into_iter().map(|x|self.fix_type::<BurnValue<B>>().forward(x)).collect::<Vec<_>>().into(),_=>"dropout is only available for floats".into()
 		}
 	}
 }
@@ -406,27 +416,53 @@ impl<B:Backend> AI<BurnValue<B>,BurnValue<B>> for Embedding<B>{
 			Linear{bias:None,weight:this.weight.clone()}.forward(x)
 		}
 		match input{
-			BurnValue::F0(x)=>(self.weight.val()*x).into(),BurnValue::F1(x)=>apply_linear(self,x).into(),BurnValue::F2(x)=>apply_linear(self,x).into(),BurnValue::F3(x)=>apply_linear(self,x).into(),BurnValue::F4(x)=>apply_linear(self,x).into(),BurnValue::F5(x)=>apply_linear(self,x).into(),BurnValue::F6(x)=>apply_linear(self,x).into(),BurnValue::F7(x)=>apply_linear(self,x).into(),BurnValue::F8(x)=>apply_linear(self,x).into(),BurnValue::I0(x)=>self.weight.val().slice([x as usize..x as usize+1]).squeeze::<1>(0).into(),BurnValue::I1(x)=>apply_embed::<B,1,2>(self,x).into(),BurnValue::I2(x)=>apply_embed::<B,2,3>(self,x).into(),BurnValue::I3(x)=>apply_embed::<B,3,4>(self,x).into(),BurnValue::I4(x)=>apply_embed::<B,4,5>(self,x).into(),BurnValue::I5(x)=>apply_embed::<B,5,6>(self,x).into(),BurnValue::I6(x)=>apply_embed::<B,6,7>(self,x).into(),BurnValue::I7(x)=>apply_embed::<B,7,8>(self,x).into(),BurnValue::I8(_x)=>"embedding output would exceed maximum supported rank".into(),_=>"embedding is only available for float or int inputs".into()
+			BurnValue::F1(x)=>apply_linear(self,x).into(),BurnValue::F2(x)=>apply_linear(self,x).into(),BurnValue::F3(x)=>apply_linear(self,x).into(),BurnValue::F4(x)=>apply_linear(self,x).into(),BurnValue::F5(x)=>apply_linear(self,x).into(),BurnValue::F6(x)=>apply_linear(self,x).into(),BurnValue::F7(x)=>apply_linear(self,x).into(),BurnValue::F8(x)=>apply_linear(self,x).into(),BurnValue::I1(x)=>apply_embed::<B,1,2>(self,x).into(),BurnValue::I2(x)=>apply_embed::<B,2,3>(self,x).into(),BurnValue::I3(x)=>apply_embed::<B,3,4>(self,x).into(),BurnValue::I4(x)=>apply_embed::<B,4,5>(self,x).into(),BurnValue::I5(x)=>apply_embed::<B,5,6>(self,x).into(),BurnValue::I6(x)=>apply_embed::<B,6,7>(self,x).into(),BurnValue::I7(x)=>apply_embed::<B,7,8>(self,x).into(),BurnValue::I8(_x)=>"embedding output would exceed maximum supported rank".into(),BurnValue::Incompatible(x)=>x.into(),BurnValue::Multi(x)=>x.into_iter().map(|x|self.fix_type::<BurnValue<B>>().forward(x)).collect::<Vec<_>>().into(),_=>"embedding is only available for float or int inputs".into()
 		}
 	}
 }
 impl<B:Backend> AI<BurnValue<B>,BurnValue<B>> for LayerNorm<B>{
 	fn forward(&self,input:BurnValue<B>)->BurnValue<B>{
-		match input{BurnValue::F0(_x)=>todo!(),BurnValue::F1(x)=>self.forward(x).into(),BurnValue::F2(x)=>self.forward(x).into(),BurnValue::F3(x)=>self.forward(x).into(),BurnValue::F4(x)=>self.forward(x).into(),BurnValue::F5(x)=>self.forward(x).into(),BurnValue::F6(x)=>self.forward(x).into(),BurnValue::F7(x)=>self.forward(x).into(),BurnValue::F8(x)=>self.forward(x).into(),BurnValue::I0(_x)=>todo!(),BurnValue::I1(x)=>self.forward(x.float()).into(),BurnValue::I2(x)=>self.forward(x.float()).into(),BurnValue::I3(x)=>self.forward(x.float()).into(),BurnValue::I4(x)=>self.forward(x.float()).into(),BurnValue::I5(x)=>self.forward(x.float()).into(),BurnValue::I6(x)=>self.forward(x.float()).into(),BurnValue::I7(x)=>self.forward(x.float()).into(),BurnValue::I8(x)=>self.forward(x.float()).into(),_=>"layer norm is only supported for numeric inputs".into()}
+		match input{BurnValue::F1(x)=>self.forward(x).into(),BurnValue::F2(x)=>self.forward(x).into(),BurnValue::F3(x)=>self.forward(x).into(),BurnValue::F4(x)=>self.forward(x).into(),BurnValue::F5(x)=>self.forward(x).into(),BurnValue::F6(x)=>self.forward(x).into(),BurnValue::F7(x)=>self.forward(x).into(),BurnValue::F8(x)=>self.forward(x).into(),BurnValue::I1(x)=>self.forward(x.float()).into(),BurnValue::I2(x)=>self.forward(x.float()).into(),BurnValue::I3(x)=>self.forward(x.float()).into(),BurnValue::I4(x)=>self.forward(x.float()).into(),BurnValue::I5(x)=>self.forward(x.float()).into(),BurnValue::I6(x)=>self.forward(x.float()).into(),BurnValue::I7(x)=>self.forward(x.float()).into(),BurnValue::I8(x)=>self.forward(x.float()).into(),BurnValue::Incompatible(x)=>x.into(),BurnValue::Multi(x)=>x.into_iter().map(|x|self.fix_type::<BurnValue<B>>().forward(x)).collect::<Vec<_>>().into(),_=>"layer norm is only supported for numeric inputs".into()}
 	}
 }
 impl<B:Backend> AI<BurnValue<B>,BurnValue<B>> for Linear<B>{
 	fn forward(&self,input:BurnValue<B>)->BurnValue<B>{
-		match input{BurnValue::F0(_x)=>todo!(),BurnValue::F1(x)=>self.forward(x).into(),BurnValue::F2(x)=>self.forward(x).into(),BurnValue::F3(x)=>self.forward(x).into(),BurnValue::F4(x)=>self.forward(x).into(),BurnValue::F5(x)=>self.forward(x).into(),BurnValue::F6(x)=>self.forward(x).into(),BurnValue::F7(x)=>self.forward(x).into(),BurnValue::F8(x)=>self.forward(x).into(),BurnValue::I0(_x)=>todo!(),BurnValue::I1(x)=>self.forward(x.float()).into(),BurnValue::I2(x)=>self.forward(x.float()).into(),BurnValue::I3(x)=>self.forward(x.float()).into(),BurnValue::I4(x)=>self.forward(x.float()).into(),BurnValue::I5(x)=>self.forward(x.float()).into(),BurnValue::I6(x)=>self.forward(x.float()).into(),BurnValue::I7(x)=>self.forward(x.float()).into(),BurnValue::I8(x)=>self.forward(x.float()).into(),_=>"linear is only supported for numeric inputs".into()}
+		match input{BurnValue::F1(x)=>self.forward(x).into(),BurnValue::F2(x)=>self.forward(x).into(),BurnValue::F3(x)=>self.forward(x).into(),BurnValue::F4(x)=>self.forward(x).into(),BurnValue::F5(x)=>self.forward(x).into(),BurnValue::F6(x)=>self.forward(x).into(),BurnValue::F7(x)=>self.forward(x).into(),BurnValue::F8(x)=>self.forward(x).into(),BurnValue::I1(x)=>self.forward(x.float()).into(),BurnValue::I2(x)=>self.forward(x.float()).into(),BurnValue::I3(x)=>self.forward(x.float()).into(),BurnValue::I4(x)=>self.forward(x.float()).into(),BurnValue::I5(x)=>self.forward(x.float()).into(),BurnValue::I6(x)=>self.forward(x.float()).into(),BurnValue::I7(x)=>self.forward(x.float()).into(),BurnValue::I8(x)=>self.forward(x.float()).into(),BurnValue::Incompatible(x)=>x.into(),BurnValue::Multi(x)=>x.into_iter().map(|x|self.fix_type::<BurnValue<B>>().forward(x)).collect::<Vec<_>>().into(),_=>"linear is only supported for numeric inputs".into()}
+	}
+}
+impl<B:Backend> AI<BurnValue<B>,BurnValue<B>> for MseLoss{
+	fn forward(&self,input:BurnValue<B>)->BurnValue<B>{
+		match input{
+			BurnValue::Incompatible(x)=>x.into(),
+			BurnValue::Multi(x)=>if x.len()==2{
+				let mut x=x.into_iter();
+				match (x.next().unwrap(),x.next().unwrap()){(BurnValue::F1(x0),BurnValue::F1(x1))=>AI::forward(self,(x0,x1)).into(),(BurnValue::F2(x0),BurnValue::F2(x1))=>AI::forward(self,(x0,x1)).into(),(BurnValue::F3(x0),BurnValue::F3(x1))=>AI::forward(self,(x0,x1)).into(),(BurnValue::F4(x0),BurnValue::F4(x1))=>AI::forward(self,(x0,x1)).into(),(BurnValue::F5(x0),BurnValue::F5(x1))=>AI::forward(self,(x0,x1)).into(),(BurnValue::F6(x0),BurnValue::F6(x1))=>AI::forward(self,(x0,x1)).into(),(BurnValue::F7(x0),BurnValue::F7(x1))=>AI::forward(self,(x0,x1)).into(),(BurnValue::F8(x0),BurnValue::F8(x1))=>AI::forward(self,(x0,x1)).into(),_=>"mse loss requires input pairs to be float tensors with the same rank".into()}
+			}else{
+				let y:Vec<BurnValue<B>>=x.into_iter().map(|x|self.fix_type::<BurnValue<B>>().forward(x)).collect();
+				y.into()
+			},
+			_=>"mse loss requires inputs to be in pairs".into()
+		}
 	}
 }
 impl<B:Backend> AI<BurnValue<B>,BurnValue<B>> for Relu{
 	fn forward(&self,input:BurnValue<B>)->BurnValue<B>{
-		match input{BurnValue::F0(_x)=>todo!(),BurnValue::F1(x)=>self.forward(x).into(),BurnValue::F2(x)=>self.forward(x).into(),BurnValue::F3(x)=>self.forward(x).into(),BurnValue::F4(x)=>self.forward(x).into(),BurnValue::F5(x)=>self.forward(x).into(),BurnValue::F6(x)=>self.forward(x).into(),BurnValue::F7(x)=>self.forward(x).into(),BurnValue::F8(x)=>self.forward(x).into(),BurnValue::I0(_x)=>todo!(),BurnValue::I1(x)=>self.forward(x.float()).into(),BurnValue::I2(x)=>self.forward(x.float()).into(),BurnValue::I3(x)=>self.forward(x.float()).into(),BurnValue::I4(x)=>self.forward(x.float()).into(),BurnValue::I5(x)=>self.forward(x.float()).into(),BurnValue::I6(x)=>self.forward(x.float()).into(),BurnValue::I7(x)=>self.forward(x.float()).into(),BurnValue::I8(x)=>self.forward(x.float()).into(),_=>"relu is only supported for numeric inputs".into()}
+		match input{BurnValue::F1(x)=>self.forward(x).into(),BurnValue::F2(x)=>self.forward(x).into(),BurnValue::F3(x)=>self.forward(x).into(),BurnValue::F4(x)=>self.forward(x).into(),BurnValue::F5(x)=>self.forward(x).into(),BurnValue::F6(x)=>self.forward(x).into(),BurnValue::F7(x)=>self.forward(x).into(),BurnValue::F8(x)=>self.forward(x).into(),BurnValue::I1(x)=>self.forward(x.float()).into(),BurnValue::I2(x)=>self.forward(x.float()).into(),BurnValue::I3(x)=>self.forward(x.float()).into(),BurnValue::I4(x)=>self.forward(x.float()).into(),BurnValue::I5(x)=>self.forward(x.float()).into(),BurnValue::I6(x)=>self.forward(x.float()).into(),BurnValue::I7(x)=>self.forward(x.float()).into(),BurnValue::I8(x)=>self.forward(x.float()).into(),BurnValue::Incompatible(x)=>x.into(),BurnValue::Multi(x)=>x.into_iter().map(|x|self.fix_type::<BurnValue<B>>().forward(x)).collect::<Vec<_>>().into(),_=>"relu is only supported for numeric inputs".into()}
 	}
 }
 impl<B:Backend> AI<Tensor<B,2,Int>,Tensor<B,3>> for Embedding<B>{
 	fn forward(&self,input:Tensor<B,2,Int>)->Tensor<B,3>{Embedding::forward(self,input)}
+}
+impl<B:Backend> BurnLayer<B>{
+	/// creates a linear layer
+	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
+		let mut l=LinearConfig::new(input,output).with_bias(bias).init(&Default::default());
+		l.bias=l.bias.map(|b|b.map(|b|b*wscale));
+		l.weight=l.weight.map(|w|w*wscale);
+		Self::Linear(l)
+	}
+	/// creates a relu layer
+	pub fn relu()->Self{Self::Relu(Relu)}
 }
 impl<B:Backend> Decompose for BurnLayer<B>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
@@ -457,6 +493,9 @@ impl<B:Backend> Decompose for Linear<B>{
 	fn decompose(self)->Self::Decomposition{self}
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
+}
+impl<B:Backend> Default for BurnValue<B>{
+	fn default()->Self{Self::Multi(Vec::new())}
 }
 impl<B:Backend> From<String> for BurnValue<B>{
 	fn from(value:String)->Self{Self::Incompatible(value)}
@@ -533,14 +572,8 @@ impl<B:Backend> From<Tensor<B,7,Int>> for BurnValue<B>{
 impl<B:Backend> From<Tensor<B,8,Int>> for BurnValue<B>{
 	fn from(value:Tensor<B,8,Int>)->Self{Self::I8(value)}
 }
-impl<B:Backend> From<bool> for BurnValue<B>{
-	fn from(value:bool)->Self{Self::B0(value)}
-}
-impl<B:Backend> From<f32> for BurnValue<B>{
-	fn from(value:f32)->Self{Self::F0(value)}
-}
-impl<B:Backend> From<i32> for BurnValue<B>{
-	fn from(value:i32)->Self{Self::I0(value)}
+impl<B:Backend> From<Vec<BurnValue<B>>> for BurnValue<B>{
+	fn from(value:Vec<BurnValue<B>>)->Self{Self::Multi(value)}
 }
 impl<B:Backend> Op for BurnLayer<B>{
 	type Output=BurnValue<B>;
@@ -559,10 +592,10 @@ impl<X> AI<X,X> for (){
 }
 #[derive(Debug,Module)] //TODO more layers
 /// enumerates some burn layers
-pub enum BurnLayer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Relu(Relu)}
-#[derive(Debug,Module)]
+pub enum BurnLayer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu)}
+#[derive(Clone,Debug)]//TODO implement module for this
 /// enumerates burn tensors up to 8 dimensions
-pub enum BurnValue<B:Backend>{B0(bool),B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F0(f32),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I0(i32),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String)}
+pub enum BurnValue<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
 #[derive(Clone,Copy,Debug,Default)]
 /// accumulates cumulative
 pub struct AccQ<A>{layer:A,gamma:f32}
@@ -663,7 +696,13 @@ pub trait Supervised<X,Y>{
 	fn val_step(&self,input:X,target:Y)->f32;
 }
 use burn::{
-	module::{ModuleMapper,ModuleVisitor,Quantizer},nn::{Dropout,Embedding,LayerNorm,Linear,Relu},prelude::*,record::{FileRecorder,RecorderError},tensor::{BasicOps,TensorKind,activation::softmax,quantization::Calibration}
+	module::{AutodiffModule,ModuleMapper,ModuleVisitor,Quantizer},
+	nn::{
+		Dropout,Embedding,LayerNorm,Linear,LinearConfig,Relu,loss::MseLoss
+	},
+	prelude::*,
+	record::{FileRecorder,RecorderError},
+	tensor::{BasicOps,TensorKind,activation::softmax,backend::AutodiffBackend,quantization::Calibration}
 };
 use rand::random;
 use std::{
