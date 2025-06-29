@@ -9,6 +9,18 @@ impl VertexLabels{
 		*self.labelmap.entry(s.as_ref().to_string()).or_insert(l)
 	}
 }
+impl<A:AI<Vec<X>,Vec<Y>>,X,Y> AI<X,Y> for Unvec<A>{
+	fn forward(&self,input:X)->Y{self.0.forward(vec![input]).into_iter().next().unwrap()}
+}
+impl<A:Decompose> Decompose for Unvec<A>{
+	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
+	fn decompose(self)->Self::Decomposition{self.0.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	type Decomposition=A::Decomposition;
+}
+impl<A:Op<Output=Vec<Y>>,Y> Op for Unvec<A>{
+	type Output=Y;
+}
 impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> AI<Vec<V>,Vec<V>> for Graph<C>{
 	fn forward(&self,input:Vec<V>)->Vec<V>{
 		let (connections,nodes,layers)=(&self.connections,&self.nodes,&self.layers);
@@ -51,6 +63,8 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		connections.push((clear,layercount,input,output));
 		layers.push(layer.into());
 		nodes.resize((input+1).max(nodecount).max(output+1),(0,0));
+		nodes[input].1+=1;
+		nodes[output].0+=1;
 		layercount
 	}
 }
@@ -77,6 +91,9 @@ impl<E> Merge for Vec<E>{
 #[derive(Clone,Debug)]
 /// graph like ai operation structure. The connections run in the order they are connected
 pub struct Graph<C>{connections:Vec<(bool,usize,usize,usize)>,nodes:Vec<(usize,usize)>,layers:Vec<C>}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+/// wraps the graph so it can take singular io
+pub struct Unvec<A>(pub A);
 #[derive(Clone,Debug,Default)]
 /// formatted string to id mapper for node naming convenience
 pub struct VertexLabels{labelmap:HashMap<String,usize>}

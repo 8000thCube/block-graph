@@ -83,8 +83,8 @@ impl<A:Decompose> Decompose for Regression<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A> Op for Regression<A>{
-	type Output=();
+impl<A:Wrappable> Op for Regression<A>{
+	type Output=RegressionOutput<A::B>;
 }
 impl<B:Backend,K:TensorKind<B>,const N:usize> Decompose for Tensor<B,N,K>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
@@ -241,12 +241,31 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Relu{
 impl<B:Backend> AI<Tensor<B,2,Int>,Tensor<B,3>> for Embedding<B>{
 	fn forward(&self,input:Tensor<B,2,Int>)->Tensor<B,3>{Embedding::forward(self,input)}
 }
+impl<B:Backend> Batcher<B,(Value<B>,Value<B>),(Value<B>,Value<B>)> for StackBatcher{
+	fn batch(&self,items:Vec<(Value<B>,Value<B>)>,_device:&<B as Backend>::Device)->(Value<B>,Value<B>){
+		let mut items=items.into_iter();
+		let (input,target)=if let Some(i)=items.next(){i}else{return Default::default()};
+		let (inputs,targets):(Vec<Value<B>>,Vec<Value<B>>)=items.unzip();
+		let input=match input{
+			Value::F1(x)=>Value::F2(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F1(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			_=>todo!()
+		};
+		let target=match target{
+			Value::F1(x)=>Value::F2(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F1(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			_=>todo!()
+		};
+		(input,target)
+	}
+}
 impl<B:Backend> Layer<B>{
 	/// creates a linear layer
-	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
-		let mut l=LinearConfig::new(input,output).with_bias(bias).init(&Default::default());
-		l.bias=l.bias.map(|b|b.map(|b|b*wscale));
-		l.weight=l.weight.map(|w|w*wscale);
+	pub fn linear(bias:bool,input:usize,output:usize,_wscale:f32)->Self{
+		let l=LinearConfig::new(input,output).with_bias(bias).init(&Default::default());
+		//TODO make wscale work correctly
+		/*if wscale!=1.0{
+			l.bias=l.bias.map(|b|b.map(|b|b*wscale));
+			l.weight=l.weight.map(|w|w*wscale);
+		}*/
 		Self::Linear(l)
 	}
 	/// creates a relu layer
@@ -398,6 +417,10 @@ impl<B:Backend> Op for LayerNorm<B>{
 impl<B:Backend> Op for Linear<B>{
 	type Output=Tensor<B,1>;
 }
+impl<B:Backend> Wrappable for Layer<B>{
+	type B=B;
+	type With<C:Backend>=Layer<C>;
+}
 impl<T:?Sized+Op> Shortcuts for T{}
 impl<W:AI<X,Y>+Wrappable,X,Y> AI<X,Y> for Wrapped<W>{
 	fn forward(&self,input:X)->Y{self.inner.forward(input)}
@@ -412,6 +435,9 @@ impl<W:Wrappable> Decompose for Wrapped<W>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=W::Decomposition;
 }
+impl<W:Wrappable> Display for Wrapped<W>{
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->Result<(),std::fmt::Error>{write!(f,"todo")}
+}
 impl<W:Wrappable> From<W> for Wrapped<W>{
 	fn from(value:W)->Self{Self::new(value)}
 }
@@ -424,9 +450,21 @@ impl<W:Wrappable> ModuleDisplayDefault for Wrapped<W> where W::Decomposition:Mod
 	fn content(&self,content:Content)->Option<Content>{self.inner.decompose_cloned().content(content)}
 	fn num_params(&self)->usize{self.inner.decompose_cloned().num_params()}
 }
+impl<W:Wrappable> Wrappable for Graph<W>{
+	type B=W::B;
+	type With<C:Backend>=Graph<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for MSE<W>{
+	type B=W::B;
+	type With<C:Backend>=MSE<W::With<C>>;
+}
 impl<W:Wrappable> Wrappable for Regression<W>{
 	type B=W::B;
 	type With<C:Backend>=Regression<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Unvec<W>{
+	type B=W::B;
+	type With<C:Backend>=Unvec<W::With<C>>;
 }
 impl<W:Wrappable> Wrapped<W>{
 	/// references the inner value
@@ -440,31 +478,66 @@ impl<W:Wrappable> Wrapped<W>{
 		Self{inner}
 	}
 }
+impl<A:AutodiffBackend<InnerBackend=B>,B:Backend,W:'static+Wrappable<B=A>,Y:'static+ItemLazy+Send+Sync,Z:'static+ItemLazy+Send+Sync> Wrapped<W> where <Self as AutodiffModule<A>>::InnerModule:ValidStep<(Value<B>,Value<B>),Z>,Self:TrainStep<(Value<A>,Value<A>),Y>,W::Decomposition:AutodiffModule<A>,W::With<B>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>+Op<Output=Z>,W:Op<Output=Y>,Y::ItemSync:Adaptor<LossInput<NdArray>>,Z::ItemSync:Adaptor<LossInput<NdArray>>{
+	/// trains the model
+	pub fn train<O:Optimizer<Self,A>,S:LrScheduler,T:'static+Dataset<(Value<A>,Value<A>)>,V:'static+Dataset<(Value<B>,Value<B>)>>(self,config:&TrainConfig,optimizer:O,scheduler:S,train:T,valid:V)->Self where O::Record:'static,S::Record<A>:'static{
+		let batcher=StackBatcher;
+		let trainloader=DataLoaderBuilder::new(batcher).batch_size(config.batch_size).shuffle(random()).num_workers(config.workers).build(train);
+		let validloader=DataLoaderBuilder::new(batcher).batch_size(config.batch_size).shuffle(random()).num_workers(config.workers).build(valid);
+
+		create_folder(&config.artifact_directory).unwrap();
+		let builder=LearnerBuilder::new(&config.artifact_directory).metric_train_numeric(LossMetric::new()).metric_valid_numeric(LossMetric::new()).with_file_checkpointer(CompactRecorder::new()).devices(vec![<W::B as Backend>::Device::default()]).num_epochs(config.epochs);
+		let learner=builder.build(self,optimizer,scheduler);
+		learner.fit(trainloader,validloader)
+	}
+}
+#[cfg(test)]
 mod tests{
 	#[test]
 	fn learn_xor(){
-		let mut graph:Graph<Layer<Wgpu>>=Graph::new();
-		let mut l=VertexLabels::new();
-		graph.connect(true,l.label("input"),Layer::linear(true,2,5,1.0),l.label("x"));
-		graph.connect(true,l.label("x"),Layer::relu(),l.label("y"));
-		graph.connect(true,l.label("y"),Layer::linear(false,5,1,1.0),l.label("output"));
-		let inputval=Value::from(Tensor::<Wgpu,2>::from_data(TensorData::new([1.0,1.0].to_vec(),[1,2]),&Default::default()));
-		let outputval=graph.forward(vec![inputval]).into_iter().next().unwrap();
-		if let Value::F2(o)=outputval{
-			println!("{o}");
-		}
+		type A=Autodiff<Wgpu>;
+		let i0=Tensor::<A,1>::from_data(TensorData::new([0.0,0.0].to_vec(),[2]),&Default::default());
+		let i1=Tensor::<A,1>::from_data(TensorData::new([0.0,1.0].to_vec(),[2]),&Default::default());
+		let i2=Tensor::<A,1>::from_data(TensorData::new([1.0,0.0].to_vec(),[2]),&Default::default());
+		let i3=Tensor::<A,1>::from_data(TensorData::new([1.0,1.0].to_vec(),[2]),&Default::default());
+		let o0=Tensor::<A,1>::from_data(TensorData::new([0.0].to_vec(),[1]),&Default::default());
+		let o1=Tensor::<A,1>::from_data(TensorData::new([1.0].to_vec(),[1]),&Default::default());
+		let o2=Tensor::<A,1>::from_data(TensorData::new([1.0].to_vec(),[1]),&Default::default());
+		let o3=Tensor::<A,1>::from_data(TensorData::new([0.0].to_vec(),[1]),&Default::default());
 
-		panic!("h");
+		let dataset:Vec<(Tensor<A,1>,Tensor<A,1>)>=[(i0,o0),(i1,o1),(i2,o2),(i3,o3)].into_iter().cycle().take(4000).collect();
+		let train=InMemDataset::new(dataset.clone().into_iter().map(|(i,o)|(Value::from(i),Value::from(o))).collect());
+		let valid=InMemDataset::new(dataset.into_iter().map(|(i,o)|(Value::from(i.valid()),Value::from(o.valid()))).collect());
+		let mut graph:Graph<Layer<A>>=Graph::new();
+		let mut l=VertexLabels::new();
+		graph.connect(true,l.label("input"),Layer::linear(true,2,10,1.0),l.label("x"));
+		graph.connect(true,l.label("x"),Layer::relu(),l.label("y"));
+		graph.connect(true,l.label("y"),Layer::linear(false,10,1,1.0),l.label("output"));
+		let graph=Unvec(graph.clone()).mse().regression().wrap();
+		let graph=graph.train(&TrainConfig::new(),SgdConfig::new().init(),0.005,train,valid);
+		let graph=graph.valid().into_inner().0.0;
+
+		let inputval=Value::from(Tensor::<Wgpu,2>::from_data(TensorData::new([0.0,0.0,0.0,1.0,1.0,0.0,1.0,1.0].to_vec(),[4,2]),&Default::default()));
+		let outputval=graph.forward(inputval);
+		if let Value::F2(o)=outputval{
+			let target=Tensor::<Wgpu,2>::from_data(TensorData::new([0.0,1.0,1.0,0.0].to_vec(),[4,1]),&Default::default());
+			let error=(target-o).abs().max();
+			assert!(error.into_scalar()<0.1);
+		}else{
+			panic!("h");
+		}
 	}
-	use burn::backend::Wgpu;
+	use burn::{
+		backend::{Autodiff,Wgpu},data::dataset::InMemDataset,optim::SgdConfig
+	};
 	use super::*;
 }
-#[derive(Debug,Module)] //TODO more layers
-/// enumerates some burn layers
-pub enum Layer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu)}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 /// metrics renderer implementation that doesn't actually do anything
 pub struct DontRender;
+#[derive(Debug,Module)]//TODO more layers
+/// enumerates some burn layers
+pub enum Layer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu)}
 #[derive(Clone,Debug)]//TODO implement module for this
 /// enumerates burn tensors up to 8 dimensions
 pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
@@ -472,6 +545,27 @@ pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,
 #[repr(transparent)]
 /// wrapper for converting loss to regression output
 pub struct Regression<A>(pub A);
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+/// batcher that stacks things
+pub struct StackBatcher;
+#[derive(Config,Debug)]
+/// configuration for convenient training through the wrapper
+pub struct TrainConfig{
+	#[config(default="String::from(\".artifact\")")]
+	artifact_directory:String,
+	#[config(default="16")]
+	batch_size:usize,
+	#[config(default="false")]
+	checkpoints:bool,
+	#[config(default="false")]
+	console_rendering:bool,
+	#[config(default="10")]
+	epochs:usize,
+	#[config(default="false")]
+	summary:bool,
+	#[config(default="4")]
+	workers:usize
+}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 #[repr(transparent)]
 /// wraps in a burn wrapper
@@ -484,23 +578,31 @@ pub trait Shortcuts{
 	fn wrap(self)->Wrapped<Self> where Self:Wrappable{Wrapped::new(self)}
 }
 /// higher kinded type trait to allow rewrapping burn modules in different backends to implement some wrapper features
-pub trait Wrappable:Clone+Debug+Decompose+Send+Sync{
+pub trait Wrappable:Clone+Debug+Decompose+Send{
 	type B:Backend;
 	type With<C:Backend>:Wrappable<B=C,With<C>=Self::With<C>>+Wrappable<B=C,With<Self::B>=Self>;
 }
 pub use burn as lib;
-use crate::{ai::*,graph::*};
-use lib::{
+use burn::{
+	backend::NdArray,
+	data::{
+		dataset::Dataset,dataloader::{batcher::Batcher,DataLoaderBuilder}
+	},
+	lr_scheduler::LrScheduler,
 	module::{AutodiffModule,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
 	nn::{
 		Dropout,Embedding,LayerNorm,Linear,LinearConfig,Relu,loss::MseLoss
 	},
+	optim::Optimizer,
 	prelude::*,
-	record::{FileRecorder,RecorderError},
+	record::{CompactRecorder,FileRecorder,RecorderError},
 	tensor::{BasicOps,TensorKind,activation::softmax,backend::AutodiffBackend},
 	train::{
-		RegressionOutput,TrainOutput,TrainStep,ValidStep,renderer::{MetricState,MetricsRenderer,TrainingProgress}
+		LearnerBuilder,RegressionOutput,TrainOutput,TrainStep,ValidStep,metric::{Adaptor,ItemLazy,LossInput,LossMetric},renderer::{MetricState,MetricsRenderer,TrainingProgress}
 	}
 };
+use crate::{ai::*,graph::*};
 use rand::random;
-use std::{fmt::Debug,mem::take,path::PathBuf};
+use std::{
+	fmt::{Debug,Display},fs::{create_dir_all as create_folder},mem::take,path::PathBuf
+};
