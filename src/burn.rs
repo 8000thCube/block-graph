@@ -514,14 +514,15 @@ mod tests{
 		graph.connect(true,l.label("x"),Layer::relu(),l.label("y"));
 		graph.connect(true,l.label("y"),Layer::linear(false,10,1,1.0),l.label("output"));
 		let graph=Unvec(graph.clone()).mse().regression().wrap();
-		let graph=graph.train(&TrainConfig::new(),SgdConfig::new().init(),0.005,train,valid);
+		let graph=graph.train(&TrainConfig::new(),SgdConfig::new().init(),0.01,train,valid);
 		let graph=graph.valid().into_inner().0.0;
 
 		let inputval=Value::from(Tensor::<Wgpu,2>::from_data(TensorData::new([0.0,0.0,0.0,1.0,1.0,0.0,1.0,1.0].to_vec(),[4,2]),&Default::default()));
 		let outputval=graph.forward(inputval);
 		if let Value::F2(o)=outputval{
 			let target=Tensor::<Wgpu,2>::from_data(TensorData::new([0.0,1.0,1.0,0.0].to_vec(),[4,1]),&Default::default());
-			let error=(target-o).abs().max();
+			let error=(target-o.clone()).abs().max();
+			println!("{}",o);
 			assert!(error.into_scalar()<0.1);
 		}else{
 			panic!("h");
