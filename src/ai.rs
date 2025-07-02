@@ -4,6 +4,14 @@ impl Decompose for (){
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
 }
+impl<A:AI<R,S>,B:AI<T,U>,C:AI<V,W>,D:AI<X,Y>,R,S,T,U,V,W,X,Y> AI<(R,T,V,X),(S,U,W,Y)> for Zip<(A,B,C,D)>{
+	fn forward(&self,input:(R,T,V,X))->(S,U,W,Y){(self.0.0.forward(input.0),self.0.1.forward(input.1),self.0.2.forward(input.2),self.0.3.forward(input.3))}
+	fn forward_mut(&mut self,input:(R,T,V,X))->(S,U,W,Y){(self.0.0.forward_mut(input.0),self.0.1.forward_mut(input.1),self.0.2.forward_mut(input.2),self.0.3.forward_mut(input.3))}
+}
+impl<A:AI<T,U>,B:AI<V,W>,C:AI<X,Y>,T,U,V,W,X,Y> AI<(T,V,X),(U,W,Y)> for Zip<(A,B,C)>{
+	fn forward(&self,input:(T,V,X))->(U,W,Y){(self.0.0.forward(input.0),self.0.1.forward(input.1),self.0.2.forward(input.2))}
+	fn forward_mut(&mut self,input:(T,V,X))->(U,W,Y){(self.0.0.forward_mut(input.0),self.0.1.forward_mut(input.1),self.0.2.forward_mut(input.2))}
+}
 impl<A:AI<V,W>+Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y,Z>,V,W,X,Y,Z> AI<V,Z> for Sequential<(A,B,C,D)>{
 	fn forward(&self,input:V)->Z{
 		let Self((a,b,c,d))=self;
@@ -13,6 +21,10 @@ impl<A:AI<V,W>+Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y
 		let Self((a,b,c,d))=self;
 		d.forward(c.forward(b.forward_mut(a.forward_mut(input))))
 	}
+}
+impl<A:AI<V,W>,B:AI<X,Y>,V,W,X,Y> AI<(V,X),(W,Y)> for Zip<(A,B)>{
+	fn forward(&self,input:(V,X))->(W,Y){(self.0.0.forward(input.0),self.0.1.forward(input.1))}
+	fn forward_mut(&mut self,input:(V,X))->(W,Y){(self.0.0.forward_mut(input.0),self.0.1.forward_mut(input.1))}
 }
 impl<A:AI<W,X>+Op<Output=X>,B:AI<X,Y>+Op<Output=Y>,C:AI<Y,Z>,W,X,Y,Z> AI<W,Z> for Sequential<(A,B,C)>{
 	fn forward(&self,input:W)->Z{
@@ -129,6 +141,18 @@ impl<A:AI<X,Y>,X,Y> AI<X,Y> for &mut A{
 impl<A:AI<X,Y>,X,Y> Op for SetType<A,X,Y>{
 	type Output=Y;
 }
+impl<A:Decompose,B:Decompose,C:Decompose,D:Decompose> Decompose for (A,B,C,D){
+	fn compose(decomposition:Self::Decomposition)->Self{(A::compose(decomposition.0),B::compose(decomposition.1),C::compose(decomposition.2),D::compose(decomposition.3))}
+	fn decompose(self)->Self::Decomposition{(self.0.decompose(),self.1.decompose(),self.2.decompose(),self.3.decompose())}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.0.decompose_cloned(),self.1.decompose_cloned(),self.2.decompose_cloned(),self.3.decompose_cloned())}
+	type Decomposition=(A::Decomposition,B::Decomposition,C::Decomposition,D::Decomposition);
+}
+impl<A:Decompose,B:Decompose,C:Decompose> Decompose for (A,B,C){
+	fn compose(decomposition:Self::Decomposition)->Self{(A::compose(decomposition.0),B::compose(decomposition.1),C::compose(decomposition.2))}
+	fn decompose(self)->Self::Decomposition{(self.0.decompose(),self.1.decompose(),self.2.decompose())}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.0.decompose_cloned(),self.1.decompose_cloned(),self.2.decompose_cloned())}
+	type Decomposition=(A::Decomposition,B::Decomposition,C::Decomposition);
+}
 impl<A:Decompose,B:Decompose> Decompose for (A,B){
 	fn compose(decomposition:Self::Decomposition)->Self{(A::compose(decomposition.0),B::compose(decomposition.1))}
 	fn decompose(self)->Self::Decomposition{(self.0.decompose(),self.1.decompose())}
@@ -209,11 +233,26 @@ impl<A:Decompose> Decompose for Vec<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.iter().map(A::decompose_cloned).collect()}
 	type Decomposition=Vec<A::Decomposition>;
 }
+impl<A:Decompose> Decompose for Zip<A>{
+	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
+	fn decompose(self)->Self::Decomposition{self.0.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	type Decomposition=A::Decomposition;
+}
 impl<A:Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y,Z>+Op<Output=Z>,W,X,Y,Z> Op for Sequential<(A,B,C,D)>{
 	type Output=Z;
 }
+impl<A:Op<Output=W>,B:Op<Output=X>,C:Op<Output=Y>,D:Op<Output=Z>,W,X,Y,Z> Op for Zip<(A,B,C,D)>{
+	type Output=(W,X,Y,Z);
+}
 impl<A:Op<Output=X>,B:AI<X,Y>+Op<Output=Y>,C:AI<Y,Z>+Op<Output=Z>,X,Y,Z> Op for Sequential<(A,B,C)>{
 	type Output=Z;
+}
+impl<A:Op<Output=X>,B:Op<Output=Y>,C:Op<Output=Z>,X,Y,Z> Op for Zip<(A,B,C)>{
+	type Output=(X,Y,Z);
+}
+impl<A:Op<Output=X>,B:Op<Output=Y>,X,Y> Op for Zip<(A,B)>{
+	type Output=(X,Y);
 }
 impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{
 	type Output=Z;
@@ -299,6 +338,10 @@ pub struct SoftChoose<A>{pub layer:A,pub temperature:f32}
 #[repr(transparent)]
 /// wraps to apply to every element of a vector
 pub struct ToEach<A>(pub A);
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wraps to apply each function
+pub struct Zip<A>(pub A);
 /// general ai trait
 pub trait AI<X,Y>{
 	/// applies to the input
@@ -352,6 +395,10 @@ pub trait Op{
 	/// wraps with a choose operation
 	fn soft_choose(self,temperature:f32)->SoftChoose<Self> where Self:Sized,SoftChoose<Self>:Op{
 		SoftChoose{layer:self,temperature}
+	}
+	/// produces a zip module
+	fn zip(self)->Zip<Self> where Self:Sized,Zip<Self>:Op{
+		Zip(self)
 	}
 	/// suggested output type to help with composition coherence. Ideally, Self should implement AI<X,Self::Output> for some X
 	type Output;
