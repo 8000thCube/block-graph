@@ -450,6 +450,26 @@ impl<W:Wrappable> ModuleDisplayDefault for Wrapped<W> where W::Decomposition:Mod
 	fn content(&self,content:Content)->Option<Content>{self.inner.decompose_cloned().content(content)}
 	fn num_params(&self)->usize{self.inner.decompose_cloned().num_params()}
 }
+impl<W:Wrappable> Wrappable for AccQ<W>{
+	type B=W::B;
+	type With<C:Backend>=AccQ<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Branch<W>{
+	type B=W::B;
+	type With<C:Backend>=Branch<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Cat<W>{
+	type B=W::B;
+	type With<C:Backend>=Cat<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Duplicate<W>{
+	type B=W::B;
+	type With<C:Backend>=Duplicate<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Sequential<W>{
+	type B=W::B;
+	type With<C:Backend>=Sequential<W::With<C>>;
+}
 impl<W:Wrappable> Wrappable for Graph<W>{
 	type B=W::B;
 	type With<C:Backend>=Graph<W::With<C>>;
@@ -462,9 +482,21 @@ impl<W:Wrappable> Wrappable for Regression<W>{
 	type B=W::B;
 	type With<C:Backend>=Regression<W::With<C>>;
 }
+impl<W:Wrappable> Wrappable for SoftChoose<W>{
+	type B=W::B;
+	type With<C:Backend>=SoftChoose<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for ToEach<W>{
+	type B=W::B;
+	type With<C:Backend>=ToEach<W::With<C>>;
+}
 impl<W:Wrappable> Wrappable for Unvec<W>{
 	type B=W::B;
 	type With<C:Backend>=Unvec<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Zip<W>{
+	type B=W::B;
+	type With<C:Backend>=Zip<W::With<C>>;
 }
 impl<W:Wrappable> Wrapped<W>{
 	/// references the inner value
