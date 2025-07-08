@@ -73,6 +73,34 @@ impl<A:AI<X,Vec<Tensor<B,N,K>>>,B:Backend,K:BasicOps<B>+TensorKind<B>,X,const N:
 	fn forward(&self,input:X)->Tensor<B,N,K>{Tensor::cat(self.layer.forward(input),self.dim)}
 	fn forward_mut(&mut self,input:X)->Tensor<B,N,K>{Tensor::cat(self.layer.forward_mut(input),self.dim)}
 }
+impl<A:AI<X,Vec<Tensor<B,N,K>>>,B:Backend,K:BasicOps<B>+TensorKind<B>,X,const N:usize> AI<X,Vec<Tensor<B,N,K>>> for TruncateToMatch<A>{
+	fn forward(&self,input:X)->Vec<Tensor<B,N,K>>{
+		let input=self.inner().forward(input);
+		let dims=input.iter().map(|i|i.dims()).reduce(|d,mut e|{
+			d.iter().zip(e.iter_mut()).for_each(|(d,e)|*e=*d.min(e));
+			e
+		});
+		if let Some(d)=dims{
+			let ranges=d.map(|x|0..x);
+			input.into_iter().map(|x|x.slice(ranges.clone())).collect()
+		}else{
+			input
+		}
+	}
+	fn forward_mut(&mut self,input:X)->Vec<Tensor<B,N,K>>{
+		let input=self.inner_mut().forward_mut(input);
+		let dims=input.iter().map(|i|i.dims()).reduce(|d,mut e|{
+			d.iter().zip(e.iter_mut()).for_each(|(d,e)|*e=*d.min(e));
+			e
+		});
+		if let Some(d)=dims{
+			let ranges=d.map(|x|0..x);
+			input.into_iter().map(|x|x.slice(ranges.clone())).collect()
+		}else{
+			input
+		}
+	}
+}
 impl<A:AutodiffBackend,W:Wrappable<B=A>> AutodiffModule<A> for Wrapped<W> where W::Decomposition:AutodiffModule<A>,W::With<A::InnerBackend>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>{
 	fn valid(&self)->Self::InnerModule{Wrapped::new(Decompose::compose(self.inner.decompose_cloned().valid()))}
 	type InnerModule=Wrapped<W::With<A::InnerBackend>>;
