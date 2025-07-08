@@ -227,6 +227,14 @@ impl<A:Decompose> Decompose for ToEach<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
+impl<A:Decompose> Decompose for TruncateToMatch<A>{
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition.0)}
+	}
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),0)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),0)}
+	type Decomposition=(A::Decomposition,usize);
+}
 impl<A:Decompose> Decompose for Vec<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition.into_iter().map(A::compose).collect()}
 	fn decompose(self)->Self::Decomposition{self.into_iter().map(A::decompose).collect()}
@@ -296,8 +304,19 @@ impl<A> Op for MSE<A>{
 impl<A> Op for SoftChoose<A>{
 	type Output=();
 }
+impl<A> Op for TruncateToMatch<A>{
+	type Output=();
+}
 impl<A> Op for Vec<A>{
 	type Output=();
+}
+impl<A> TruncateToMatch<A>{
+	/// references the inner value
+	pub fn inner(&self)->&A{&self.inner}
+	/// references the inner value
+	pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+	/// returns the inner value
+	pub fn into_inner(self)->A{self.inner}
 }
 impl<X> AI<X,X> for (){
 	fn forward(&self,input:X)->X{input}
@@ -338,6 +357,9 @@ pub struct SoftChoose<A>{pub layer:A,pub temperature:f32}
 #[repr(transparent)]
 /// wraps to apply to every element of a vector
 pub struct ToEach<A>(pub A);
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+/// truncates each tensor dimension in the list to the minimum so that they match0
+pub struct TruncateToMatch<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 #[repr(transparent)]
 /// wraps to apply each function
@@ -396,11 +418,17 @@ pub trait Op{
 	fn soft_choose(self,temperature:f32)->SoftChoose<Self> where Self:Sized,SoftChoose<Self>:Op{
 		SoftChoose{layer:self,temperature}
 	}
+	/// wraps with a truncate to match operation. alignment=0 for left alignment. will have other alignment settings in the future
+	fn truncate_to_match(self,alignment:usize)->TruncateToMatch<Self> where Self:Sized,TruncateToMatch<Self>:Op{// TODO center/left/right alignment
+		assert!(alignment==0,"non left alignment not yet supported");
+		let _todo=alignment;
+		TruncateToMatch{inner:self}
+	}
 	/// produces a zip module
 	fn zip(self)->Zip<Self> where Self:Sized,Zip<Self>:Op{
 		Zip(self)
 	}
 	/// suggested output type to help with composition coherence. Ideally, Self should implement AI<X,Self::Output> for some X
-	type Output;
+	type Output;//TODO try replacing output with output form and using marker types and AI<Inner::Output,Self::Output> for wrappers
 }
 use std::{iter::FromIterator,marker::PhantomData};
