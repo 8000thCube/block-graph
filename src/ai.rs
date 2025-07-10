@@ -1,8 +1,9 @@
-impl Decompose for (){
-	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
-	fn decompose(self)->Self::Decomposition{self}
-	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
-	type Decomposition=Self;
+decompose_primitive!((),bool,char,f32,f64,i128,i16,i32,i64,i8,isize,u128,u16,u32,u64,u8,usize);
+impl Decompose for All{
+	fn compose(_decomposition:Self::Decomposition)->Self{All}
+	fn decompose(self)->Self::Decomposition{}
+	fn decompose_cloned(&self)->Self::Decomposition{}
+	type Decomposition=();
 }
 impl Decompose for Range<usize>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition.0..decomposition.1}
@@ -10,71 +11,22 @@ impl Decompose for Range<usize>{
 	fn decompose_cloned(&self)->Self::Decomposition{(self.start,self.end)}
 	type Decomposition=(usize,usize);
 }
-impl Decompose for usize{
-	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
-	fn decompose(self)->Self::Decomposition{self}
-	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
-	type Decomposition=Self;
+impl WhichDims for All{
+	fn strict(&self)->bool{false}
+	fn which_dims(&self)->Self::Iter<'_>{0..usize::MAX}
+	type Iter<'a>=Range<usize> where Self:'a;
 }
 impl WhichDims for Range<usize>{
 	fn which_dims(&self)->Self::Iter<'_>{self.clone()}
 	type Iter<'a>=Self where Self:'a;
 }
 impl WhichDims for Vec<usize>{
-	fn which_dims(&self)->Self::Iter<'_>{self.iter()}
-	type Iter<'a>=SliceIter<'a,usize> where Self:'a;
+	fn which_dims(&self)->Self::Iter<'_>{self.iter().copied()}
+	type Iter<'a>=Copied<SliceIter<'a,usize>> where Self:'a;
 }
 impl WhichDims for usize{
 	fn which_dims(&self)->Self::Iter<'_>{iter::once(*self)}
 	type Iter<'a>=Once<usize> where Self:'a;
-}
-impl<A:AI<R,S>,B:AI<T,U>,C:AI<V,W>,D:AI<X,Y>,R,S,T,U,V,W,X,Y> AI<(R,T,V,X),(S,U,W,Y)> for Zip<(A,B,C,D)>{
-	fn forward(&self,(r,t,v,x):(R,T,V,X))->(S,U,W,Y){
-		let (a,b,c,d)=self.inner();
-		(a.forward(r),b.forward(t),c.forward(v),d.forward(x))
-	}
-	fn forward_mut(&mut self,(r,t,v,x):(R,T,V,X))->(S,U,W,Y){
-		let (a,b,c,d)=self.inner_mut();
-		(a.forward_mut(r),b.forward_mut(t),c.forward_mut(v),d.forward_mut(x))
-	}
-}impl<A:AI<T,U>,B:AI<V,W>,C:AI<X,Y>,T,U,V,W,X,Y> AI<(T,V,X),(U,W,Y)> for Zip<(A,B,C)>{
-	fn forward(&self,(t,v,x):(T,V,X))->(U,W,Y){
-		let (a,b,c)=self.inner();
-		(a.forward(t),b.forward(v),c.forward(x))
-	}
-	fn forward_mut(&mut self,(t,v,x):(T,V,X))->(U,W,Y){
-		let (a,b,c)=self.inner_mut();
-		(a.forward_mut(t),b.forward_mut(v),c.forward_mut(x))
-	}
-}impl<A:AI<V,W>+Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y,Z>,V,W,X,Y,Z> AI<V,Z> for Sequential<(A,B,C,D)>{
-	fn forward(&self,input:V)->Z{
-		let (a,b,c,d)=self.inner();
-		d.forward(c.forward(b.forward(a.forward(input))))
-	}
-	fn forward_mut(&mut self,input:V)->Z{
-		let (a,b,c,d)=self.inner_mut();
-		d.forward_mut(c.forward_mut(b.forward_mut(a.forward_mut(input))))
-	}
-}
-impl<A:AI<V,W>,B:AI<X,Y>,V,W,X,Y> AI<(V,X),(W,Y)> for Zip<(A,B)>{
-	fn forward(&self,(v,x):(V,X))->(W,Y){
-		let (a,b)=self.inner();
-		(a.forward(v),b.forward(x))
-	}
-	fn forward_mut(&mut self,(v,x):(V,X))->(W,Y){
-		let (a,b)=self.inner_mut();
-		(a.forward_mut(v),b.forward_mut(x))
-	}
-}
-impl<A:AI<W,X>+Op<Output=X>,B:AI<X,Y>+Op<Output=Y>,C:AI<Y,Z>,W,X,Y,Z> AI<W,Z> for Sequential<(A,B,C)>{
-	fn forward(&self,input:W)->Z{
-		let (a,b,c)=self.inner();
-		c.forward(b.forward(a.forward(input)))
-	}
-	fn forward_mut(&mut self,input:W)->Z{
-		let (a,b,c)=self.inner_mut();
-		c.forward_mut(b.forward_mut(a.forward_mut(input)))
-	}
 }
 impl<A:AI<W,Z>+AI<X,Y>,W,X,Y,Z> AI<W,Z> for SetType<A,X,Y>{
 	fn forward(&self,input:W)->Z{self.inner().forward(input)}
@@ -85,16 +37,6 @@ impl<A:AI<X,X>+Op<Output=X>,X> Op for Option<A>{
 }
 impl<A:AI<X,X>+Op<Output=X>,X> Op for Sequential<Vec<A>>{
 	type Output=X;
-}
-impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J> for ToEach<A>{
-	fn forward(&self,input:I)->J{
-		let a=self.inner();
-		input.into_iter().map(|x|a.forward(x)).collect()
-	}
-	fn forward_mut(&mut self,input:I)->J{
-		let a=self.inner_mut();
-		input.into_iter().map(|x|a.forward_mut(x)).collect()
-	}
 }
 impl<A:AI<X,X>,X:Clone> Iterator for Autoregression<A,X>{
 	fn next(&mut self)->Option<Self::Item>{
@@ -125,14 +67,14 @@ impl<A:AI<X,Y>+Decompose,X,Y> Decompose for SetType<A,X,Y>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:AI<X,Y>+Op<Output=Y>,B:AI<Y,Z>,X,Y,Z> AI<X,Z> for Sequential<(A,B)>{
-	fn forward(&self,input:X)->Z{
-		let (a,b)=self.inner();
-		b.forward(a.forward(input))
+impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J> for ToEach<A>{
+	fn forward(&self,input:I)->J{
+		let a=self.inner();
+		input.into_iter().map(|x|a.forward(x)).collect()
 	}
-	fn forward_mut(&mut self,input:X)->Z{
-		let (a,b)=self.inner_mut();
-		b.forward_mut(a.forward_mut(input))
+	fn forward_mut(&mut self,input:I)->J{
+		let a=self.inner_mut();
+		input.into_iter().map(|x|a.forward_mut(x)).collect()
 	}
 }
 impl<A:AI<X,Y>,X:Clone,Y> AI<X,Vec<Y>> for Branch<Vec<A>>{
@@ -190,23 +132,9 @@ impl<A:AI<X,Y>,X,Y> AI<X,Y> for &mut A{
 impl<A:AI<X,Y>,X,Y> Op for SetType<A,X,Y>{
 	type Output=Y;
 }
-impl<A:Decompose,B:Decompose,C:Decompose,D:Decompose> Decompose for (A,B,C,D){
-	fn compose(decomposition:Self::Decomposition)->Self{(A::compose(decomposition.0),B::compose(decomposition.1),C::compose(decomposition.2),D::compose(decomposition.3))}
-	fn decompose(self)->Self::Decomposition{(self.0.decompose(),self.1.decompose(),self.2.decompose(),self.3.decompose())}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.0.decompose_cloned(),self.1.decompose_cloned(),self.2.decompose_cloned(),self.3.decompose_cloned())}
-	type Decomposition=(A::Decomposition,B::Decomposition,C::Decomposition,D::Decomposition);
-}
-impl<A:Decompose,B:Decompose,C:Decompose> Decompose for (A,B,C){
-	fn compose(decomposition:Self::Decomposition)->Self{(A::compose(decomposition.0),B::compose(decomposition.1),C::compose(decomposition.2))}
-	fn decompose(self)->Self::Decomposition{(self.0.decompose(),self.1.decompose(),self.2.decompose())}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.0.decompose_cloned(),self.1.decompose_cloned(),self.2.decompose_cloned())}
-	type Decomposition=(A::Decomposition,B::Decomposition,C::Decomposition);
-}
-impl<A:Decompose,B:Decompose> Decompose for (A,B){
-	fn compose(decomposition:Self::Decomposition)->Self{(A::compose(decomposition.0),B::compose(decomposition.1))}
-	fn decompose(self)->Self::Decomposition{(self.0.decompose(),self.1.decompose())}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.0.decompose_cloned(),self.1.decompose_cloned())}
-	type Decomposition=(A::Decomposition,B::Decomposition);
+impl<const N:usize> WhichDims for [usize;N]{
+	fn which_dims(&self)->Self::Iter<'_>{self.iter().copied()}
+	type Iter<'a>=Copied<SliceIter<'a,usize>> where Self:'a;
 }
 impl<A:Decompose,X:Decompose> Decompose for Autoregression<A,X>{
 	fn compose(decomposition:Self::Decomposition)->Self{
@@ -308,24 +236,6 @@ impl<A:Decompose> Decompose for Zip<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y,Z>+Op<Output=Z>,W,X,Y,Z> Op for Sequential<(A,B,C,D)>{
-	type Output=Z;
-}
-impl<A:Op<Output=W>,B:Op<Output=X>,C:Op<Output=Y>,D:Op<Output=Z>,W,X,Y,Z> Op for Zip<(A,B,C,D)>{
-	type Output=(W,X,Y,Z);
-}
-impl<A:Op<Output=X>,B:AI<X,Y>+Op<Output=Y>,C:AI<Y,Z>+Op<Output=Z>,X,Y,Z> Op for Sequential<(A,B,C)>{
-	type Output=Z;
-}
-impl<A:Op<Output=X>,B:Op<Output=Y>,C:Op<Output=Z>,X,Y,Z> Op for Zip<(A,B,C)>{
-	type Output=(X,Y,Z);
-}
-impl<A:Op<Output=X>,B:Op<Output=Y>,X,Y> Op for Zip<(A,B)>{
-	type Output=(X,Y);
-}
-impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{
-	type Output=Z;
-}
 impl<A:Op<Output=Y>,Y> Op for Branch<Vec<A>>{
 	type Output=Vec<Y>;
 }
@@ -344,7 +254,7 @@ impl<A:Op> Op for &mut A{
 impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQ<()>:AI<Y,Y>{
 	type Output=Y;
 }
-impl<A:Op<Output=Y>,I,Y:IntoIterator<Item=I>> Op for Cat<A> where Cat<()>:AI<I,I>{
+impl<A:Op<Output=Y>,I,Y:IntoIterator<Item=I>> Op for Cat<A> where Cat<()>:AI<Y,I>{
 	type Output=I;
 }
 impl<A:Op<Output=Y>,Y> Op for MSE<A> where MSE<()>:AI<Y,f32>{
@@ -355,15 +265,6 @@ impl<A:Op<Output=Y>,Y> Op for SoftChoose<A> where SoftChoose<()>:AI<Y,u32>{
 }
 impl<A:Op<Output=Y>,Y> Op for TruncateToMatch<A> where TruncateToMatch<()>:AI<Y,Y>{
 	type Output=Y;
-}
-impl<A,B> Op for (A,B){
-	type Output=();
-}
-impl<A,B,C> Op for (A,B,C){
-	type Output=();
-}
-impl<A,B,C,D> Op for (A,B,C,D){
-	type Output=();
 }
 impl<A> Op for Vec<A>{
 	type Output=();
@@ -376,9 +277,6 @@ impl<A> TruncateToMatch<A>{
 	/// returns the inner value
 	pub fn into_inner(self)->A{self.inner}
 }
-impl<X> AI<X,X> for (){
-	fn forward(&self,input:X)->X{input}
-}
 /// creates accessor functions for the inner value
 macro_rules! accessible_inner{
 	($field:ident:$type:ident)=>(
@@ -390,9 +288,161 @@ macro_rules! accessible_inner{
 		pub fn into_inner(self)->$type{self.$field}
 	);
 }
+/// implements decompose for primitive types
+macro_rules! decompose_primitive{
+	($($type:ty),*)=>($(impl Decompose for $type{
+		fn compose(decomposition:Self::Decomposition)->Self{decomposition}
+		fn decompose(self)->Self::Decomposition{self}
+		fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
+		type Decomposition=Self;
+	})*);
+}
+macro_rules! decompose_tuple{
+	($(($($type:ident),+)),*)=>($(impl<$($type:Decompose),+> Decompose for ($($type),+){
+		#[allow(non_snake_case)]
+		fn compose(($($type),+):Self::Decomposition)->Self{($(Decompose::compose($type)),+)}
+		#[allow(non_snake_case)]
+		fn decompose(self)->Self::Decomposition{
+			let ($($type),+)=self;
+			($($type.decompose()),+)
+		}
+		#[allow(non_snake_case)]
+		fn decompose_cloned(&self)->Self::Decomposition{
+			let ($($type),+)=self;
+			($($type.decompose_cloned()),+)
+		}
+		type Decomposition=($($type::Decomposition),+);
+	})*);
+}
+/// implements op for tuples
+macro_rules! op_tuple{
+	($(($($type:ident),+)),*)=>($(impl<$($type:Op),+> Op for ($($type),+){
+		type Output=();
+	})*);
+}
+macro_rules! branch_tuple{
+	($(($($type:ident),+):$input:ident->($($output:ident),+)),*)=>($(
+		impl<$($type:AI<$input,$output>,$output),+,$input:Clone> AI<$input,($($output),+)> for Branch<($($type),+)>{
+			#[allow(non_snake_case)]
+			fn forward(&self,input:$input)->($($output),+){
+				let ($($type),+)=self.inner();
+				($($type.forward(input.clone())),+)
+			}
+			#[allow(non_snake_case)]
+			fn forward_mut(&mut self,input:$input)->($($output),+){
+				let ($($type),+)=self.inner_mut();
+				($($type.forward_mut(input.clone())),+)
+			}
+		}
+		impl<$($type:Op<Output=$output>,$output),+> Op for Branch<($($type),+)>{
+			type Output=($($output),+);
+		}
+	)*);
+}
+branch_tuple!((A,B):X->(Y,Z),(A,B,C):W->(X,Y,Z),(A,B,C,D):V->(W,X,Y,Z),(A,B,C,D,E):U->(V,W,X,Y,Z),(A,B,C,D,E,F):T->(U,V,W,X,Y,Z),(A,B,C,D,E,F,G):S->(T,U,V,W,X,Y,Z),(A,B,C,D,E,F,G,H):R->(S,T,U,V,W,X,Y,Z));
+
+macro_rules! zip_tuple{
+	($(($($type:ident),+):($($input:ident),+)->($($output:ident),+)),*)=>($(
+		impl<$($type:AI<$input,$output>,$input,$output),+> AI<($($input),+),($($output),+)> for Zip<($($type),+)>{
+			#[allow(non_snake_case)]
+			fn forward(&self,($($input),+):($($input),+))->($($output),+){
+				let ($($type),+)=self.inner();
+				($($type.forward($input)),+)
+			}
+			#[allow(non_snake_case)]
+			fn forward_mut(&mut self,($($input),+):($($input),+))->($($output),+){
+				let ($($type),+)=self.inner_mut();
+				($($type.forward_mut($input)),+)
+			}
+		}
+		impl<$($type:Op<Output=$output>,$output),+> Op for Zip<($($type),+)>{
+			type Output=($($output),+);
+		}
+	)*);
+}
+zip_tuple!((A,B):(W,X)->(Y,Z),(A,B,C):(U,V,W)->(X,Y,Z),(A,B,C,D):(S,T,U,V)->(W,X,Y,Z),(A,B,C,D,E):(Q,R,S,T,U)->(V,W,X,Y,Z),(A,B,C,D,E,F):(O,P,Q,R,S,T)->(U,V,W,X,Y,Z),(A,B,C,D,E,F,G):(M,N,O,P,Q,R,S)->(T,U,V,W,X,Y,Z),(A,B,C,D,E,F,G,H):(K,L,M,N,O,P,Q,R)->(S,T,U,V,W,X,Y,Z));
+
+
+
+impl<A:AI<R,S>+Op<Output=S>,B:AI<S,T>+Op<Output=T>,C:AI<T,U>+Op<Output=U>,D:AI<U,V>+Op<Output=V>,E:AI<V,W>+Op<Output=W>,F:AI<W,X>+Op<Output=X>,G:AI<X,Y>+Op<Output=Y>,H:AI<Y,Z>,R,S,T,U,V,W,X,Y,Z> AI<R,Z> for Sequential<(A,B,C,D,E,F,G,H)>{
+	fn forward(&self,input:R)->Z{
+		let (a,b,c,d,e,f,g,h)=self.inner();
+		h.forward(g.forward(f.forward(e.forward(d.forward(c.forward(b.forward(a.forward(input))))))))
+	}
+	fn forward_mut(&mut self,input:R)->Z{
+		let (a,b,c,d,e,f,g,h)=self.inner_mut();
+		h.forward(g.forward_mut(f.forward_mut(e.forward_mut(d.forward_mut(c.forward_mut(b.forward_mut(a.forward_mut(input))))))))
+	}
+}
+impl<A:AI<S,T>+Op<Output=T>,B:AI<T,U>+Op<Output=U>,C:AI<U,V>+Op<Output=V>,D:AI<V,W>+Op<Output=W>,E:AI<W,X>+Op<Output=X>,F:AI<X,Y>+Op<Output=Y>,G:AI<Y,Z>,S,T,U,V,W,X,Y,Z> AI<S,Z> for Sequential<(A,B,C,D,E,F,G)>{
+	fn forward(&self,input:S)->Z{
+		let (a,b,c,d,e,f,g)=self.inner();
+		g.forward(f.forward(e.forward(d.forward(c.forward(b.forward(a.forward(input)))))))
+	}
+	fn forward_mut(&mut self,input:S)->Z{
+		let (a,b,c,d,e,f,g)=self.inner_mut();
+		g.forward_mut(f.forward_mut(e.forward_mut(d.forward_mut(c.forward_mut(b.forward_mut(a.forward_mut(input)))))))
+	}
+}
+impl<A:AI<T,U>+Op<Output=U>,B:AI<U,V>+Op<Output=V>,C:AI<V,W>+Op<Output=W>,D:AI<W,X>+Op<Output=X>,E:AI<X,Y>+Op<Output=Y>,F:AI<Y,Z>,T,U,V,W,X,Y,Z> AI<T,Z> for Sequential<(A,B,C,D,E,F)>{
+	fn forward(&self,input:T)->Z{
+		let (a,b,c,d,e,f)=self.inner();
+		f.forward(e.forward(d.forward(c.forward(b.forward(a.forward(input))))))
+	}
+	fn forward_mut(&mut self,input:T)->Z{
+		let (a,b,c,d,e,f)=self.inner_mut();
+		f.forward_mut(e.forward_mut(d.forward_mut(c.forward_mut(b.forward_mut(a.forward_mut(input))))))
+	}
+}
+impl<A:AI<U,V>+Op<Output=V>,B:AI<V,W>+Op<Output=W>,C:AI<W,X>+Op<Output=X>,D:AI<X,Y>+Op<Output=Y>,E:AI<Y,Z>,U,V,W,X,Y,Z> AI<U,Z> for Sequential<(A,B,C,D,E)>{
+	fn forward(&self,input:U)->Z{
+		let (a,b,c,d,e)=self.inner();
+		e.forward(d.forward(c.forward(b.forward(a.forward(input)))))
+	}
+	fn forward_mut(&mut self,input:U)->Z{
+		let (a,b,c,d,e)=self.inner_mut();
+		e.forward_mut(d.forward_mut(c.forward_mut(b.forward_mut(a.forward_mut(input)))))
+	}
+}
+impl<A:AI<V,W>+Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y,Z>,V,W,X,Y,Z> AI<V,Z> for Sequential<(A,B,C,D)>{
+	fn forward(&self,input:V)->Z{
+		let (a,b,c,d)=self.inner();
+		d.forward(c.forward(b.forward(a.forward(input))))
+	}
+	fn forward_mut(&mut self,input:V)->Z{
+		let (a,b,c,d)=self.inner_mut();
+		d.forward_mut(c.forward_mut(b.forward_mut(a.forward_mut(input))))
+	}
+}
+impl<A:AI<W,X>+Op<Output=X>,B:AI<X,Y>+Op<Output=Y>,C:AI<Y,Z>,W,X,Y,Z> AI<W,Z> for Sequential<(A,B,C)>{
+	fn forward(&self,input:W)->Z{
+		let (a,b,c)=self.inner();
+		c.forward(b.forward(a.forward(input)))
+	}
+	fn forward_mut(&mut self,input:W)->Z{
+		let (a,b,c)=self.inner_mut();
+		c.forward_mut(b.forward_mut(a.forward_mut(input)))
+	}
+}
+impl<A:AI<X,Y>+Op<Output=Y>,B:AI<Y,Z>,X,Y,Z> AI<X,Z> for Sequential<(A,B)>{
+	fn forward(&self,input:X)->Z{
+		let (a,b)=self.inner();
+		b.forward(a.forward(input))
+	}
+	fn forward_mut(&mut self,input:X)->Z{
+		let (a,b)=self.inner_mut();
+		b.forward_mut(a.forward_mut(input))
+	}
+}
+
+decompose_tuple!((A,B),(A,B,C),(A,B,C,D),(A,B,C,D,E),(A,B,C,D,E,F),(A,B,C,D,E,F,G),(A,B,C,D,E,F,G,H));
+op_tuple!((A,B),(A,B,C),(A,B,C,D),(A,B,C,D,E),(A,B,C,D,E,F),(A,B,C,D,E,F,G),(A,B,C,D,E,F,G,H));
 
 impl<A> AccQ<A>{
 	accessible_inner!(inner:A);
+}
+impl<A,X> Autoregression<A,X>{
+	accessible_inner!(ai:A);
 }
 impl<A> Branch<A>{
 	accessible_inner!(inner:A);
@@ -426,6 +476,9 @@ impl<A> Zip<A>{
 #[derive(Clone,Copy,Debug,Default,PartialEq)]
 /// accumulates cumulative
 pub struct AccQ<A>{gamma:f32,inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+/// dimension specifier for all dimensions
+pub struct All;
 #[derive(Clone,Copy,Debug,Default)]
 /// autoregressive inference
 pub struct Autoregression<A,X>{ai:A,state:Option<X>}
@@ -433,11 +486,11 @@ pub struct Autoregression<A,X>{ai:A,state:Option<X>}
 /// wrapper for applying ai modules to the same input
 pub struct Branch<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
-/// wrapper for applying mean squared error loss
-pub struct MSE<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wrapper for concatenating tensors in the output
 pub struct Cat<A>{dim:usize,inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+/// wrapper for applying mean squared error loss
+pub struct MSE<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// module for cloning things
 pub struct Duplicate<A>{inner:A}//TODO replicate that has a number and makes a vec
@@ -534,13 +587,16 @@ pub trait Op{
 	/// suggested output type to help with composition coherence. Ideally, Self should implement AI<X,Self::Output> for some X
 	type Output;
 }
-/// tells which dims to apply an operation
+/// tells which dimensions to apply an operation
 pub trait WhichDims{
+	/// returns true if specifying more dims than the tensor has should be an error
+	fn strict(&self)->bool{true}
 	/// iterates over the dims
 	fn which_dims(&self)->Self::Iter<'_>;
 	/// the type of dimension iterator
-	type Iter<'a> where Self:'a;
+	type Iter<'a>:Iterator<Item=usize> where Self:'a;
 }
+use {accessible_inner,branch_tuple,op_tuple,decompose_primitive,decompose_tuple,zip_tuple};
 use std::{
-	iter::{FromIterator,Once,self},marker::PhantomData,ops::Range,slice::Iter as SliceIter
+	iter::{Copied,FromIterator,Once,self},marker::PhantomData,ops::Range,slice::Iter as SliceIter
 };
