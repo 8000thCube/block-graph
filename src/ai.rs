@@ -4,48 +4,97 @@ impl Decompose for (){
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
 }
+impl Decompose for Range<usize>{
+	fn compose(decomposition:Self::Decomposition)->Self{decomposition.0..decomposition.1}
+	fn decompose(self)->Self::Decomposition{(self.start,self.end)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.start,self.end)}
+	type Decomposition=(usize,usize);
+}
+impl Decompose for usize{
+	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
+	fn decompose(self)->Self::Decomposition{self}
+	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
+	type Decomposition=Self;
+}
+impl WhichDims for Range<usize>{
+	fn which_dims(&self)->Self::Iter<'_>{self.clone()}
+	type Iter<'a>=Self where Self:'a;
+}
+impl WhichDims for Vec<usize>{
+	fn which_dims(&self)->Self::Iter<'_>{self.iter()}
+	type Iter<'a>=SliceIter<'a,usize> where Self:'a;
+}
+impl WhichDims for usize{
+	fn which_dims(&self)->Self::Iter<'_>{iter::once(*self)}
+	type Iter<'a>=Once<usize> where Self:'a;
+}
 impl<A:AI<R,S>,B:AI<T,U>,C:AI<V,W>,D:AI<X,Y>,R,S,T,U,V,W,X,Y> AI<(R,T,V,X),(S,U,W,Y)> for Zip<(A,B,C,D)>{
-	fn forward(&self,input:(R,T,V,X))->(S,U,W,Y){(self.0.0.forward(input.0),self.0.1.forward(input.1),self.0.2.forward(input.2),self.0.3.forward(input.3))}
-	fn forward_mut(&mut self,input:(R,T,V,X))->(S,U,W,Y){(self.0.0.forward_mut(input.0),self.0.1.forward_mut(input.1),self.0.2.forward_mut(input.2),self.0.3.forward_mut(input.3))}
-}
-impl<A:AI<T,U>,B:AI<V,W>,C:AI<X,Y>,T,U,V,W,X,Y> AI<(T,V,X),(U,W,Y)> for Zip<(A,B,C)>{
-	fn forward(&self,input:(T,V,X))->(U,W,Y){(self.0.0.forward(input.0),self.0.1.forward(input.1),self.0.2.forward(input.2))}
-	fn forward_mut(&mut self,input:(T,V,X))->(U,W,Y){(self.0.0.forward_mut(input.0),self.0.1.forward_mut(input.1),self.0.2.forward_mut(input.2))}
-}
-impl<A:AI<V,W>+Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y,Z>,V,W,X,Y,Z> AI<V,Z> for Sequential<(A,B,C,D)>{
+	fn forward(&self,(r,t,v,x):(R,T,V,X))->(S,U,W,Y){
+		let (a,b,c,d)=self.inner();
+		(a.forward(r),b.forward(t),c.forward(v),d.forward(x))
+	}
+	fn forward_mut(&mut self,(r,t,v,x):(R,T,V,X))->(S,U,W,Y){
+		let (a,b,c,d)=self.inner_mut();
+		(a.forward_mut(r),b.forward_mut(t),c.forward_mut(v),d.forward_mut(x))
+	}
+}impl<A:AI<T,U>,B:AI<V,W>,C:AI<X,Y>,T,U,V,W,X,Y> AI<(T,V,X),(U,W,Y)> for Zip<(A,B,C)>{
+	fn forward(&self,(t,v,x):(T,V,X))->(U,W,Y){
+		let (a,b,c)=self.inner();
+		(a.forward(t),b.forward(v),c.forward(x))
+	}
+	fn forward_mut(&mut self,(t,v,x):(T,V,X))->(U,W,Y){
+		let (a,b,c)=self.inner_mut();
+		(a.forward_mut(t),b.forward_mut(v),c.forward_mut(x))
+	}
+}impl<A:AI<V,W>+Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y,Z>,V,W,X,Y,Z> AI<V,Z> for Sequential<(A,B,C,D)>{
 	fn forward(&self,input:V)->Z{
-		let Self((a,b,c,d))=self;
+		let (a,b,c,d)=self.inner();
 		d.forward(c.forward(b.forward(a.forward(input))))
 	}
 	fn forward_mut(&mut self,input:V)->Z{
-		let Self((a,b,c,d))=self;
-		d.forward(c.forward(b.forward_mut(a.forward_mut(input))))
+		let (a,b,c,d)=self.inner_mut();
+		d.forward_mut(c.forward_mut(b.forward_mut(a.forward_mut(input))))
 	}
 }
 impl<A:AI<V,W>,B:AI<X,Y>,V,W,X,Y> AI<(V,X),(W,Y)> for Zip<(A,B)>{
-	fn forward(&self,input:(V,X))->(W,Y){(self.0.0.forward(input.0),self.0.1.forward(input.1))}
-	fn forward_mut(&mut self,input:(V,X))->(W,Y){(self.0.0.forward_mut(input.0),self.0.1.forward_mut(input.1))}
+	fn forward(&self,(v,x):(V,X))->(W,Y){
+		let (a,b)=self.inner();
+		(a.forward(v),b.forward(x))
+	}
+	fn forward_mut(&mut self,(v,x):(V,X))->(W,Y){
+		let (a,b)=self.inner_mut();
+		(a.forward_mut(v),b.forward_mut(x))
+	}
 }
 impl<A:AI<W,X>+Op<Output=X>,B:AI<X,Y>+Op<Output=Y>,C:AI<Y,Z>,W,X,Y,Z> AI<W,Z> for Sequential<(A,B,C)>{
 	fn forward(&self,input:W)->Z{
-		let Self((a,b,c))=self;
+		let (a,b,c)=self.inner();
 		c.forward(b.forward(a.forward(input)))
 	}
 	fn forward_mut(&mut self,input:W)->Z{
-		let Self((a,b,c))=self;
-		c.forward(b.forward_mut(a.forward_mut(input)))
+		let (a,b,c)=self.inner_mut();
+		c.forward_mut(b.forward_mut(a.forward_mut(input)))
 	}
 }
 impl<A:AI<W,Z>+AI<X,Y>,W,X,Y,Z> AI<W,Z> for SetType<A,X,Y>{
-	fn forward(&self,input:W)->Z{self.inner.forward(input)}
-	fn forward_mut(&mut self,input:W)->Z{self.inner.forward_mut(input)}
+	fn forward(&self,input:W)->Z{self.inner().forward(input)}
+	fn forward_mut(&mut self,input:W)->Z{self.inner_mut().forward_mut(input)}
+}
+impl<A:AI<X,X>+Op<Output=X>,X> Op for Option<A>{
+	type Output=X;
 }
 impl<A:AI<X,X>+Op<Output=X>,X> Op for Sequential<Vec<A>>{
 	type Output=X;
 }
 impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J> for ToEach<A>{
-	fn forward(&self,input:I)->J{input.into_iter().map(|x|self.0.forward(x)).collect()}
-	fn forward_mut(&mut self,input:I)->J{input.into_iter().map(|x|self.0.forward_mut(x)).collect()}
+	fn forward(&self,input:I)->J{
+		let a=self.inner();
+		input.into_iter().map(|x|a.forward(x)).collect()
+	}
+	fn forward_mut(&mut self,input:I)->J{
+		let a=self.inner_mut();
+		input.into_iter().map(|x|a.forward_mut(x)).collect()
+	}
 }
 impl<A:AI<X,X>,X:Clone> Iterator for Autoregression<A,X>{
 	fn next(&mut self)->Option<Self::Item>{
@@ -65,8 +114,8 @@ impl<A:AI<X,X>,X> AI<X,X> for Option<A>{
 	}
 }
 impl<A:AI<X,X>,X> AI<X,X> for Sequential<Vec<A>>{
-	fn forward(&self,input:X)->X{self.0.iter().fold(input,|x,a|a.forward(x))}
-	fn forward_mut(&mut self,input:X)->X{self.0.iter_mut().fold(input,|x,a|a.forward_mut(x))}
+	fn forward(&self,input:X)->X{self.inner().iter().fold(input,|x,a|a.forward(x))}
+	fn forward_mut(&mut self,input:X)->X{self.inner_mut().iter_mut().fold(input,|x,a|a.forward_mut(x))}
 }
 impl<A:AI<X,Y>+Decompose,X,Y> Decompose for SetType<A,X,Y>{
 	fn compose(decomposition:Self::Decomposition)->Self{
@@ -78,23 +127,23 @@ impl<A:AI<X,Y>+Decompose,X,Y> Decompose for SetType<A,X,Y>{
 }
 impl<A:AI<X,Y>+Op<Output=Y>,B:AI<Y,Z>,X,Y,Z> AI<X,Z> for Sequential<(A,B)>{
 	fn forward(&self,input:X)->Z{
-		let Self((a,b))=self;
+		let (a,b)=self.inner();
 		b.forward(a.forward(input))
 	}
 	fn forward_mut(&mut self,input:X)->Z{
-		let Self((a,b))=self;
+		let (a,b)=self.inner_mut();
 		b.forward_mut(a.forward_mut(input))
 	}
 }
 impl<A:AI<X,Y>,X:Clone,Y> AI<X,Vec<Y>> for Branch<Vec<A>>{
 	fn forward(&self,input:X)->Vec<Y>{
-		let Self(a)=self;
+		let a=self.inner();
 		let mut y:Vec<Y>=a.iter().take(a.len().saturating_sub(1)).map(|a|a.forward(input.clone())).collect();
 		if let Some(a)=a.last(){y.push(a.forward(input))}
 		y
 	}
 	fn forward_mut(&mut self,input:X)->Vec<Y>{
-		let Self(a)=self;
+		let a=self.inner_mut();
 		let l=a.len().saturating_sub(1);
 		let mut y:Vec<Y>=a.iter_mut().take(l).map(|a|a.forward_mut(input.clone())).collect();
 		if let Some(a)=a.last_mut(){y.push(a.forward_mut(input))}
@@ -103,31 +152,31 @@ impl<A:AI<X,Y>,X:Clone,Y> AI<X,Vec<Y>> for Branch<Vec<A>>{
 }
 impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y)> for Duplicate<A>{
 	fn forward(&self,input:X)->(Y,Y){
-		let y=self.0.forward(input);
+		let y=self.inner().forward(input);
 		(y.clone(),y)
 	}
 	fn forward_mut(&mut self,input:X)->(Y,Y){
-		let y=self.0.forward_mut(input);
+		let y=self.inner_mut().forward_mut(input);
 		(y.clone(),y)
 	}
 }
 impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y,Y)> for Duplicate<A>{
 	fn forward(&self,input:X)->(Y,Y,Y){
-		let y=self.0.forward(input);
+		let y=self.inner().forward(input);
 		(y.clone(),y.clone(),y)
 	}
 	fn forward_mut(&mut self,input:X)->(Y,Y,Y){
-		let y=self.0.forward_mut(input);
+		let y=self.inner_mut().forward_mut(input);
 		(y.clone(),y.clone(),y)
 	}
 }
 impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y,Y,Y)> for Duplicate<A>{
 	fn forward(&self,input:X)->(Y,Y,Y,Y){
-		let y=self.0.forward(input);
+		let y=self.inner().forward(input);
 		(y.clone(),y.clone(),y.clone(),y)
 	}
 	fn forward_mut(&mut self,input:X)->(Y,Y,Y,Y){
-		let y=self.0.forward_mut(input);
+		let y=self.inner_mut().forward_mut(input);
 		(y.clone(),y.clone(),y.clone(),y)
 	}
 }
@@ -169,36 +218,42 @@ impl<A:Decompose,X:Decompose> Decompose for Autoregression<A,X>{
 }
 impl<A:Decompose> Decompose for AccQ<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{layer:A::compose(decomposition.0),gamma:decomposition.1}
+		Self{inner:A::compose(decomposition.0),gamma:decomposition.1}
 	}
-	fn decompose(self)->Self::Decomposition{(self.layer.decompose(),self.gamma)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.layer.decompose_cloned(),self.gamma)}
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.gamma)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.gamma)}
 	type Decomposition=(A::Decomposition,f32);
 }
 impl<A:Decompose> Decompose for Branch<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
-	fn decompose(self)->Self::Decomposition{self.0.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for MSE<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
-	fn decompose(self)->Self::Decomposition{self.0.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for Cat<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{layer:A::compose(decomposition.0),dim:decomposition.1}
+		Self{inner:A::compose(decomposition.0),dim:decomposition.1}
 	}
-	fn decompose(self)->Self::Decomposition{(self.layer.decompose(),self.dim)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.layer.decompose_cloned(),self.dim)}
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.dim)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.dim)}
 	type Decomposition=(A::Decomposition,usize);
 }
 impl<A:Decompose> Decompose for Duplicate<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
-	fn decompose(self)->Self::Decomposition{self.0.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for Option<A>{
@@ -208,31 +263,35 @@ impl<A:Decompose> Decompose for Option<A>{
 	type Decomposition=Option<A::Decomposition>;
 }
 impl<A:Decompose> Decompose for Sequential<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
-	fn decompose(self)->Self::Decomposition{self.0.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for SoftChoose<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{layer:A::compose(decomposition.0),temperature:decomposition.1}
+		Self{inner:A::compose(decomposition.0),temperature:decomposition.1}
 	}
-	fn decompose(self)->Self::Decomposition{(self.layer.decompose(),self.temperature)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.layer.decompose_cloned(),self.temperature)}
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.temperature)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.temperature)}
 	type Decomposition=(A::Decomposition,f32);
 }
 impl<A:Decompose> Decompose for ToEach<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
-	fn decompose(self)->Self::Decomposition{self.0.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for TruncateToMatch<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition.0)}
+		Self{alignment:decomposition.1,inner:A::compose(decomposition.0)}
 	}
-	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),0)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),0)}
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.alignment)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.alignment)}
 	type Decomposition=(A::Decomposition,usize);
 }
 impl<A:Decompose> Decompose for Vec<A>{
@@ -242,9 +301,11 @@ impl<A:Decompose> Decompose for Vec<A>{
 	type Decomposition=Vec<A::Decomposition>;
 }
 impl<A:Decompose> Decompose for Zip<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
-	fn decompose(self)->Self::Decomposition{self.0.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
 impl<A:Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<X,Y>+Op<Output=Y>,D:AI<Y,Z>+Op<Output=Z>,W,X,Y,Z> Op for Sequential<(A,B,C,D)>{
@@ -274,6 +335,27 @@ impl<A:Op<Output=Y>,Y> Op for Duplicate<A>{
 impl<A:Op<Output=Y>,Y> Op for ToEach<A>{
 	type Output=Vec<Y>;
 }
+impl<A:Op> Op for &A{
+	type Output=A::Output;
+}
+impl<A:Op> Op for &mut A{
+	type Output=A::Output;
+}
+impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQ<()>:AI<Y,Y>{
+	type Output=Y;
+}
+impl<A:Op<Output=Y>,I,Y:IntoIterator<Item=I>> Op for Cat<A> where Cat<()>:AI<I,I>{
+	type Output=I;
+}
+impl<A:Op<Output=Y>,Y> Op for MSE<A> where MSE<()>:AI<Y,f32>{
+	type Output=f32;
+}
+impl<A:Op<Output=Y>,Y> Op for SoftChoose<A> where SoftChoose<()>:AI<Y,u32>{
+	type Output=u32;
+}
+impl<A:Op<Output=Y>,Y> Op for TruncateToMatch<A> where TruncateToMatch<()>:AI<Y,Y>{
+	type Output=Y;
+}
 impl<A,B> Op for (A,B){
 	type Output=();
 }
@@ -281,30 +363,6 @@ impl<A,B,C> Op for (A,B,C){
 	type Output=();
 }
 impl<A,B,C,D> Op for (A,B,C,D){
-	type Output=();
-}
-impl<A:AI<X,X>+Op<Output=X>,X> Op for Option<A>{
-	type Output=X;
-}
-impl<A:Op> Op for &A{
-	type Output=A::Output;
-}
-impl<A:Op> Op for &mut A{
-	type Output=A::Output;
-}
-impl<A> Op for AccQ<A>{
-	type Output=();
-}
-impl<A> Op for Cat<A>{
-	type Output=();
-}
-impl<A> Op for MSE<A>{
-	type Output=f32;
-}
-impl<A> Op for SoftChoose<A>{
-	type Output=();
-}
-impl<A> Op for TruncateToMatch<A>{
 	type Output=();
 }
 impl<A> Op for Vec<A>{
@@ -321,49 +379,86 @@ impl<A> TruncateToMatch<A>{
 impl<X> AI<X,X> for (){
 	fn forward(&self,input:X)->X{input}
 }
-#[derive(Clone,Copy,Debug,Default)]
+/// creates accessor functions for the inner value
+macro_rules! accessible_inner{
+	($field:ident:$type:ident)=>(
+		/// references the inner value
+		pub fn inner(&self)->&$type{&self.$field}
+		/// references the inner value
+		pub fn inner_mut(&mut self)->&mut $type{&mut self.$field}
+		/// returns the inner value
+		pub fn into_inner(self)->$type{self.$field}
+	);
+}
+
+impl<A> AccQ<A>{
+	accessible_inner!(inner:A);
+}
+impl<A> Branch<A>{
+	accessible_inner!(inner:A);
+}
+impl<A> Cat<A>{
+	accessible_inner!(inner:A);
+}
+impl<A> Duplicate<A>{
+	accessible_inner!(inner:A);
+}
+impl<A> MSE<A>{
+	accessible_inner!(inner:A);
+}
+impl<A> Sequential<A>{
+	accessible_inner!(inner:A);
+}
+impl<A:AI<X,Y>,X,Y> SetType<A,X,Y>{
+	accessible_inner!(inner:A);
+}
+impl<A> SoftChoose<A>{
+	accessible_inner!(inner:A);
+}
+impl<A> ToEach<A>{
+	accessible_inner!(inner:A);
+}
+impl<A> Zip<A>{
+	accessible_inner!(inner:A);
+}
+
+
+#[derive(Clone,Copy,Debug,Default,PartialEq)]
 /// accumulates cumulative
-pub struct AccQ<A>{pub layer:A,pub gamma:f32}
+pub struct AccQ<A>{gamma:f32,inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// autoregressive inference
 pub struct Autoregression<A,X>{ai:A,state:Option<X>}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wrapper for applying ai modules to the same input
-pub struct Branch<A>(pub A);
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+pub struct Branch<A>{inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wrapper for applying mean squared error loss
-pub struct MSE<A>(pub A);
+pub struct MSE<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wrapper for concatenating tensors in the output
-pub struct Cat<A>{pub dim:usize,pub layer:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+pub struct Cat<A>{dim:usize,inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// module for cloning things
-pub struct Duplicate<A>(pub A);//TODO replicate that has a number and makes a vec
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+pub struct Duplicate<A>{inner:A}//TODO replicate that has a number and makes a vec
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wrapper for applying ai modules sequentially
-pub struct Sequential<A>(pub A);
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+pub struct Sequential<A>{inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// fixes the output type of a layer for a particular input type.
 pub struct SetType<A:AI<X,Y>,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
 #[derive(Clone,Copy,Debug,Default)]
 /// chooses from the softmax
-pub struct SoftChoose<A>{pub layer:A,pub temperature:f32}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+pub struct SoftChoose<A>{inner:A,temperature:f32}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wraps to apply to every element of a vector
-pub struct ToEach<A>(pub A);
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-/// truncates each tensor dimension in the list to the minimum so that they match0
-pub struct TruncateToMatch<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+pub struct ToEach<A>{inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+/// truncates each tensor dimension in the list to the minimum so that they match
+pub struct TruncateToMatch<A>{alignment:usize,inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wraps to apply each function
-pub struct Zip<A>(pub A);
+pub struct Zip<A>{inner:A}
 /// general ai trait
 pub trait AI<X,Y>{
 	/// applies to the input
@@ -386,16 +481,20 @@ pub trait Decompose{
 pub trait Op{
 	/// wraps with a accq operation
 	fn acc_q(self,gamma:f32)->AccQ<Self> where AccQ<Self>:Op,Self:Sized{
-		AccQ{layer:self,gamma}
+		AccQ{inner:self,gamma}
 	}
 	/// wraps with a branch operation
-	fn branch(self)->Branch<Self> where Branch<Self>:Op,Self:Sized{Branch(self)}
+	fn branch(self)->Branch<Self> where Branch<Self>:Op,Self:Sized{
+		Branch{inner:self}
+	}
 	/// wraps with a cat operation
 	fn cat(self,dim:usize)->Cat<Self> where Cat<Self>:Op,Self:Sized{
-		Cat{layer:self,dim}
+		Cat{inner:self,dim}
 	}
 	/// wraps with a duplicate operation
-	fn duplicate(self)->Duplicate<Self> where Duplicate<Self>:Op,Self:Sized{Duplicate(self)}
+	fn duplicate(self)->Duplicate<Self> where Duplicate<Self>:Op,Self:Sized{
+		Duplicate{inner:self}
+	}
 	/// set type but with the same input and output
 	fn fix_type<Z>(self)->SetType<Self,Z,Z> where Self:AI<Z,Z>+Sized{self.set_type()}
 	/// creates an autoregressive inference
@@ -405,30 +504,43 @@ pub trait Op{
 		Autoregression{ai,state}
 	}
 	/// wraps with a mse operation
-	fn mse(self)->MSE<Self> where MSE<Self>:Op,Self:Sized{MSE(self)}
+	fn mse(self)->MSE<Self> where MSE<Self>:Op,Self:Sized{
+		MSE{inner:self}
+	}
 	/// creates an optional operation
 	fn optional(self)->Option<Self> where Self:Sized{Some(self)}
 	/// produces a sequential module
-	fn sequential(self)->Sequential<Self> where Sequential<Self>:Op,Self:Sized{Sequential(self)}
+	fn sequential(self)->Sequential<Self> where Sequential<Self>:Op,Self:Sized{
+		Sequential{inner:self}
+	}
 	/// sets the input output types
 	fn set_type<W,Z>(self)->SetType<Self,W,Z> where Self:AI<W,Z>+Sized{
 		SetType{inner:self,phantom:PhantomData}
 	}
 	/// wraps with a choose operation
 	fn soft_choose(self,temperature:f32)->SoftChoose<Self> where Self:Sized,SoftChoose<Self>:Op{
-		SoftChoose{layer:self,temperature}
+		SoftChoose{inner:self,temperature}
 	}
 	/// wraps with a truncate to match operation. alignment=0 for left alignment. will have other alignment settings in the future
 	fn truncate_to_match(self,alignment:usize)->TruncateToMatch<Self> where Self:Sized,TruncateToMatch<Self>:Op{// TODO center/left/right alignment
 		assert!(alignment==0,"non left alignment not yet supported");
 		let _todo=alignment;
-		TruncateToMatch{inner:self}
+		TruncateToMatch{alignment:0,inner:self}
 	}
 	/// produces a zip module
 	fn zip(self)->Zip<Self> where Self:Sized,Zip<Self>:Op{
-		Zip(self)
+		Zip{inner:self}
 	}
 	/// suggested output type to help with composition coherence. Ideally, Self should implement AI<X,Self::Output> for some X
-	type Output;//TODO try replacing output with output form and using marker types and AI<Inner::Output,Self::Output> for wrappers
+	type Output;
 }
-use std::{iter::FromIterator,marker::PhantomData};
+/// tells which dims to apply an operation
+pub trait WhichDims{
+	/// iterates over the dims
+	fn which_dims(&self)->Self::Iter<'_>;
+	/// the type of dimension iterator
+	type Iter<'a> where Self:'a;
+}
+use std::{
+	iter::{FromIterator,Once,self},marker::PhantomData,ops::Range,slice::Iter as SliceIter
+};
