@@ -188,14 +188,6 @@ impl<A:AI<X,X>,X> AI<X,X> for Sequential<Vec<A>>{
 	fn forward(&self,input:X)->X{self.inner().iter().fold(input,|x,a|a.forward(x))}
 	fn forward_mut(&mut self,input:X)->X{self.inner_mut().iter_mut().fold(input,|x,a|a.forward_mut(x))}
 }
-impl<A:AI<X,Y>+Decompose,X,Y> Decompose for SetType<A,X,Y>{
-	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition),phantom:PhantomData}
-	}
-	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
-	type Decomposition=A::Decomposition;
-}
 impl<A:AI<X,Y>+Op<Output=Y>,B:AI<Y,Z>,X,Y,Z> AI<X,Z> for Sequential<(A,B)>{
 	fn forward(&self,input:X)->Z{
 		let (a,b)=self.inner();
@@ -308,6 +300,14 @@ impl<A:Decompose,X:Decompose> Decompose for Autoregression<A,X>{
 	fn decompose(self)->Self::Decomposition{(self.ai.decompose(),self.state.unwrap().decompose())}
 	fn decompose_cloned(&self)->Self::Decomposition{(self.ai.decompose_cloned(),self.state.as_ref().unwrap().decompose_cloned())}
 	type Decomposition=(A::Decomposition,X::Decomposition);
+}
+impl<A:Decompose,X,Y> Decompose for SetType<A,X,Y>{
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition),phantom:PhantomData}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
+	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for AccQ<A>{
 	fn compose((inner,gamma,dim):Self::Decomposition)->Self{
@@ -689,7 +689,7 @@ pub struct Map<A>{inner:A}
 pub struct Sequential<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// fixes the output type of a layer for a particular input type.
-pub struct SetType<A:AI<X,Y>,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
+pub struct SetType<A,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
 #[derive(Clone,Copy,Debug,Default)]
 /// chooses from the softmax
 pub struct SoftChoose<A>{dim:usize,inner:A,temperature:f32}
