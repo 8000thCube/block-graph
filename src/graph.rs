@@ -43,7 +43,28 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> AI<Vec<V>,Vec<V>> for Graph<C
 		});
 		slots
 	}
-	//TODO forward_mut
+	fn forward_mut(&mut self,input:Vec<V>)->Vec<V>{
+		let (connections,nodes)=(&self.connections,&self.nodes);
+		let (inputcount,nodecount)=(input.len(),nodes.len());
+		let layers=&mut self.layers;
+		let mut slots=input;
+
+		slots.resize_with(inputcount+nodecount,Default::default);
+		let (input,hidden)=slots.split_at_mut(inputcount);
+		input.iter_mut().zip(hidden.iter_mut().zip(nodes.iter()).filter_map(|(h,&(icount,_ocount))|(icount==0).then_some(h))).for_each(|(i,h)|*h=take(i));
+		connections.iter().for_each(|&(clear,layer,input,output)|{
+			let x=if clear{take(&mut hidden[input])}else{hidden[input].clone()};
+			let y=layers[layer].forward_mut(x);
+			hidden[output].merge(y);
+		});
+		let mut n=0;
+		slots.retain(|_x|{
+			let remove=n<inputcount||nodes[n-inputcount].1>0;
+			n+=1;
+			!remove
+		});
+		slots
+	}
 }
 impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for Graph<C>{
 	fn default()->Self{
