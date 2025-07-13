@@ -296,12 +296,26 @@ impl<B:Backend> Batcher<B,(Value<B>,Value<B>),(Value<B>,Value<B>)> for BatchStac
 		let mut items=items.into_iter();
 		let (input,target)=if let Some(i)=items.next(){i}else{return Default::default()};
 		let (inputs,targets):(Vec<Value<B>>,Vec<Value<B>>)=items.unzip();
-		let input=match input{
+		let input=match input{//TODO avoid panicking. make incompatible instead. also do that in more things
 			Value::F1(x)=>Value::F2(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F1(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F2(x)=>Value::F3(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F2(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F3(x)=>Value::F4(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F3(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F4(x)=>Value::F5(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F4(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F5(x)=>Value::F6(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F5(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F6(x)=>Value::F7(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F6(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F7(x)=>Value::F8(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F7(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F8(_)=>"max rank exceeded".into(),
 			_=>todo!()
 		};
 		let target=match target{
 			Value::F1(x)=>Value::F2(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F1(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F2(x)=>Value::F3(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F2(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F3(x)=>Value::F4(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F3(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F4(x)=>Value::F5(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F4(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F5(x)=>Value::F6(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F5(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F6(x)=>Value::F7(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F6(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F7(x)=>Value::F8(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F7(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
+			Value::F8(_)=>"max rank exceeded".into(),
 			_=>todo!()
 		};
 		(input,target)
@@ -309,13 +323,10 @@ impl<B:Backend> Batcher<B,(Value<B>,Value<B>),(Value<B>,Value<B>)> for BatchStac
 }
 impl<B:Backend> Layer<B>{
 	/// creates a linear layer
-	pub fn linear(bias:bool,input:usize,output:usize,_wscale:f32)->Self{
-		let l=LinearConfig::new(input,output).with_bias(bias).init(&Default::default());
-		//TODO make wscale work correctly
-		/*if wscale!=1.0{
-			l.bias=l.bias.map(|b|b.map(|b|b*wscale));
-			l.weight=l.weight.map(|w|w*wscale);
-		}*/
+	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
+		let mut l=LinearConfig::new(input,output).with_bias(bias);
+		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
+		let l=l.init(&Default::default());
 		Self::Linear(l)
 	}
 	/// creates a relu layer
@@ -607,12 +618,38 @@ mod tests{
 	use crate::graph::VertexLabels;
 	use super::*;
 }
+/// scales the initializer
+pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
+	let r=r as f64;// apparently
+	match initializer{
+		Initializer::Constant{value}=>Initializer::Constant{value:value*r},
+		Initializer::KaimingNormal{gain,fan_out_only}=>Initializer::KaimingNormal{gain:gain*r,fan_out_only},
+		Initializer::KaimingUniform{gain,fan_out_only}=>Initializer::KaimingUniform{gain:gain*r,fan_out_only},
+		Initializer::Normal{mean,std}=>Initializer::Normal{mean:mean*r,std:std*r},
+		Initializer::Ones=>Initializer::Constant{value:r},
+		Initializer::Uniform{min,max}=>Initializer::Uniform{min:min*r,max:max*r},
+		Initializer::XavierNormal{gain}=>Initializer::XavierNormal{gain:gain*r},
+		Initializer::XavierUniform{gain}=>Initializer::XavierUniform{gain:gain*r},
+		Initializer::Zeros=>Initializer::Zeros
+	}
+}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 /// batcher that stacks things
 pub struct BatchStacker;
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 /// metrics renderer implementation that doesn't actually do anything
 pub struct DontRender;
+#[derive(Config)]
+/// enumerates config for some burn layers
+pub enum Config{Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu}
+
+impl Config{
+	/// initializes the layer
+	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
+		match self{Config::Dropout(c)=>Layer::Dropout(c.init()),_=>todo!()}
+	}
+}
+
 #[derive(Debug,Module)]//TODO more layers
 /// enumerates some burn layers
 pub enum Layer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu)}
@@ -666,7 +703,7 @@ use burn::{
 	lr_scheduler::LrScheduler,
 	module::{AutodiffModule,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
 	nn::{
-		Dropout,Embedding,LayerNorm,Linear,LinearConfig,Relu,loss::MseLoss
+		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,loss::MseLoss
 	},
 	optim::Optimizer,
 	prelude::*,
