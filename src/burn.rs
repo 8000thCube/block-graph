@@ -25,6 +25,24 @@ fn soft_choose_burn_tensor<B:Backend,const N:usize>(dim:usize,logits:Tensor<B,N>
 	dims[N-1]=1;
 	Tensor::from_data(TensorData::new(soft_choose_burn_multi(dim,logits,temperature),dims),&device)
 }
+impl Config{
+	/// initializes the layer
+	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
+		match self{Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Stack(d)=>Layer::Stack(*d)}
+	}
+	/// scales the initializer
+	pub fn w_scale(self,r:f32)->Self{//TODO probably shorter to wscal a mutable initializer
+		match self{
+			Config::Dropout(c)=>c.into(),
+			Config::Embedding(c)=>EmbeddingConfig{d_model:c.d_model,initializer:w_scale(c.initializer,r),n_embedding:c.n_embedding}.into(),
+			Config::LayerNorm(c)=>c.into(),
+			Config::Linear(c)=>LinearConfig{bias:c.bias,d_input:c.d_input,d_output:c.d_output,initializer:w_scale(c.initializer,r)}.into(),
+			Config::Mse=>Config::Mse,
+			Config::Relu=>Config::Relu,
+			Config::Stack(d)=>Config::Stack(d)
+		}
+	}
+}
 impl Decompose for Dropout{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
 	fn decompose(self)->Self::Decomposition{self}
@@ -36,6 +54,18 @@ impl Decompose for Relu{
 	fn decompose(self)->Self::Decomposition{self}
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
+}
+impl From<DropoutConfig> for Config{
+	fn from(value:DropoutConfig)->Self{Config::Dropout(value)}
+}
+impl From<EmbeddingConfig> for Config{
+	fn from(value:EmbeddingConfig)->Self{Config::Embedding(value)}
+}
+impl From<LayerNormConfig> for Config{
+	fn from(value:LayerNormConfig)->Self{Config::LayerNorm(value)}
+}
+impl From<LinearConfig> for Config{
+	fn from(value:LinearConfig)->Self{Config::Linear(value)}
 }
 impl MetricsRenderer for DontRender{
 	fn update_train(&mut self,_state:MetricState){}
@@ -101,6 +131,9 @@ impl<A:Decompose> Decompose for Regression<A>{
 	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
+}
+impl<A:Into<Value<B>>,B:Backend,C:Into<Value<B>>> From<(A,C)> for Value<B>{
+	fn from((a,c):(A,C))->Self{vec![a.into(),c.into()].into()}
 }
 impl<A:Op<Output=Y>+Wrappable,Y> Op for Regression<A> where Regression<()>:AI<Y,RegressionOutput<A::B>>{
 	type Output=RegressionOutput<A::B>;
@@ -255,7 +288,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Embedding<B>{
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
-		match self{Layer::Dropout(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Embedding(a)=>a.fix_type::<Value<B>>().forward(input),Layer::LayerNorm(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Linear(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Mse(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Relu(a)=>a.fix_type::<Value<B>>().forward(input)}
+		match self{Layer::Dropout(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Embedding(a)=>a.fix_type::<Value<B>>().forward(input),Layer::LayerNorm(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Linear(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Mse(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Relu(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Stack(dim)=>input.stack(*dim)}
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for LayerNorm<B>{
@@ -305,7 +338,7 @@ impl<B:Backend> Batcher<B,(Value<B>,Value<B>),(Value<B>,Value<B>)> for BatchStac
 			Value::F6(x)=>Value::F7(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F6(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
 			Value::F7(x)=>Value::F8(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F7(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
 			Value::F8(_)=>"max rank exceeded".into(),
-			_=>todo!()
+			_=>todo!()//TODO other variants
 		};
 		let target=match target{
 			Value::F1(x)=>Value::F2(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F1(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
@@ -478,6 +511,182 @@ impl<B:Backend> Op for LayerNorm<B>{
 impl<B:Backend> Op for Linear<B>{
 	type Output=Tensor<B,1>;
 }
+impl<B:Backend> Value<B>{// TODO more builtin functions // TODO shape
+	/// tests if this is a multiple tensor
+	pub fn is_multi(&self)->bool{
+		if let Value::Multi(_x)=self{true}else{false}
+	}
+	/// stacks the multi tensor, inserting a dimension at d. for singular tensors this has an unsqueezing effect
+	pub fn stack(self,d:usize)->Value<B>{//TODO macros could make this look less repetitive
+		fn append<X>(mut v:Vec<X>,x:X)->Vec<X>{
+			v.push(x);
+			v
+		}
+		match match self{
+			Value::B1(x)=>Ok(Value::B2(x.unsqueeze_dim(d))),
+			Value::B2(x)=>Ok(Value::B3(x.unsqueeze_dim(d))),
+			Value::B3(x)=>Ok(Value::B4(x.unsqueeze_dim(d))),
+			Value::B4(x)=>Ok(Value::B5(x.unsqueeze_dim(d))),
+			Value::B5(x)=>Ok(Value::B6(x.unsqueeze_dim(d))),
+			Value::B6(x)=>Ok(Value::B7(x.unsqueeze_dim(d))),
+			Value::B7(x)=>Ok(Value::B8(x.unsqueeze_dim(d))),
+			Value::B8(_x)=>Ok("currently cannot increase number of tensor dimensions above 8".into()),
+			Value::F1(x)=>Ok(Value::F2(x.unsqueeze_dim(d))),
+			Value::F2(x)=>Ok(Value::F3(x.unsqueeze_dim(d))),
+			Value::F3(x)=>Ok(Value::F4(x.unsqueeze_dim(d))),
+			Value::F4(x)=>Ok(Value::F5(x.unsqueeze_dim(d))),
+			Value::F5(x)=>Ok(Value::F6(x.unsqueeze_dim(d))),
+			Value::F6(x)=>Ok(Value::F7(x.unsqueeze_dim(d))),
+			Value::F7(x)=>Ok(Value::F8(x.unsqueeze_dim(d))),
+			Value::F8(_x)=>Ok("currently cannot increase number of tensor dimensions above 8".into()),
+			Value::I1(x)=>Ok(Value::I2(x.unsqueeze_dim(d))),
+			Value::I2(x)=>Ok(Value::I3(x.unsqueeze_dim(d))),
+			Value::I3(x)=>Ok(Value::I4(x.unsqueeze_dim(d))),
+			Value::I4(x)=>Ok(Value::I5(x.unsqueeze_dim(d))),
+			Value::I5(x)=>Ok(Value::I6(x.unsqueeze_dim(d))),
+			Value::I6(x)=>Ok(Value::I7(x.unsqueeze_dim(d))),
+			Value::I7(x)=>Ok(Value::I8(x.unsqueeze_dim(d))),
+			Value::I8(_x)=>Ok("currently cannot increase number of tensor dimensions above 8".into()),
+			Value::Incompatible(x)=>Ok(x.into()),
+			Value::Multi(x)=>if x.is_empty(){
+				Ok(x.into())
+			}else if x.iter().all(Value::is_multi){
+				Ok(Value::Multi(x.into_iter().map(|x|x.stack(d)).collect()))
+			}else{
+				let xl=x.len();
+				let mut x=x.into_iter();
+				match x.next().unwrap(){
+					Value::B1(x0)=>x.map(Value::try_b1).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::B2(Tensor::stack(v,d))),
+					Value::B2(x0)=>x.map(Value::try_b2).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::B3(Tensor::stack(v,d))),
+					Value::B3(x0)=>x.map(Value::try_b3).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::B4(Tensor::stack(v,d))),
+					Value::B4(x0)=>x.map(Value::try_b4).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::B5(Tensor::stack(v,d))),
+					Value::B5(x0)=>x.map(Value::try_b5).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::B6(Tensor::stack(v,d))),
+					Value::B6(x0)=>x.map(Value::try_b6).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::B7(Tensor::stack(v,d))),
+					Value::B7(x0)=>x.map(Value::try_b7).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::B8(Tensor::stack(v,d))),
+					Value::B8(_x)=>Ok("currently cannot increase number of tensor dimensions above 8".into()),
+					Value::F1(x0)=>x.map(Value::try_f1).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::F2(Tensor::stack(v,d))),
+					Value::F2(x0)=>x.map(Value::try_f2).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::F3(Tensor::stack(v,d))),
+					Value::F3(x0)=>x.map(Value::try_f3).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::F4(Tensor::stack(v,d))),
+					Value::F4(x0)=>x.map(Value::try_f4).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::F5(Tensor::stack(v,d))),
+					Value::F5(x0)=>x.map(Value::try_f5).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::F6(Tensor::stack(v,d))),
+					Value::F6(x0)=>x.map(Value::try_f6).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::F7(Tensor::stack(v,d))),
+					Value::F7(x0)=>x.map(Value::try_f7).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::F8(Tensor::stack(v,d))),
+					Value::F8(_x)=>Ok("currently cannot increase number of tensor dimensions above 8".into()),
+					Value::I1(x0)=>x.map(Value::try_i1).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::I2(Tensor::stack(v,d))),
+					Value::I2(x0)=>x.map(Value::try_i2).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::I3(Tensor::stack(v,d))),
+					Value::I3(x0)=>x.map(Value::try_i3).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::I4(Tensor::stack(v,d))),
+					Value::I4(x0)=>x.map(Value::try_i4).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::I5(Tensor::stack(v,d))),
+					Value::I5(x0)=>x.map(Value::try_i5).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::I6(Tensor::stack(v,d))),
+					Value::I6(x0)=>x.map(Value::try_i6).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::I7(Tensor::stack(v,d))),
+					Value::I7(x0)=>x.map(Value::try_i7).try_fold(append(Vec::with_capacity(xl),x0),|acc,x|x.map(|x|append(acc,x))).map(|v|Value::I8(Tensor::stack(v,d))),
+					Value::I8(_x)=>Ok("currently cannot increase number of tensor dimensions above 8".into()),
+					Value::Incompatible(x0)=>Ok(x0.into()),
+					Value::Multi(x0)=>Err(x0.into())
+				}
+			},
+		}{
+			Err(Value::Incompatible(x))=>x.into(),
+			Err(_)=>"incompatible shapes or types for stacking".into(),//TODO more helpful debug info
+			Ok(y)=>y,
+		}
+	}
+	/// attempts to unwrap the inner B1 value
+	pub fn try_b1(self)->Result<Tensor<B,1,Bool>,Self>{
+		if let Value::B1(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner B2 value
+	pub fn try_b2(self)->Result<Tensor<B,2,Bool>,Self>{
+		if let Value::B2(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner B3 value
+	pub fn try_b3(self)->Result<Tensor<B,3,Bool>,Self>{
+		if let Value::B3(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner B4 value
+	pub fn try_b4(self)->Result<Tensor<B,4,Bool>,Self>{
+		if let Value::B4(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner B5 value
+	pub fn try_b5(self)->Result<Tensor<B,5,Bool>,Self>{
+		if let Value::B5(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner B6 value
+	pub fn try_b6(self)->Result<Tensor<B,6,Bool>,Self>{
+		if let Value::B6(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner B7 value
+	pub fn try_b7(self)->Result<Tensor<B,7,Bool>,Self>{
+		if let Value::B7(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner B8 value
+	pub fn try_b8(self)->Result<Tensor<B,8,Bool>,Self>{
+		if let Value::B8(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner F1 value
+	pub fn try_f1(self)->Result<Tensor<B,1,Float>,Self>{
+		if let Value::F1(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner F2 value
+	pub fn try_f2(self)->Result<Tensor<B,2,Float>,Self>{
+		if let Value::F2(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner F3 value
+	pub fn try_f3(self)->Result<Tensor<B,3,Float>,Self>{
+		if let Value::F3(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner F4 value
+	pub fn try_f4(self)->Result<Tensor<B,4,Float>,Self>{
+		if let Value::F4(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner F5 value
+	pub fn try_f5(self)->Result<Tensor<B,5,Float>,Self>{
+		if let Value::F5(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner F6 value
+	pub fn try_f6(self)->Result<Tensor<B,6,Float>,Self>{
+		if let Value::F6(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner F7 value
+	pub fn try_f7(self)->Result<Tensor<B,7,Float>,Self>{
+		if let Value::F7(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner F8 value
+	pub fn try_f8(self)->Result<Tensor<B,8,Float>,Self>{
+		if let Value::F8(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner I1 value
+	pub fn try_i1(self)->Result<Tensor<B,1,Int>,Self>{
+		if let Value::I1(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner I2 value
+	pub fn try_i2(self)->Result<Tensor<B,2,Int>,Self>{
+		if let Value::I2(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner I3 value
+	pub fn try_i3(self)->Result<Tensor<B,3,Int>,Self>{
+		if let Value::I3(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner I4 value
+	pub fn try_i4(self)->Result<Tensor<B,4,Int>,Self>{
+		if let Value::I4(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner I5 value
+	pub fn try_i5(self)->Result<Tensor<B,5,Int>,Self>{
+		if let Value::I5(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner I6 value
+	pub fn try_i6(self)->Result<Tensor<B,6,Int>,Self>{
+		if let Value::I6(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner I7 value
+	pub fn try_i7(self)->Result<Tensor<B,7,Int>,Self>{
+		if let Value::I7(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner I8 value
+	pub fn try_i8(self)->Result<Tensor<B,8,Int>,Self>{
+		if let Value::I8(x)=self{Ok(x)}else{Err(self)}
+	}
+}
 impl<B:Backend> Wrappable for Layer<B>{
 	type B=B;
 	type With<C:Backend>=Layer<C>;
@@ -641,18 +850,10 @@ pub struct BatchStacker;
 pub struct DontRender;
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu}
-
-impl Config{
-	/// initializes the layer
-	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Dropout(c)=>Layer::Dropout(c.init()),_=>todo!()}
-	}
-}
-
+pub enum Config{Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Stack(usize)}
 #[derive(Debug,Module)]//TODO more layers
 /// enumerates some burn layers
-pub enum Layer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu)}
+pub enum Layer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Stack(usize)}
 #[derive(Clone,Debug)]//TODO implement module for this
 /// enumerates burn tensors up to 8 dimensions
 pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
