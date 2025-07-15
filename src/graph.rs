@@ -3,6 +3,14 @@ impl VertexLabels{
 	pub fn new()->Self{
 		Self{labelmap:HashMap::new()}
 	}
+	/// converts into a list of strings where the index corresponds to the index label
+	pub fn into_list(self)->Vec<String>{
+		let map=self.labelmap;
+		let mut v=vec![String::new();map.len()];
+
+		map.into_iter().for_each(|(s,n)|v[n]=s);
+		v
+	}
 	/// produces an index label for the string
 	pub fn label<S:AsRef<str>>(&mut self,s:S)->usize{
 		let l=self.labelmap.len();
