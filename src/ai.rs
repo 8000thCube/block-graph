@@ -10,6 +10,18 @@ impl AI<(Vec<f32>,Vec<f32>),f32> for MSE<()>{
 		sum/ol as f32
 	}
 }
+impl AI<(Vec<f32>,Vec<f32>),f32> for CrossEntropy<()>{
+	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{
+		let _todo=(output,target);
+		todo!()
+	}
+}
+impl AI<(Vec<f32>,u32),f32> for CrossEntropy<()>{
+	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{
+		let _todo=(output,target);
+		todo!()
+	}
+}
 impl AI<Vec<f32>,Vec<f32>> for AccQ<()>{
 	fn forward(&self,mut input:Vec<f32>)->Vec<f32>{
 		let (dim,gamma)=(self.dim,self.gamma);
@@ -66,6 +78,9 @@ impl Op for AccQ<()>{
 }
 impl Op for Cat<()>{
 	type Output=Vec<()>;
+}
+impl Op for CrossEntropy<()>{
+	type Output=f32;
 }
 impl Op for Identity{
 	type Output=();
@@ -162,6 +177,10 @@ impl<A:AI<X,X>+Op<Output=X>,X> Op for Option<A>{
 }
 impl<A:AI<X,X>+Op<Output=X>,X> Op for Sequential<Vec<A>>{
 	type Output=X;
+}
+impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for CrossEntropy<A> where CrossEntropy<()>:AI<(Y,T),Z>{
+	fn forward(&self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner().forward(input),target))}
+	fn forward_mut(&mut self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner_mut().forward_mut(input),target))}
 }
 impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for MSE<A> where MSE<()>:AI<(Y,T),Z>{
 	fn forward(&self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner().forward(input),target))}
@@ -325,14 +344,6 @@ impl<A:Decompose> Decompose for Branch<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Decompose> Decompose for MSE<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition)}
-	}
-	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
-	type Decomposition=A::Decomposition;
-}
 impl<A:Decompose> Decompose for Cat<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
 		Self{inner:A::compose(decomposition.0),dim:decomposition.1}
@@ -341,7 +352,23 @@ impl<A:Decompose> Decompose for Cat<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.dim)}
 	type Decomposition=(A::Decomposition,usize);
 }
+impl<A:Decompose> Decompose for CrossEntropy<A>{//TODO more macros
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
+	type Decomposition=A::Decomposition;
+}
 impl<A:Decompose> Decompose for Duplicate<A>{
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
+	type Decomposition=A::Decomposition;
+}
+impl<A:Decompose> Decompose for MSE<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
 		Self{inner:A::compose(decomposition)}
 	}
@@ -411,6 +438,9 @@ impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQ<()>:AI<Y,Y>{
 impl<A:Op<Output=Y>,Y> Op for Branch<Vec<A>>{
 	type Output=Vec<Y>;
 }
+impl<A:Op<Output=Y>,Y> Op for CrossEntropy<A> where CrossEntropy<()>:AI<(Y,Y),f32>{
+	type Output=f32;
+}
 impl<A:Op<Output=Y>,Y> Op for Duplicate<A>{
 	type Output=(Y,Y);
 }
@@ -468,6 +498,15 @@ impl<A> Cat<A>{
 	}
 	/// replaces the inner value
 	pub fn with_inner<B>(&self,inner:B)->Cat<B> where Cat<B>:Op{Cat::from_inner(self.dim,inner)}
+}
+impl<A> CrossEntropy<A>{
+	accessible_inner!(inner:A);
+	/// creates from the inner value
+	pub fn from_inner(inner:A)->Self{
+		CrossEntropy{inner}
+	}
+	/// replaces the inner value
+	pub fn with_inner<B>(&self,inner:B)->CrossEntropy<B> where CrossEntropy<B>:Op{CrossEntropy::from_inner(inner)}
 }
 impl<A> Duplicate<A>{
 	accessible_inner!(inner:A);
@@ -630,21 +669,21 @@ macro_rules! zip_tuple{
 mod tests{
 	#[test]
 	fn acc_q_vec(){
-		let op=builder().fix_type::<Vec<f32>>().acc_q(0,0.5);
+		let op=new().fix_type::<Vec<f32>>().acc_q(0,0.5);
 		let x:Vec<f32>=vec![1.0,1.0,1.0,1.0,1.0];
 		let y:Vec<f32>=op.forward(x);
 		assert_eq!(y,[1.9375_f32,1.875,1.75,1.5,1.0]);
 	}
 	#[test]
 	fn cat_vec(){
-		let op=builder().fix_type::<Vec<Vec<f32>>>().cat(0);
+		let op=new().fix_type::<Vec<Vec<f32>>>().cat(0);
 		let x:Vec<Vec<f32>>=vec![vec![1.0,1.0,1.0,1.0,1.0],vec![2.0,2.0,2.0]];
 		let y=op.forward(x);
 		assert_eq!(y,[1.0,1.0,1.0,1.0,1.0,2.0,2.0,2.0]);
 	}
 	#[test]
 	fn mse_vec(){
-		let op=builder().fix_type::<Vec<f32>>().mse();
+		let op=new().fix_type::<Vec<f32>>().mse();
 		let x:(Vec<f32>,Vec<f32>)=(vec![0.0,0.5,1.5],vec![-2.0,1.5,5.5]);
 		let y:f32=op.forward(x);
 		assert_eq!(y,7.0);
@@ -656,7 +695,7 @@ op_tuple!((A,B),(A,B,C),(A,B,C,D),(A,B,C,D,E),(A,B,C,D,E,F),(A,B,C,D,E,F,G),(A,B
 /// alignment
 pub enum Alignment{Center,Left,Right}
 /// starts the building of an ai structure in chained method style from an identity operation
-pub fn builder()->Identity{Identity}
+pub fn new()->Identity{Identity}
 #[derive(Clone,Copy,Debug,Default,PartialEq)]
 /// accumulates cumulative
 pub struct AccQ<A>{dim:usize,gamma:f32,inner:A}
@@ -672,6 +711,9 @@ pub struct Branch<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wrapper for concatenating tensors in the output
 pub struct Cat<A>{dim:usize,inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+/// wrapper for applying cross entropy loss
+pub struct CrossEntropy<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// module for cloning things
 pub struct Duplicate<A>{inner:A}//TODO replicate that has a number and makes a vec
@@ -734,6 +776,10 @@ pub trait Op{
 	/// sequences with another ai operation
 	fn chain<B>(self,b:B)->Sequential<(Self,B)> where Self:Sized,Sequential<(Self,B)>:Op{
 		Sequential{inner:(self,b)}
+	}
+	/// wraps with a mse operation
+	fn cross_entropy(self)->CrossEntropy<Self> where CrossEntropy<Self>:Op,Self:Sized{
+		CrossEntropy{inner:self}
 	}
 	/// wraps with a duplicate operation
 	fn duplicate(self)->Duplicate<Self> where Duplicate<Self>:Op,Self:Sized{
