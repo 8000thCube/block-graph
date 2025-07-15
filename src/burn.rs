@@ -149,8 +149,11 @@ impl<A:Decompose> Decompose for Regression<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Into<Value<B>>,B:Backend,C:Into<Value<B>>> From<(A,C)> for Value<B>{
-	fn from((a,c):(A,C))->Self{vec![a.into(),c.into()].into()}
+impl<A:Into<Value<B>>,B:Backend> FromIterator<A> for Value<B>{
+	fn from_iter<I:IntoIterator<Item=A>>(iter:I)->Self{
+		let v:Vec<Value<B>>=iter.into_iter().map(Into::into).collect();
+		if v.len()==1{v.into_iter().next().unwrap()}else{v.into()}
+	}
 }
 impl<A:Op<Output=Y>+Wrappable,Y> Op for Classification<A> where Classification<()>:AI<Y,ClassificationOutput<A::B>>{
 	type Output=ClassificationOutput<A::B>;
@@ -199,17 +202,79 @@ impl<A> Regression<A>{
 	pub fn with_inner<B>(&self,inner:B)->Regression<B> where Regression<B>:Op{Regression::from_inner(inner)}
 }
 impl<B:Backend,D:WhichDims,K:BasicOps<B>+TensorKind<B>,const N:usize> AI<Vec<Tensor<B,N,K>>,Vec<Tensor<B,N,K>>> for TruncateToMatch<(),D>{
-	fn forward(&self,input:Vec<Tensor<B,N,K>>)->Vec<Tensor<B,N,K>>{//TODO alignment and dim specification
-		let dims=input.iter().map(|i|i.dims()).reduce(|d,mut e|{
-			d.iter().zip(e.iter_mut()).for_each(|(d,e)|*e=*d.min(e));
+	fn forward(&self,input:Vec<Tensor<B,N,K>>)->Vec<Tensor<B,N,K>>{
+		let alignment=self.alignment();
+		let which_dims=||self.dims().which_dims();
+
+		if let Some(d)=input.iter().map(|i|i.dims()).reduce(|d,mut e|{
+			which_dims().for_each(|n|e[n]=d[n].min(e[n]));
 			e
-		});
-		if let Some(d)=dims{
-			let ranges=d.map(|x|0..x);
-			input.into_iter().map(|x|x.slice(ranges.clone())).collect()
+		}){
+			input.into_iter().map(|x|{
+				let mut ranges=d.map(|x|0..x);
+				match alignment{
+					Alignment::Center=>{
+						let d=x.dims();
+						which_dims().for_each(|n|{
+							let mid=d[n]/2;
+							let width=ranges[n].len()/2;
+							ranges[n]=mid-width..mid+width;
+						});
+					},
+					Alignment::Left=>(),
+					Alignment::Right=>{
+						let d=x.dims();
+						which_dims().for_each(|n|ranges[n]=d[n]-ranges[n].len()..d[n]);
+					}
+				}
+				x.slice(ranges)
+			}).collect()
 		}else{
 			input
 		}
+	}
+}
+impl<B:Backend,D:WhichDims> AI<Vec<Value<B>>,Vec<Value<B>>> for TruncateToMatch<(),D>{
+	fn forward(&self,input:Vec<Value<B>>)->Vec<Value<B>>{// TODO this could work with not necessarily homogenous types. easier if value inplements dims and slice
+		let mut input=input.into_iter();
+
+		match input.next(){
+			None=>Vec::new(),
+			Some(Value::B1(x))=>self.forward_fixed::<Vec<Tensor<B,1,Bool>>>([x].into_iter().chain(input.map(|x|x.try_b1().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::B2(x))=>self.forward_fixed::<Vec<Tensor<B,2,Bool>>>([x].into_iter().chain(input.map(|x|x.try_b2().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::B3(x))=>self.forward_fixed::<Vec<Tensor<B,3,Bool>>>([x].into_iter().chain(input.map(|x|x.try_b3().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::B4(x))=>self.forward_fixed::<Vec<Tensor<B,4,Bool>>>([x].into_iter().chain(input.map(|x|x.try_b4().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::B5(x))=>self.forward_fixed::<Vec<Tensor<B,5,Bool>>>([x].into_iter().chain(input.map(|x|x.try_b5().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::B6(x))=>self.forward_fixed::<Vec<Tensor<B,6,Bool>>>([x].into_iter().chain(input.map(|x|x.try_b6().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::B7(x))=>self.forward_fixed::<Vec<Tensor<B,7,Bool>>>([x].into_iter().chain(input.map(|x|x.try_b7().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::B8(x))=>self.forward_fixed::<Vec<Tensor<B,8,Bool>>>([x].into_iter().chain(input.map(|x|x.try_b8().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::F1(x))=>self.forward_fixed::<Vec<Tensor<B,1>>>([x].into_iter().chain(input.map(|x|x.try_f1().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::F2(x))=>self.forward_fixed::<Vec<Tensor<B,2>>>([x].into_iter().chain(input.map(|x|x.try_f2().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::F3(x))=>self.forward_fixed::<Vec<Tensor<B,3>>>([x].into_iter().chain(input.map(|x|x.try_f3().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::F4(x))=>self.forward_fixed::<Vec<Tensor<B,4>>>([x].into_iter().chain(input.map(|x|x.try_f4().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::F5(x))=>self.forward_fixed::<Vec<Tensor<B,5>>>([x].into_iter().chain(input.map(|x|x.try_f5().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::F6(x))=>self.forward_fixed::<Vec<Tensor<B,6>>>([x].into_iter().chain(input.map(|x|x.try_f6().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::F7(x))=>self.forward_fixed::<Vec<Tensor<B,7>>>([x].into_iter().chain(input.map(|x|x.try_f7().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::F8(x))=>self.forward_fixed::<Vec<Tensor<B,8>>>([x].into_iter().chain(input.map(|x|x.try_f8().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::I1(x))=>self.forward_fixed::<Vec<Tensor<B,1,Int>>>([x].into_iter().chain(input.map(|x|x.try_i1().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::I2(x))=>self.forward_fixed::<Vec<Tensor<B,2,Int>>>([x].into_iter().chain(input.map(|x|x.try_i2().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::I3(x))=>self.forward_fixed::<Vec<Tensor<B,3,Int>>>([x].into_iter().chain(input.map(|x|x.try_i3().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::I4(x))=>self.forward_fixed::<Vec<Tensor<B,4,Int>>>([x].into_iter().chain(input.map(|x|x.try_i4().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::I5(x))=>self.forward_fixed::<Vec<Tensor<B,5,Int>>>([x].into_iter().chain(input.map(|x|x.try_i5().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::I6(x))=>self.forward_fixed::<Vec<Tensor<B,6,Int>>>([x].into_iter().chain(input.map(|x|x.try_i6().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::I7(x))=>self.forward_fixed::<Vec<Tensor<B,7,Int>>>([x].into_iter().chain(input.map(|x|x.try_i7().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			Some(Value::I8(x))=>self.forward_fixed::<Vec<Tensor<B,8,Int>>>([x].into_iter().chain(input.map(|x|x.try_i8().unwrap())).collect()).into_iter().map(Into::into).collect(),
+			_=>todo!()
+		}
+	}
+}
+impl<B:Backend,E:Into<(Value<B>,Value<B>)>> Batcher<B,E,(Value<B>,Value<B>)> for BatchStacker{
+	fn batch(&self,items:Vec<E>,_device:&<B as Backend>::Device)->(Value<B>,Value<B>){
+		let items=items.into_iter().map(Into::into);
+		let (input,target):(Vec<Value<B>>,Vec<Value<B>>)=items.unzip();
+
+		let (input,target)=(Value::Multi(input),Value::Multi(target));
+		(input.stack(0),target.stack(0))
 	}
 }
 impl<B:Backend,K:BasicOps<B>+TensorKind<B>,const N:usize> AI<Vec<Tensor<B,N,K>>,Tensor<B,N,K>> for Cat<()>{
@@ -250,12 +315,12 @@ impl<B:Backend,const N:usize> AI<(Tensor<B,N>,Tensor<B,N>),Tensor<B,1>> for MseL
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for AccQ<()>{
 	fn forward(&self,input:Value<B>)->Value<B>{
-		match input{Value::B1(x)=>self.forward(x.float()).into(),Value::B2(x)=>self.forward(x.float()).into(),Value::B3(x)=>self.forward(x.float()).into(),Value::B4(x)=>self.forward(x.float()).into(),Value::B5(x)=>self.forward(x.float()).into(),Value::B6(x)=>self.forward(x.float()).into(),Value::B7(x)=>self.forward(x.float()).into(),Value::B8(x)=>self.forward(x.float()).into(),Value::F1(x)=>self.forward(x).into(),Value::F2(x)=>self.forward(x).into(),Value::F3(x)=>self.forward(x).into(),Value::F4(x)=>self.forward(x).into(),Value::F5(x)=>self.forward(x).into(),Value::F6(x)=>self.forward(x).into(),Value::F7(x)=>self.forward(x).into(),Value::F8(x)=>self.forward(x).into(),Value::I1(x)=>self.forward(x.float()).into(),Value::I2(x)=>self.forward(x.float()).into(),Value::I3(x)=>self.forward(x.float()).into(),Value::I4(x)=>self.forward(x.float()).into(),Value::I5(x)=>self.forward(x.float()).into(),Value::I6(x)=>self.forward(x.float()).into(),Value::I7(x)=>self.forward(x.float()).into(),Value::I8(x)=>self.forward(x.float()).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect())}//TODO fromiterator for Value
+		match input{Value::B1(x)=>self.forward(x.float()).into(),Value::B2(x)=>self.forward(x.float()).into(),Value::B3(x)=>self.forward(x.float()).into(),Value::B4(x)=>self.forward(x.float()).into(),Value::B5(x)=>self.forward(x.float()).into(),Value::B6(x)=>self.forward(x.float()).into(),Value::B7(x)=>self.forward(x.float()).into(),Value::B8(x)=>self.forward(x.float()).into(),Value::F1(x)=>self.forward(x).into(),Value::F2(x)=>self.forward(x).into(),Value::F3(x)=>self.forward(x).into(),Value::F4(x)=>self.forward(x).into(),Value::F5(x)=>self.forward(x).into(),Value::F6(x)=>self.forward(x).into(),Value::F7(x)=>self.forward(x).into(),Value::F8(x)=>self.forward(x).into(),Value::I1(x)=>self.forward(x.float()).into(),Value::I2(x)=>self.forward(x.float()).into(),Value::I3(x)=>self.forward(x.float()).into(),Value::I4(x)=>self.forward(x.float()).into(),Value::I5(x)=>self.forward(x.float()).into(),Value::I6(x)=>self.forward(x.float()).into(),Value::I7(x)=>self.forward(x.float()).into(),Value::I8(x)=>self.forward(x.float()).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect())}
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for SoftChoose<()>{
 	fn forward(&self,input:Value<B>)->Value<B>{
-		match input{Value::B1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x.float()).into(),Value::B2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x.float()).into(),Value::B3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x.float()).into(),Value::B4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x.float()).into(),Value::B5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x.float()).into(),Value::B6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x.float()).into(),Value::B7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x.float()).into(),Value::B8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x.float()).into(),Value::F1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x).into(),Value::F2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x).into(),Value::F3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x).into(),Value::F4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x).into(),Value::F5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x).into(),Value::F6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x).into(),Value::F7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x).into(),Value::F8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x).into(),Value::I1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x.float()).into(),Value::I2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x.float()).into(),Value::I3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x.float()).into(),Value::I4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x.float()).into(),Value::I5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x.float()).into(),alue::I6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x.float()).into(),Value::I7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x.float()).into(),Value::I8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x.float()).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect())}//TODO fromiterator for Value
+		match input{Value::B1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x.float()).into(),Value::B2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x.float()).into(),Value::B3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x.float()).into(),Value::B4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x.float()).into(),Value::B5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x.float()).into(),Value::B6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x.float()).into(),Value::B7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x.float()).into(),Value::B8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x.float()).into(),Value::F1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x).into(),Value::F2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x).into(),Value::F3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x).into(),Value::F4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x).into(),Value::F5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x).into(),Value::F6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x).into(),Value::F7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x).into(),Value::F8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x).into(),Value::I1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x.float()).into(),Value::I2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x.float()).into(),Value::I3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x.float()).into(),Value::I4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x.float()).into(),Value::I5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x.float()).into(),Value::I6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x.float()).into(),Value::I7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x.float()).into(),Value::I8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x.float()).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect())}
 	}
 }
 impl<B:Backend,const N:usize> AI<Tensor<B,N>,Tensor<B,N>> for AccQ<()>{
@@ -491,36 +556,6 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Relu{
 impl<B:Backend> AI<Tensor<B,2,Int>,Tensor<B,3>> for Embedding<B>{
 	fn forward(&self,input:Tensor<B,2,Int>)->Tensor<B,3>{Embedding::forward(self,input)}
 }
-impl<B:Backend,E:Into<(Value<B>,Value<B>)>> Batcher<B,E,(Value<B>,Value<B>)> for BatchStacker{
-	fn batch(&self,items:Vec<E>,_device:&<B as Backend>::Device)->(Value<B>,Value<B>){
-		let mut items=items.into_iter().map(Into::into);
-		let (input,target)=if let Some(i)=items.next(){i}else{return Default::default()};
-		let (inputs,targets):(Vec<Value<B>>,Vec<Value<B>>)=items.unzip();
-		let input=match input{//TODO avoid panicking. make incompatible instead. also do that in more things
-			Value::F1(x)=>Value::F2(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F1(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F2(x)=>Value::F3(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F2(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F3(x)=>Value::F4(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F3(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F4(x)=>Value::F5(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F4(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F5(x)=>Value::F6(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F5(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F6(x)=>Value::F7(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F6(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F7(x)=>Value::F8(Tensor::stack(Some(x).into_iter().chain(inputs.into_iter().map(|x|if let Value::F7(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F8(_)=>"max rank exceeded".into(),
-			_=>todo!()//TODO other variants
-		};
-		let target=match target{
-			Value::F1(x)=>Value::F2(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F1(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F2(x)=>Value::F3(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F2(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F3(x)=>Value::F4(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F3(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F4(x)=>Value::F5(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F4(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F5(x)=>Value::F6(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F5(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F6(x)=>Value::F7(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F6(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F7(x)=>Value::F8(Tensor::stack(Some(x).into_iter().chain(targets.into_iter().map(|x|if let Value::F7(x)=x{x}else{panic!("incompatible values")})).collect(),0)),
-			Value::F8(_)=>"max rank exceeded".into(),
-			_=>todo!()
-		};
-		(input,target)
-	}
-}
 impl<B:Backend> Decompose for Layer<B>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
 	fn decompose(self)->Self::Decomposition{self}
@@ -632,6 +667,11 @@ impl<B:Backend> From<Tensor<B,8,Int>> for Value<B>{
 impl<B:Backend> From<Vec<Value<B>>> for Value<B>{
 	fn from(value:Vec<Value<B>>)->Self{Self::Multi(value)}
 }
+impl<B:Backend> IntoIterator for Value<B>{
+	fn into_iter(self)->Self::IntoIter{self.into_multi().into_iter()}
+	type IntoIter=VecIntoIter<Value<B>>;
+	type Item=Value<B>;
+}
 impl<B:Backend> Layer<B>{
 	/// creates a linear layer
 	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
@@ -682,9 +722,25 @@ impl<B:Backend> Op for Linear<B>{
 	type Output=Tensor<B,1>;
 }
 impl<B:Backend> Value<B>{// TODO more builtin functions // TODO shape
+	/// recursively counts the number of tensors within this value, including multi tensors within multi tensors
+	pub fn count_recursive(&self)->usize{
+		if let Value::Multi(v)=self{v.iter().map(Value::count_recursive).sum()}else{1}
+	}
+	/// converts to a multiple tensor, then unwraps to a vec of values
+	pub fn into_multi(self)->Vec<Value<B>>{
+		if let Value::Multi(v)=self{v}else{vec![self]}
+	}
 	/// tests if this is a multiple tensor
 	pub fn is_multi(&self)->bool{
 		if let Value::Multi(_x)=self{true}else{false}
+	}
+	/// returns a shallow count the number of values directly within this one. 1 if not multi, otherwise the len of the vec inside.
+	pub fn len(&self)->usize{
+		if let Value::Multi(v)=self{v.len()}else{1}
+	}
+	/// converts to a multiple tensor if not one
+	pub fn make_multi(self)->Self{
+		if let Value::Multi(v)=self{v.into()}else{vec![self].into()}
 	}
 	/// stacks the multi tensor, inserting a dimension at d. for singular tensors this has an unsqueezing effect
 	pub fn stack(self,d:usize)->Value<B>{//TODO macros could make this look less repetitive
@@ -855,6 +911,10 @@ impl<B:Backend> Value<B>{// TODO more builtin functions // TODO shape
 	/// attempts to unwrap the inner I8 value
 	pub fn try_i8(self)->Result<Tensor<B,8,Int>,Self>{
 		if let Value::I8(x)=self{Ok(x)}else{Err(self)}
+	}
+	/// attempts to unwrap the inner multi value
+	pub fn try_multi(self)->Result<Vec<Value<B>>,Self>{
+		if let Value::Multi(v)=self{Ok(v)}else{Err(self)}
 	}
 }
 impl<B:Backend> Wrappable for Layer<B>{
@@ -1100,9 +1160,9 @@ use burn::{
 	}
 };
 use crate::{
-	ai::{AI,AccQ,Branch,Cat,CrossEntropy,Decompose,Duplicate,Map,MSE,Op,Sequential,SetType,SoftChoose,TruncateToMatch,WhichDims,Zip},graph::{Graph,Merge,Unvec}
+	ai::{AI,AccQ,Alignment,Branch,Cat,CrossEntropy,Decompose,Duplicate,Map,MSE,Op,Sequential,SetType,SoftChoose,TruncateToMatch,WhichDims,Zip},graph::{Graph,Merge,Unvec}
 };
 use rand::random;
 use std::{
-	fmt::{Debug,Display},fs::{create_dir_all as create_folder},mem::take,path::PathBuf
+	fmt::{Debug,Display},fs::{create_dir_all as create_folder},iter::FromIterator,mem::take,path::PathBuf,vec::IntoIter as VecIntoIter
 };
