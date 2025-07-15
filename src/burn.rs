@@ -102,7 +102,7 @@ impl<A:AI<X,(Value<B>,Value<B>,Value<B>)>,B:Backend,X> AI<X,RegressionOutput<B>>
 }
 impl<A:AutodiffBackend<InnerBackend=B>,B:Backend,W:'static+Wrappable<B=A>,Y:'static+ItemLazy+Send+Sync,Z:'static+ItemLazy+Send+Sync> Wrapped<W> where <Self as AutodiffModule<A>>::InnerModule:ValidStep<(Value<B>,Value<B>),Z>,Self:TrainStep<(Value<A>,Value<A>),Y>,W::Decomposition:AutodiffModule<A>,W::With<B>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>+Op<Output=Z>,W:Op<Output=Y>,Y::ItemSync:Adaptor<LossInput<NdArray>>,Z::ItemSync:Adaptor<LossInput<NdArray>>{
 	/// trains the model
-	pub fn train<O:Optimizer<Self,A>,S:LrScheduler,T:'static+Dataset<(Value<A>,Value<A>)>,V:'static+Dataset<(Value<B>,Value<B>)>>(self,config:&TrainConfig,optimizer:O,scheduler:S,train:T,valid:V)->Self where O::Record:'static,S::Record<A>:'static{
+	pub fn train<I:'static+Clone+Debug+Into<(Value<A>,Value<A>)>+Send+Sync,J:'static+Clone+Debug+Into<(Value<B>,Value<B>)>+Send+Sync,O:Optimizer<Self,A>,S:LrScheduler,T:'static+Dataset<I>,V:'static+Dataset<J>>(self,config:&TrainConfig,optimizer:O,scheduler:S,train:T,valid:V)->Self where O::Record:'static,S::Record<A>:'static{
 		let batcher=BatchStacker;
 		let trainloader=DataLoaderBuilder::new(batcher).batch_size(config.batch_size).shuffle(random()).num_workers(config.workers).build(train);
 		let validloader=DataLoaderBuilder::new(batcher).batch_size(config.batch_size).shuffle(random()).num_workers(config.workers).build(valid);
@@ -373,10 +373,10 @@ impl<B:Backend> AI<(Tensor<B,8>,Tensor<B,7,Int>),Tensor<B,1>> for CrossEntropyLo
 	fn forward(&self,(output,target):(Tensor<B,8>,Tensor<B,7,Int>))->Tensor<B,1>{self.forward(output.flatten(0,6),target.flatten(0,6))}
 }
 impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),ClassificationOutput<B>> for Classification<()>{
-	fn forward(&self,(loss,output,target):(Value<B>,Value<B>,Value<B>))->ClassificationOutput<B>{
-		let loss=match loss{Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
-		let output=match output{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
-		let target=match target{Value::I1(x)=>x,Value::I2(x)=>x.flatten(0,1),Value::I3(x)=>x.flatten(0,2),Value::I4(x)=>x.flatten(0,3),Value::I5(x)=>x.flatten(0,4),Value::I6(x)=>x.flatten(0,5),Value::I7(x)=>x.flatten(0,6),Value::I8(x)=>x.flatten(0,7),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+	fn forward(&self,(loss,output,target):(Value<B>,Value<B>,Value<B>))->ClassificationOutput<B>{//TODO make work for multi
+		let loss=match loss{Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
+		let output=match output{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
+		let target=match target{Value::I1(x)=>x,Value::I2(x)=>x.flatten(0,1),Value::I3(x)=>x.flatten(0,2),Value::I4(x)=>x.flatten(0,3),Value::I5(x)=>x.flatten(0,4),Value::I6(x)=>x.flatten(0,5),Value::I7(x)=>x.flatten(0,6),Value::I8(x)=>x.flatten(0,7),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
 		ClassificationOutput::new(loss,output,target)
 	}
 }
@@ -1106,70 +1106,4 @@ pub enum Config{CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embe
 pub enum Layer<B:Backend>{CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Stack(usize)}
 #[derive(Clone,Debug)]//TODO implement module for this
 /// enumerates burn tensors up to 8 dimensions
-pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
-/// wrapper for converting loss to regression output
-pub struct Regression<A>{inner:A}
-#[derive(Config,Debug)]
-/// configuration for convenient training through the wrapper
-pub struct TrainConfig{
-	#[config(default="String::from(\".artifact\")")]
-	artifact_directory:String,
-	#[config(default="16")]
-	batch_size:usize,
-	#[config(default="false")]
-	checkpoints:bool,
-	#[config(default="false")]
-	console_rendering:bool,
-	#[config(default="10")]
-	epochs:usize,
-	#[config(default="false")]
-	summary:bool,
-	#[config(default="4")]
-	workers:usize
-}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
-/// wraps in a burn wrapper
-pub struct Wrapped<W:Wrappable>{inner:W}
-/// chained method shortcut trait
-pub trait Shortcuts{
-	/// wraps in a classification wrapper
-	fn classification(self)->Classification<Self> where Classification<Self>:Op,Self:Sized{Classification::from_inner(self)}
-	/// wraps in a regression wrapper
-	fn regression(self)->Regression<Self> where Regression<Self>:Op,Self:Sized{Regression::from_inner(self)}
-	/// wraps in a burn wrapper
-	fn wrap(self)->Wrapped<Self> where Self:Wrappable{Wrapped::new(self)}
-}
-/// higher kinded type trait to allow rewrapping burn modules in different backends to implement some wrapper features
-pub trait Wrappable:Clone+Debug+Decompose+Send{
-	type B:Backend;
-	type With<C:Backend>:Wrappable<B=C,With<C>=Self::With<C>>+Wrappable<B=C,With<Self::B>=Self>;
-}
-pub use burn as lib;
-use burn::{
-	backend::NdArray,
-	data::{
-		dataset::Dataset,dataloader::{batcher::Batcher,DataLoaderBuilder}
-	},
-	lr_scheduler::LrScheduler,
-	module::{AutodiffModule,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
-	nn::{
-		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
-	},
-	optim::Optimizer,
-	prelude::*,
-	record::{CompactRecorder,FileRecorder,RecorderError},
-	tensor::{BasicOps,TensorKind,activation::softmax,backend::AutodiffBackend},
-	train::{
-		ClassificationOutput,LearnerBuilder,RegressionOutput,TrainOutput,TrainStep,ValidStep,metric::{Adaptor,ItemLazy,LossInput,LossMetric},renderer::{MetricState,MetricsRenderer,TrainingProgress}
-	}
-};
-use crate::{
-	ai::{AI,AccQ,Alignment,Branch,Cat,CrossEntropy,Decompose,Duplicate,Map,MSE,Op,Sequential,SetType,SoftChoose,TruncateToMatch,WhichDims,Zip},graph::{Graph,Merge,Unvec}
-};
-use rand::random;
-use std::{
-	fmt::{Debug,Display},fs::{create_dir_all as create_folder},iter::FromIterator,mem::take,path::PathBuf,vec::IntoIter as VecIntoIter
-};
+pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tenso
