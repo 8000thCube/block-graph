@@ -175,6 +175,9 @@ impl<A:AI<W,Z>+AI<X,Y>,W,X,Y,Z> AI<W,Z> for SetType<A,X,Y>{
 impl<A:AI<X,X>+Op<Output=X>,X> Op for Option<A>{
 	type Output=X;
 }
+impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{//TODO more tuple op sequential
+	type Output=Z;
+}
 impl<A:AI<X,X>+Op<Output=X>,X> Op for Sequential<Vec<A>>{
 	type Output=X;
 }
