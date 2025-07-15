@@ -565,6 +565,12 @@ impl<D:WhichDims> WhichDims for &D{
 impl<D> Op for TruncateToMatch<(),D>{
 	type Output=Vec<Vec<()>>;
 }
+impl<F:Fn(X)->Y,X,Y> AI<X,Y> for Apply<F,X,Y>{
+	fn forward(&self,input:X)->Y{(&self.inner)(input)}
+}
+impl<F:Fn(X)->Y,X,Y> Op for Apply<F,X,Y>{
+	type Output=Y;
+}
 impl<X:Into<Y>,Y> AI<X,Y> for Identity{
 	fn forward(&self,input:X)->Y{input.into()}
 }
@@ -694,6 +700,10 @@ op_tuple!((A,B),(A,B,C),(A,B,C,D),(A,B,C,D,E),(A,B,C,D,E,F),(A,B,C,D,E,F,G),(A,B
 #[derive(Clone,Copy,Debug,Eq,Hash,PartialEq)]
 /// alignment
 pub enum Alignment{Center,Left,Right}
+/// creates an operation that applies the closure
+pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
+	Apply{inner:f,phantom:PhantomData}
+}
 /// starts the building of an ai structure in chained method style from an identity operation
 pub fn new()->Identity{Identity}
 #[derive(Clone,Copy,Debug,Default,PartialEq)]
@@ -702,6 +712,9 @@ pub struct AccQ<A>{dim:usize,gamma:f32,inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 /// dimension specifier for all dimensions
 pub struct All;
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+/// applies a closure to the input
+pub struct Apply<F:Fn(X)->Y,X,Y>{inner:F,phantom:PhantomData<fn(X)->Y>}
 #[derive(Clone,Copy,Debug,Default)]
 /// autoregressive inference
 pub struct Autoregression<A,X>{ai:A,state:Option<X>}
@@ -787,6 +800,14 @@ pub trait Op{
 	}
 	/// set type but with the same input and output
 	fn fix_type<Z>(self)->SetType<Self,Z,Z> where Self:AI<Z,Z>+Sized{self.set_type()}
+	/// applies to the input
+	fn forward_fixed<Z>(&self,input:Z)->Z where Self:AI<Z,Z>+Sized{self.forward(input)}
+	/// applies to the input
+	fn forward_fixed_mut<Z>(&mut self,input:Z)->Z where Self:AI<Z,Z>+Sized{self.forward(input)}
+	/// applies to the input
+	fn forward_typed<W,Z>(&self,input:W)->Z where Self:AI<W,Z>+Sized{self.forward(input)}
+	/// applies to the input, possibly updating internal caches
+	fn forward_typed_mut<W,Z>(&mut self,input:W)->Z where Self:AI<W,Z>+Sized{self.forward(input)}
 	/// creates an autoregressive inference
 	fn infer_autoregressive<X,Y>(self,input:X)->Autoregression<Self,Y> where Self:AI<X,Y>+AI<Y,Y>+Sized,Y:Clone{
 		let mut ai=self;
