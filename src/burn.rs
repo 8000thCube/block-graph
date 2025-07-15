@@ -1105,5 +1105,70 @@ pub enum Config{CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embe
 /// enumerates some burn layers
 pub enum Layer<B:Backend>{CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Stack(usize)}
 #[derive(Clone,Debug)]//TODO implement module for this
-/// enumerates burn tensors up to 8 dimensions
-pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tenso
+/// enumerates burn tensors up to 8 dimensionspub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wrapper for converting loss to regression output
+pub struct Regression<A>{inner:A}
+#[derive(Config,Debug)]
+/// configuration for convenient training through the wrapper
+pub struct TrainConfig{
+	#[config(default="String::from(\".artifact\")")]
+	artifact_directory:String,
+	#[config(default="16")]
+	batch_size:usize,
+	#[config(default="false")]
+	checkpoints:bool,
+	#[config(default="false")]
+	console_rendering:bool,
+	#[config(default="10")]
+	epochs:usize,
+	#[config(default="false")]
+	summary:bool,
+	#[config(default="4")]
+	workers:usize
+}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wraps in a burn wrapper
+pub struct Wrapped<W:Wrappable>{inner:W}
+/// chained method shortcut trait
+pub trait Shortcuts{
+	/// wraps in a classification wrapper
+	fn classification(self)->Classification<Self> where Classification<Self>:Op,Self:Sized{Classification::from_inner(self)}
+	/// wraps in a regression wrapper
+	fn regression(self)->Regression<Self> where Regression<Self>:Op,Self:Sized{Regression::from_inner(self)}
+	/// wraps in a burn wrapper
+	fn wrap(self)->Wrapped<Self> where Self:Wrappable{Wrapped::new(self)}
+}
+/// higher kinded type trait to allow rewrapping burn modules in different backends to implement some wrapper features
+pub trait Wrappable:Clone+Debug+Decompose+Send{
+	type B:Backend;
+	type With<C:Backend>:Wrappable<B=C,With<C>=Self::With<C>>+Wrappable<B=C,With<Self::B>=Self>;
+}
+pub use burn as lib;
+use burn::{
+	backend::NdArray,
+	data::{
+		dataset::Dataset,dataloader::{batcher::Batcher,DataLoaderBuilder}
+	},
+	lr_scheduler::LrScheduler,
+	module::{AutodiffModule,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
+	nn::{
+		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
+	},
+	optim::Optimizer,
+	prelude::*,
+	record::{CompactRecorder,FileRecorder,RecorderError},
+	tensor::{BasicOps,TensorKind,activation::softmax,backend::AutodiffBackend},
+	train::{
+		ClassificationOutput,LearnerBuilder,RegressionOutput,TrainOutput,TrainStep,ValidStep,metric::{Adaptor,ItemLazy,LossInput,LossMetric},renderer::{MetricState,MetricsRenderer,TrainingProgress}
+	}
+};
+use crate::{
+	ai::{AI,AccQ,Alignment,Branch,Cat,CrossEntropy,Decompose,Duplicate,Map,MSE,Op,Sequential,SetType,SoftChoose,TruncateToMatch,WhichDims,Zip},graph::{Graph,Merge,Unvec}
+};
+use rand::random;
+use std::{
+	fmt::{Debug,Display},fs::{create_dir_all as create_folder},iter::FromIterator,mem::take,path::PathBuf,vec::IntoIter as VecIntoIter
+};
