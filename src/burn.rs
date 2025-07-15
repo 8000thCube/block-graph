@@ -28,11 +28,12 @@ fn soft_choose_burn_tensor<B:Backend,const N:usize>(dim:usize,logits:Tensor<B,N>
 impl Config{
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Stack(d)=>Layer::Stack(*d)}
+		match self{Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Stack(d)=>Layer::Stack(*d)}
 	}
 	/// scales the initializer
 	pub fn w_scale(self,r:f32)->Self{//TODO probably shorter to wscal a mutable initializer
 		match self{
+			Config::CrossEntropy(c)=>c.into(),
 			Config::Dropout(c)=>c.into(),
 			Config::Embedding(c)=>EmbeddingConfig{d_model:c.d_model,initializer:w_scale(c.initializer,r),n_embedding:c.n_embedding}.into(),
 			Config::LayerNorm(c)=>c.into(),
@@ -55,6 +56,9 @@ impl Decompose for Relu{
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
 }
+impl From<CrossEntropyLossConfig> for Config{
+	fn from(value:CrossEntropyLossConfig)->Self{Config::CrossEntropy(value)}
+}
 impl From<DropoutConfig> for Config{
 	fn from(value:DropoutConfig)->Self{Config::Dropout(value)}
 }
@@ -73,6 +77,9 @@ impl MetricsRenderer for DontRender{
 	fn render_train(&mut self,_item:TrainingProgress){}
 	fn render_valid(&mut self,_item:TrainingProgress){}
 }
+impl Op for Classification<()>{
+	type Output=ClassificationOutput<NdArray>;
+}
 impl Op for Dropout{
 	type Output=Tensor<NdArray,1>;
 }
@@ -85,13 +92,9 @@ impl Op for Relu{
 impl Op for Regression<()>{
 	type Output=RegressionOutput<NdArray>;
 }
-impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),RegressionOutput<B>> for Regression<()>{
-	fn forward(&self,(loss,output,target):(Value<B>,Value<B>,Value<B>))->RegressionOutput<B>{
-		let loss=match loss{Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
-		let output=match output{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(1,2),Value::F4(x)=>x.flatten(1,3),Value::F5(x)=>x.flatten(1,4),Value::F6(x)=>x.flatten(1,5),Value::F7(x)=>x.flatten(1,6),Value::F8(x)=>x.flatten(1,7),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
-		let target=match target{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(1,2),Value::F4(x)=>x.flatten(1,3),Value::F5(x)=>x.flatten(1,4),Value::F6(x)=>x.flatten(1,5),Value::F7(x)=>x.flatten(1,6),Value::F8(x)=>x.flatten(1,7),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
-		RegressionOutput::new(loss,output,target)
-	}
+impl<A:AI<X,(Value<B>,Value<B>,Value<B>)>,B:Backend,X> AI<X,ClassificationOutput<B>> for Classification<A>{
+	fn forward(&self,input:X)->ClassificationOutput<B>{self.with_inner(()).forward(self.inner().forward(input))}
+	fn forward_mut(&mut self,input:X)->ClassificationOutput<B>{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
 }
 impl<A:AI<X,(Value<B>,Value<B>,Value<B>)>,B:Backend,X> AI<X,RegressionOutput<B>> for Regression<A>{
 	fn forward(&self,input:X)->RegressionOutput<B>{self.with_inner(()).forward(self.inner().forward(input))}
@@ -114,6 +117,12 @@ impl<A:AutodiffBackend<InnerBackend=B>,B:Backend,W:'static+Wrappable<B=A>,Y:'sta
 		learner.fit(trainloader,validloader)
 	}
 }
+impl<A:AutodiffBackend,W:AI<X,(Value<A>,Value<A>,Value<A>)>+Wrappable<B=A>,X> TrainStep<X,ClassificationOutput<A>> for Wrapped<Classification<W>> where W::Decomposition:AutodiffModule<A>,W::With<A::InnerBackend>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>{
+	fn step(&self,item:X)->TrainOutput<ClassificationOutput<A>>{
+		let output:ClassificationOutput<A>=self.forward(item);
+		TrainOutput::new(self,output.loss.backward(),output)
+	}
+}
 impl<A:AutodiffBackend,W:AI<X,(Value<A>,Value<A>,Value<A>)>+Wrappable<B=A>,X> TrainStep<X,RegressionOutput<A>> for Wrapped<Regression<W>> where W::Decomposition:AutodiffModule<A>,W::With<A::InnerBackend>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>{
 	fn step(&self,item:X)->TrainOutput<RegressionOutput<A>>{
 		let output:RegressionOutput<A>=self.forward(item);
@@ -123,6 +132,14 @@ impl<A:AutodiffBackend,W:AI<X,(Value<A>,Value<A>,Value<A>)>+Wrappable<B=A>,X> Tr
 impl<A:AutodiffBackend,W:Wrappable<B=A>> AutodiffModule<A> for Wrapped<W> where W::Decomposition:AutodiffModule<A>,W::With<A::InnerBackend>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>{
 	fn valid(&self)->Self::InnerModule{Wrapped::new(Decompose::compose(self.inner.decompose_cloned().valid()))}
 	type InnerModule=Wrapped<W::With<A::InnerBackend>>;
+}
+impl<A:Decompose> Decompose for Classification<A>{
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
+	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for Regression<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
@@ -134,6 +151,9 @@ impl<A:Decompose> Decompose for Regression<A>{
 }
 impl<A:Into<Value<B>>,B:Backend,C:Into<Value<B>>> From<(A,C)> for Value<B>{
 	fn from((a,c):(A,C))->Self{vec![a.into(),c.into()].into()}
+}
+impl<A:Op<Output=Y>+Wrappable,Y> Op for Classification<A> where Classification<()>:AI<Y,ClassificationOutput<A::B>>{
+	type Output=ClassificationOutput<A::B>;
 }
 impl<A:Op<Output=Y>+Wrappable,Y> Op for Regression<A> where Regression<()>:AI<Y,RegressionOutput<A::B>>{
 	type Output=RegressionOutput<A::B>;
@@ -149,6 +169,20 @@ impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>,E:Wrappable<B=B>> Wrappable for
 impl<A:Wrappable<B=B>,B:Backend,X:Wrappable<B=B>,Y:Wrappable<B=B>> Wrappable for SetType<A,X,Y>{
 	type B=B;
 	type With<C:Backend>=SetType<A::With<C>,X::With<C>,Y::With<C>>;
+}
+impl<A> Classification<A>{
+	/// creates from the inner value
+	pub fn from_inner(inner:A)->Self where Classification<A>:Op{
+		Self{inner}
+	}
+	/// references the inner value
+	pub fn inner(&self)->&A{&self.inner}
+	/// references the inner value
+	pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+	/// converts into the inner value
+	pub fn into_inner(self)->A{self.inner}
+	/// replaces the inner value
+	pub fn with_inner<B>(&self,inner:B)->Classification<B> where Classification<B>:Op{Classification::from_inner(inner)}
 }
 impl<A> Regression<A>{
 	/// creates from the inner value
@@ -190,6 +224,9 @@ impl<B:Backend,K:TensorKind<B>,const N:usize> Decompose for Tensor<B,N,K>{
 impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for Value<B>{
 	fn from(value:&S)->Self{Self::Incompatible(value.as_ref().to_string())}
 }
+impl<B:Backend,W:AI<X,(Value<B>,Value<B>,Value<B>)>+Wrappable<B=B>,X> ValidStep<X,ClassificationOutput<B>> for Wrapped<Classification<W>> where W::Decomposition:Module<B>{
+	fn step(&self,item:X)->ClassificationOutput<B>{self.forward(item)}
+}
 impl<B:Backend,W:AI<X,(Value<B>,Value<B>,Value<B>)>+Wrappable<B=B>,X> ValidStep<X,RegressionOutput<B>> for Wrapped<Regression<W>> where W::Decomposition:Module<B>{
 	fn step(&self,item:X)->RegressionOutput<B>{self.forward(item)}
 }
@@ -211,11 +248,18 @@ impl<B:Backend,W:Wrappable<B=B>> Module<B> for Wrapped<W> where W::Decomposition
 impl<B:Backend,const N:usize> AI<(Tensor<B,N>,Tensor<B,N>),Tensor<B,1>> for MseLoss{
 	fn forward(&self,(output,target):(Tensor<B,N>,Tensor<B,N>))->Tensor<B,1>{self.forward_no_reduction(output,target).mean()}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for AccQ<()>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input{Value::B1(x)=>self.forward(x.float()).into(),Value::B2(x)=>self.forward(x.float()).into(),Value::B3(x)=>self.forward(x.float()).into(),Value::B4(x)=>self.forward(x.float()).into(),Value::B5(x)=>self.forward(x.float()).into(),Value::B6(x)=>self.forward(x.float()).into(),Value::B7(x)=>self.forward(x.float()).into(),Value::B8(x)=>self.forward(x.float()).into(),Value::F1(x)=>self.forward(x).into(),Value::F2(x)=>self.forward(x).into(),Value::F3(x)=>self.forward(x).into(),Value::F4(x)=>self.forward(x).into(),Value::F5(x)=>self.forward(x).into(),Value::F6(x)=>self.forward(x).into(),Value::F7(x)=>self.forward(x).into(),Value::F8(x)=>self.forward(x).into(),Value::I1(x)=>self.forward(x.float()).into(),Value::I2(x)=>self.forward(x.float()).into(),Value::I3(x)=>self.forward(x.float()).into(),Value::I4(x)=>self.forward(x.float()).into(),Value::I5(x)=>self.forward(x.float()).into(),Value::I6(x)=>self.forward(x.float()).into(),Value::I7(x)=>self.forward(x.float()).into(),Value::I8(x)=>self.forward(x.float()).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect())}//TODO fromiterator for Value
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for SoftChoose<()>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input{Value::B1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x.float()).into(),Value::B2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x.float()).into(),Value::B3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x.float()).into(),Value::B4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x.float()).into(),Value::B5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x.float()).into(),Value::B6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x.float()).into(),Value::B7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x.float()).into(),Value::B8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x.float()).into(),Value::F1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x).into(),Value::F2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x).into(),Value::F3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x).into(),Value::F4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x).into(),Value::F5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x).into(),Value::F6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x).into(),Value::F7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x).into(),Value::F8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x).into(),Value::I1(x)=>self.forward_typed::<Tensor<B,1>,Tensor<B,1,Int>>(x.float()).into(),Value::I2(x)=>self.forward_typed::<Tensor<B,2>,Tensor<B,1,Int>>(x.float()).into(),Value::I3(x)=>self.forward_typed::<Tensor<B,3>,Tensor<B,2,Int>>(x.float()).into(),Value::I4(x)=>self.forward_typed::<Tensor<B,4>,Tensor<B,3,Int>>(x.float()).into(),Value::I5(x)=>self.forward_typed::<Tensor<B,5>,Tensor<B,4,Int>>(x.float()).into(),alue::I6(x)=>self.forward_typed::<Tensor<B,6>,Tensor<B,5,Int>>(x.float()).into(),Value::I7(x)=>self.forward_typed::<Tensor<B,7>,Tensor<B,6,Int>>(x.float()).into(),Value::I8(x)=>self.forward_typed::<Tensor<B,8>,Tensor<B,7,Int>>(x.float()).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect())}//TODO fromiterator for Value
+	}
+}
 impl<B:Backend,const N:usize> AI<Tensor<B,N>,Tensor<B,N>> for AccQ<()>{
 	fn forward(&self,input:Tensor<B,N>)->Tensor<B,N>{accumulate_q_burn(self.dim(),self.gamma(),input)}
-}
-impl<B:Backend,const N:usize> AI<Tensor<B,N>,Tensor<B,N,Int>> for SoftChoose<()>{
-	fn forward(&self,input:Tensor<B,N>)->Tensor<B,N,Int>{soft_choose_burn_tensor(self.dim(),input,self.temperature())}
 }
 impl<B:Backend,const N:usize> AI<Tensor<B,N>,Tensor<B,N>> for Dropout{
 	fn forward(&self,input:Tensor<B,N>)->Tensor<B,N>{Dropout::forward(self,input)}
@@ -235,10 +279,70 @@ impl<B:Backend,const N:usize> AI<Tensor<B,N>,Vec<u32>> for SoftChoose<()>{
 impl<B:Backend,const N:usize> AI<Tensor<B,N>,u32> for SoftChoose<()>{
 	fn forward(&self,input:Tensor<B,N>)->u32{soft_choose_burn_1(self.dim(),input,self.temperature())}
 }
-impl<B:Backend> AI<(Value<B>,Value<B>),(Value<B>,Value<B>,Value<B>)> for MSE<()>{
+impl<B:Backend> AI<(Tensor<B,2>,Tensor<B,1,Int>),Tensor<B,1>> for CrossEntropyLoss<B>{// TODO soft label version
+	fn forward(&self,(output,target):(Tensor<B,2>,Tensor<B,1,Int>))->Tensor<B,1>{self.forward(output,target)}
+}
+impl<B:Backend> AI<(Tensor<B,3>,Tensor<B,2,Int>),Tensor<B,1>> for CrossEntropyLoss<B>{
+	fn forward(&self,(output,target):(Tensor<B,3>,Tensor<B,2,Int>))->Tensor<B,1>{self.forward(output.flatten(0,1),target.flatten(0,1))}
+}
+impl<B:Backend> AI<(Tensor<B,4>,Tensor<B,3,Int>),Tensor<B,1>> for CrossEntropyLoss<B>{
+	fn forward(&self,(output,target):(Tensor<B,4>,Tensor<B,3,Int>))->Tensor<B,1>{self.forward(output.flatten(0,2),target.flatten(0,2))}
+}
+impl<B:Backend> AI<(Tensor<B,5>,Tensor<B,4,Int>),Tensor<B,1>> for CrossEntropyLoss<B>{
+	fn forward(&self,(output,target):(Tensor<B,5>,Tensor<B,4,Int>))->Tensor<B,1>{self.forward(output.flatten(0,3),target.flatten(0,3))}
+}
+impl<B:Backend> AI<(Tensor<B,6>,Tensor<B,5,Int>),Tensor<B,1>> for CrossEntropyLoss<B>{
+	fn forward(&self,(output,target):(Tensor<B,6>,Tensor<B,5,Int>))->Tensor<B,1>{self.forward(output.flatten(0,4),target.flatten(0,4))}
+}
+impl<B:Backend> AI<(Tensor<B,7>,Tensor<B,6,Int>),Tensor<B,1>> for CrossEntropyLoss<B>{
+	fn forward(&self,(output,target):(Tensor<B,7>,Tensor<B,6,Int>))->Tensor<B,1>{self.forward(output.flatten(0,5),target.flatten(0,5))}
+}
+impl<B:Backend> AI<(Tensor<B,8>,Tensor<B,7,Int>),Tensor<B,1>> for CrossEntropyLoss<B>{
+	fn forward(&self,(output,target):(Tensor<B,8>,Tensor<B,7,Int>))->Tensor<B,1>{self.forward(output.flatten(0,6),target.flatten(0,6))}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),ClassificationOutput<B>> for Classification<()>{
+	fn forward(&self,(loss,output,target):(Value<B>,Value<B>,Value<B>))->ClassificationOutput<B>{
+		let loss=match loss{Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		let output=match output{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		let target=match target{Value::I1(x)=>x,Value::I2(x)=>x.flatten(0,1),Value::I3(x)=>x.flatten(0,2),Value::I4(x)=>x.flatten(0,3),Value::I5(x)=>x.flatten(0,4),Value::I6(x)=>x.flatten(0,5),Value::I7(x)=>x.flatten(0,6),Value::I8(x)=>x.flatten(0,7),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		ClassificationOutput::new(loss,output,target)
+	}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),RegressionOutput<B>> for Regression<()>{
+	fn forward(&self,(loss,output,target):(Value<B>,Value<B>,Value<B>))->RegressionOutput<B>{
+		let loss=match loss{Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		let output=match output{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		let target=match target{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		RegressionOutput::new(loss,output,target)
+	}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>),(Value<B>,Value<B>,Value<B>)> for CrossEntropy<()>{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->(Value<B>,Value<B>,Value<B>){
+		let loss=CrossEntropyLossConfig::new().init(&Default::default()).fix_type::<Value<B>>().forward(Value::Multi(vec![output.clone(),target.clone()]));
+		(loss,output,target)
+	}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>),(Value<B>,Value<B>,Value<B>)> for MSE<()>{//TODO make into just cross entropy and squared error and add a mean op for mse
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->(Value<B>,Value<B>,Value<B>){
 		let loss=MseLoss.fix_type::<Value<B>>().forward(Value::Multi(vec![output.clone(),target.clone()]));
 		(loss,output,target)
+	}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>),f32> for CrossEntropy<()>{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->f32{
+		fn average_scalars<B:Backend>(value:Value<B>)->f32{
+			match value{
+				Value::F1(x)=>x.into_scalar().elem(),
+				Value::Multi(x)=>{
+					let l=x.len();
+					let x:f32=x.into_iter().map(average_scalars).sum();
+					x/l as f32
+				},
+				Value::Incompatible(x)=>panic!("{x}"),
+				_=>panic!("internal error: cross entropy loss output should be scalar")
+			}
+		}
+		average_scalars(CrossEntropyLossConfig::new().init(&Default::default()).fix_type::<Value<B>>().forward(Value::Multi(vec![output,target])))
 	}
 }
 impl<B:Backend> AI<(Value<B>,Value<B>),f32> for MSE<()>{
@@ -256,6 +360,69 @@ impl<B:Backend> AI<(Value<B>,Value<B>),f32> for MSE<()>{
 			}
 		}
 		average_scalars(MseLoss.fix_type::<Value<B>>().forward(Value::Multi(vec![output,target])))
+	}
+}
+impl<B:Backend> AI<Tensor<B,1>,Tensor<B,1,Int>> for SoftChoose<()>{
+	fn forward(&self,input:Tensor<B,1>)->Tensor<B,1,Int>{
+		let (d,t)=(self.dim(),self.temperature());
+		soft_choose_burn_tensor(d,input,t)
+	}
+}
+impl<B:Backend> AI<Tensor<B,2>,Tensor<B,1,Int>> for SoftChoose<()>{
+	fn forward(&self,input:Tensor<B,2>)->Tensor<B,1,Int>{
+		let (d,t)=(self.dim(),self.temperature());
+		soft_choose_burn_tensor(d,input,t).squeeze(d)
+	}
+}
+impl<B:Backend> AI<Tensor<B,3>,Tensor<B,2,Int>> for SoftChoose<()>{
+	fn forward(&self,input:Tensor<B,3>)->Tensor<B,2,Int>{
+		let (d,t)=(self.dim(),self.temperature());
+		soft_choose_burn_tensor(d,input,t).squeeze(d)
+	}
+}
+impl<B:Backend> AI<Tensor<B,4>,Tensor<B,3,Int>> for SoftChoose<()>{
+	fn forward(&self,input:Tensor<B,4>)->Tensor<B,3,Int>{
+		let (d,t)=(self.dim(),self.temperature());
+		soft_choose_burn_tensor(d,input,t).squeeze(d)
+	}
+}
+impl<B:Backend> AI<Tensor<B,5>,Tensor<B,4,Int>> for SoftChoose<()>{
+	fn forward(&self,input:Tensor<B,5>)->Tensor<B,4,Int>{
+		let (d,t)=(self.dim(),self.temperature());
+		soft_choose_burn_tensor(d,input,t).squeeze(d)
+	}
+}
+impl<B:Backend> AI<Tensor<B,6>,Tensor<B,5,Int>> for SoftChoose<()>{
+	fn forward(&self,input:Tensor<B,6>)->Tensor<B,5,Int>{
+		let (d,t)=(self.dim(),self.temperature());
+		soft_choose_burn_tensor(d,input,t).squeeze(d)
+	}
+}
+impl<B:Backend> AI<Tensor<B,7>,Tensor<B,6,Int>> for SoftChoose<()>{
+	fn forward(&self,input:Tensor<B,7>)->Tensor<B,6,Int>{
+		let (d,t)=(self.dim(),self.temperature());
+		soft_choose_burn_tensor(d,input,t).squeeze(d)
+	}
+}
+impl<B:Backend> AI<Tensor<B,8>,Tensor<B,7,Int>> for SoftChoose<()>{
+	fn forward(&self,input:Tensor<B,8>)->Tensor<B,7,Int>{
+		let (d,t)=(self.dim(),self.temperature());
+		soft_choose_burn_tensor(d,input,t).squeeze(d)
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for CrossEntropyLoss<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input{
+			Value::Incompatible(x)=>x.into(),
+			Value::Multi(x)=>if x.len()==2{
+				let mut x=x.into_iter();
+				match (x.next().unwrap(),x.next().unwrap()){(Value::F2(x0),Value::I1(x1))=>AI::forward(self,(x0,x1)).into(),(Value::F3(x0),Value::I2(x1))=>AI::forward(self,(x0,x1)).into(),(Value::F4(x0),Value::I3(x1))=>AI::forward(self,(x0,x1)).into(),(Value::F5(x0),Value::I4(x1))=>AI::forward(self,(x0,x1)).into(),(Value::F6(x0),Value::I5(x1))=>AI::forward(self,(x0,x1)).into(),(Value::F7(x0),Value::I6(x1))=>AI::forward(self,(x0,x1)).into(),(Value::F8(x0),Value::I7(x1))=>AI::forward(self,(x0,x1)).into(),_=>"cross entropy loss requires input pairs to be a float tensor with an int tensor of one lower rank".into()}
+			}else{
+				let y:Vec<Value<B>>=x.into_iter().map(|x|self.fix_type::<Value<B>>().forward(x)).collect();
+				y.into()
+			},
+			_=>"cross entropy loss loss requires inputs to be in pairs".into()
+		}
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for Dropout{
@@ -288,7 +455,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Embedding<B>{
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
-		match self{Layer::Dropout(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Embedding(a)=>a.fix_type::<Value<B>>().forward(input),Layer::LayerNorm(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Linear(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Mse(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Relu(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Stack(dim)=>input.stack(*dim)}
+		match self{Layer::CrossEntropy(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Dropout(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Embedding(a)=>a.fix_type::<Value<B>>().forward(input),Layer::LayerNorm(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Linear(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Mse(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Relu(a)=>a.fix_type::<Value<B>>().forward(input),Layer::Stack(dim)=>input.stack(*dim)}
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for LayerNorm<B>{
@@ -324,9 +491,9 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Relu{
 impl<B:Backend> AI<Tensor<B,2,Int>,Tensor<B,3>> for Embedding<B>{
 	fn forward(&self,input:Tensor<B,2,Int>)->Tensor<B,3>{Embedding::forward(self,input)}
 }
-impl<B:Backend> Batcher<B,(Value<B>,Value<B>),(Value<B>,Value<B>)> for BatchStacker{
-	fn batch(&self,items:Vec<(Value<B>,Value<B>)>,_device:&<B as Backend>::Device)->(Value<B>,Value<B>){
-		let mut items=items.into_iter();
+impl<B:Backend,E:Into<(Value<B>,Value<B>)>> Batcher<B,E,(Value<B>,Value<B>)> for BatchStacker{
+	fn batch(&self,items:Vec<E>,_device:&<B as Backend>::Device)->(Value<B>,Value<B>){
+		let mut items=items.into_iter().map(Into::into);
 		let (input,target)=if let Some(i)=items.next(){i}else{return Default::default()};
 		let (inputs,targets):(Vec<Value<B>>,Vec<Value<B>>)=items.unzip();
 		let input=match input{//TODO avoid panicking. make incompatible instead. also do that in more things
@@ -353,17 +520,6 @@ impl<B:Backend> Batcher<B,(Value<B>,Value<B>),(Value<B>,Value<B>)> for BatchStac
 		};
 		(input,target)
 	}
-}
-impl<B:Backend> Layer<B>{
-	/// creates a linear layer
-	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
-		let mut l=LinearConfig::new(input,output).with_bias(bias);
-		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
-		let l=l.init(&Default::default());
-		Self::Linear(l)
-	}
-	/// creates a relu layer
-	pub fn relu()->Self{Self::Relu(Relu)}
 }
 impl<B:Backend> Decompose for Layer<B>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
@@ -476,6 +632,17 @@ impl<B:Backend> From<Tensor<B,8,Int>> for Value<B>{
 impl<B:Backend> From<Vec<Value<B>>> for Value<B>{
 	fn from(value:Vec<Value<B>>)->Self{Self::Multi(value)}
 }
+impl<B:Backend> Layer<B>{
+	/// creates a linear layer
+	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
+		let mut l=LinearConfig::new(input,output).with_bias(bias);
+		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
+		let l=l.init(&Default::default());
+		Self::Linear(l)
+	}
+	/// creates a relu layer
+	pub fn relu()->Self{Self::Relu(Relu)}
+}
 impl<B:Backend> Merge for Value<B>{
 	fn merge(&mut self,other:Self){
 		match (take(self),other){
@@ -498,6 +665,9 @@ impl<B:Backend> Merge for Value<B>{
 			(u,v)=>*self=vec![u,v].into()
 		}
 	}
+}
+impl<B:Backend> Op for CrossEntropyLoss<B>{
+	type Output=Tensor<B,1>;
 }
 impl<B:Backend> Op for Embedding<B>{
 	type Output=Tensor<B,3>;
@@ -736,6 +906,14 @@ impl<W:Wrappable> Wrappable for Cat<W>{
 	type B=W::B;
 	type With<C:Backend>=Cat<W::With<C>>;
 }
+impl<W:Wrappable> Wrappable for Classification<W>{
+	type B=W::B;
+	type With<C:Backend>=Classification<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for CrossEntropy<W>{
+	type B=W::B;
+	type With<C:Backend>=CrossEntropy<W::With<C>>;
+}
 impl<W:Wrappable> Wrappable for Duplicate<W>{
 	type B=W::B;
 	type With<C:Backend>=Duplicate<W::With<C>>;
@@ -788,7 +966,8 @@ impl<W:Wrappable> Wrapped<W>{
 mod tests{
 	#[test]
 	fn learn_xor(){
-		type A=Autodiff<Wgpu>;
+		type B=NdArray;
+		type A=Autodiff<B>;
 		let i0=Tensor::<A,1>::from_data(TensorData::new([0.0,0.0].to_vec(),[2]),&Default::default());
 		let i1=Tensor::<A,1>::from_data(TensorData::new([0.0,1.0].to_vec(),[2]),&Default::default());
 		let i2=Tensor::<A,1>::from_data(TensorData::new([1.0,0.0].to_vec(),[2]),&Default::default());
@@ -806,14 +985,14 @@ mod tests{
 		graph.connect(true,l.label("input"),Layer::linear(true,2,10,1.0),l.label("x"));
 		graph.connect(true,l.label("x"),Layer::relu(),l.label("y"));
 		graph.connect(true,l.label("y"),Layer::linear(false,10,1,1.0),l.label("output"));
-		let graph=Unvec(graph.clone()).mse().set_type::<(Value<A>,Value<A>),(Value<A>,Value<A>,Value<A>)>().regression().wrap();
+		let graph=Unvec(graph).mse().set_type::<(Value<A>,Value<A>),(Value<A>,Value<A>,Value<A>)>().regression().wrap();
 		let graph=graph.train(&TrainConfig::new(),SgdConfig::new().init(),0.01,train,valid);
 		let graph=graph.valid().into_inner().into_inner().into_inner().into_inner();
 
-		let inputval=Value::from(Tensor::<Wgpu,2>::from_data(TensorData::new([0.0,0.0,0.0,1.0,1.0,0.0,1.0,1.0].to_vec(),[4,2]),&Default::default()));
+		let inputval=Value::from(Tensor::<B,2>::from_data(TensorData::new([0.0,0.0,0.0,1.0,1.0,0.0,1.0,1.0].to_vec(),[4,2]),&Default::default()));
 		let outputval=graph.forward(inputval);
 		if let Value::F2(o)=outputval{
-			let target=Tensor::<Wgpu,2>::from_data(TensorData::new([0.0,1.0,1.0,0.0].to_vec(),[4,1]),&Default::default());
+			let target=Tensor::<B,2>::from_data(TensorData::new([0.0,1.0,1.0,0.0].to_vec(),[4,1]),&Default::default());
 			let error=(target-o.clone()).abs().max();
 			println!("{}",o);
 			assert!(error.into_scalar()<0.1);
@@ -822,7 +1001,7 @@ mod tests{
 		}
 	}
 	use burn::{
-		backend::{Autodiff,Wgpu},data::dataset::InMemDataset,optim::SgdConfig
+		backend::Autodiff,data::dataset::InMemDataset,optim::SgdConfig
 	};
 	use crate::graph::VertexLabels;
 	use super::*;
@@ -846,14 +1025,18 @@ pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
 /// batcher that stacks things
 pub struct BatchStacker;
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wrapper for converting loss to classification output
+pub struct Classification<A>{inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 /// metrics renderer implementation that doesn't actually do anything
 pub struct DontRender;
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Stack(usize)}
+pub enum Config{CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Stack(usize)}
 #[derive(Debug,Module)]//TODO more layers
 /// enumerates some burn layers
-pub enum Layer<B:Backend>{Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Stack(usize)}
+pub enum Layer<B:Backend>{CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Stack(usize)}
 #[derive(Clone,Debug)]//TODO implement module for this
 /// enumerates burn tensors up to 8 dimensions
 pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
@@ -885,6 +1068,8 @@ pub struct TrainConfig{
 pub struct Wrapped<W:Wrappable>{inner:W}
 /// chained method shortcut trait
 pub trait Shortcuts{
+	/// wraps in a classification wrapper
+	fn classification(self)->Classification<Self> where Classification<Self>:Op,Self:Sized{Classification::from_inner(self)}
 	/// wraps in a regression wrapper
 	fn regression(self)->Regression<Self> where Regression<Self>:Op,Self:Sized{Regression::from_inner(self)}
 	/// wraps in a burn wrapper
@@ -904,18 +1089,18 @@ use burn::{
 	lr_scheduler::LrScheduler,
 	module::{AutodiffModule,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
 	nn::{
-		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,loss::MseLoss
+		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
 	},
 	optim::Optimizer,
 	prelude::*,
 	record::{CompactRecorder,FileRecorder,RecorderError},
 	tensor::{BasicOps,TensorKind,activation::softmax,backend::AutodiffBackend},
 	train::{
-		LearnerBuilder,RegressionOutput,TrainOutput,TrainStep,ValidStep,metric::{Adaptor,ItemLazy,LossInput,LossMetric},renderer::{MetricState,MetricsRenderer,TrainingProgress}
+		ClassificationOutput,LearnerBuilder,RegressionOutput,TrainOutput,TrainStep,ValidStep,metric::{Adaptor,ItemLazy,LossInput,LossMetric},renderer::{MetricState,MetricsRenderer,TrainingProgress}
 	}
 };
 use crate::{
-	ai::{AI,AccQ,Branch,Cat,Decompose,Duplicate,Map,MSE,Op,Sequential,SetType,SoftChoose,TruncateToMatch,WhichDims,Zip},graph::{Graph,Merge,Unvec}
+	ai::{AI,AccQ,Branch,Cat,CrossEntropy,Decompose,Duplicate,Map,MSE,Op,Sequential,SetType,SoftChoose,TruncateToMatch,WhichDims,Zip},graph::{Graph,Merge,Unvec}
 };
 use rand::random;
 use std::{
