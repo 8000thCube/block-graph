@@ -45,7 +45,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> AI<Vec<V>,Vec<V>> for Graph<C
 		});
 		let mut n=0;
 		slots.retain(|_x|{
-			let remove=n<inputcount||nodes[n-inputcount].1>0;
+			let remove=n<inputcount||nodes[n-inputcount].0==0||nodes[n-inputcount].1>0;
 			n+=1;
 			!remove
 		});
@@ -67,7 +67,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> AI<Vec<V>,Vec<V>> for Graph<C
 		});
 		let mut n=0;
 		slots.retain(|_x|{
-			let remove=n<inputcount||nodes[n-inputcount].1>0;
+			let remove=n<inputcount||nodes[n-inputcount].0==0||nodes[n-inputcount].1>0;
 			n+=1;
 			!remove
 		});
@@ -84,7 +84,19 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	pub fn new()->Self{
 		Self{connections:Vec::new(),nodes:Vec::new(),layers:Vec::new()}
 	}
-	/// adds a connection between vertices, returning the connection index
+	#[track_caller]
+	/// adds a connection between two vertices reusing a layer index
+	pub fn add_connection(&mut self,clear:bool,input:usize,layer:usize,output:usize){
+		assert!(layer<self.layers.len(),"must use an index of an existing layer");
+		let (connections,nodes)=(&mut self.connections,&mut self.nodes);
+		let nodecount=nodes.len();
+
+		connections.push((clear,layer,input,output));
+		nodes.resize((input+1).max(nodecount).max(output+1),(0,0));
+		nodes[input].1+=1;
+		nodes[output].0+=1;
+	}
+	/// adds a connection between vertices, returning the layer index
 	pub fn connect<A:Into<C>>(&mut self,clear:bool,input:usize,layer:A,output:usize)->usize{
 		let (connections,layers,nodes)=(&mut self.connections,&mut self.layers,&mut self.nodes);
 		let (layercount,nodecount)=(layers.len(),nodes.len());
