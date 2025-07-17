@@ -39,7 +39,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> AI<Vec<V>,Vec<V>> for Graph<C
 		let (input,hidden)=slots.split_at_mut(inputcount);
 		input.iter_mut().zip(hidden.iter_mut().zip(nodes.iter()).filter_map(|(h,&(icount,_ocount))|(icount==0).then_some(h))).for_each(|(i,h)|*h=take(i));
 		connections.iter().for_each(|&(clear,layer,input,output)|{
-			let x=if clear{take(&mut hidden[input])}else{hidden[input].clone()};
+			let x=if clear>0{take(&mut hidden[input])}else{hidden[input].clone()};
 			let y=layers[layer].forward(x);
 			hidden[output].merge(y);
 		});
@@ -61,7 +61,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> AI<Vec<V>,Vec<V>> for Graph<C
 		let (input,hidden)=slots.split_at_mut(inputcount);
 		input.iter_mut().zip(hidden.iter_mut().zip(nodes.iter()).filter_map(|(h,&(icount,_ocount))|(icount==0).then_some(h))).for_each(|(i,h)|*h=take(i));
 		connections.iter().for_each(|&(clear,layer,input,output)|{
-			let x=if clear{take(&mut hidden[input])}else{hidden[input].clone()};
+			let x=if clear>0{take(&mut hidden[input])}else{hidden[input].clone()};
 			let y=layers[layer].forward_mut(x);
 			hidden[output].merge(y);
 		});
@@ -91,7 +91,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let (connections,nodes)=(&mut self.connections,&mut self.nodes);
 		let nodecount=nodes.len();
 
-		connections.push((clear,layer,input,output));
+		connections.push((clear as usize,layer,input,output));
 		nodes.resize((input+1).max(nodecount).max(output+1),(0,0));
 		nodes[input].1+=1;
 		nodes[output].0+=1;
@@ -101,12 +101,51 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let (connections,layers,nodes)=(&mut self.connections,&mut self.layers,&mut self.nodes);
 		let (layercount,nodecount)=(layers.len(),nodes.len());
 
-		connections.push((clear,layercount,input,output));
+		connections.push((clear as usize,layercount,input,output));
 		layers.push(layer.into());
 		nodes.resize((input+1).max(nodecount).max(output+1),(0,0));
 		nodes[input].1+=1;
 		nodes[output].0+=1;
 		layercount
+	}
+	/// topologically sorts the graph. connections in the same topological position will remain in the same relative order. node clearing will be moved to the last output of each node
+	pub fn sort(&mut self){//TODO test
+		let connections=&mut self.connections;
+		let nodes=&self.nodes;
+		let mut nodeconnectiondata=vec![0;connections.len()+nodes.len()];
+		let mut nodeconnectiondata=nodeconnectiondata.as_mut_slice();
+		let mut nodeconnections:Vec<(&mut [usize],&mut [usize])>=Vec::with_capacity(nodes.len());
+		for &(inputs,_outputs) in nodes.iter(){
+			let (filled,nc)=nodeconnectiondata.split_at_mut(1);
+			let (inputs,nc)=nc.split_at_mut(inputs);
+
+			nodeconnectiondata=nc;
+			nodeconnections.push((filled,inputs));
+		}
+		for (n,(_clear,_input,_layer,output)) in connections.iter().enumerate(){
+			let (filled,inputs)=&mut nodeconnections[*output];
+			inputs[filled[0]]=n;
+			filled[0]+=1;
+		}
+
+		let mut newconnections:Vec<(usize,usize,usize,usize)>=Vec::with_capacity(connections.len());
+		for (&(_inputcount,outputcount),(_filled,inputs)) in nodes.iter().zip(nodeconnections.iter()){
+			if outputcount>0{continue}
+			newconnections.extend(inputs.iter().rev().map(|&n|connections[n]));
+		}
+		for n in 0..connections.len(){
+			let (clear,input,_layer,_output)=&mut newconnections[n];
+			let (filled,inputs)=&nodeconnections[*input];
+
+			if filled[0]==0{
+				*clear=0;
+			}else{
+				*clear=1;
+				newconnections.extend(inputs.iter().rev().map(|&n|connections[n]));
+			}
+		}
+		newconnections.reverse();
+		*connections=newconnections;
 	}
 }
 impl<C:Decompose> Decompose for Graph<C>{
@@ -116,7 +155,7 @@ impl<C:Decompose> Decompose for Graph<C>{
 	}
 	fn decompose(self)->Self::Decomposition{(self.layers.into_iter().map(C::decompose).collect(),self.connections.clone(),self.nodes.clone())}
 	fn decompose_cloned(&self)->Self::Decomposition{(self.layers.iter().map(C::decompose_cloned).collect(),self.connections.clone(),self.nodes.clone())}
-	type Decomposition=(Vec<C::Decomposition>,Vec<(bool,usize,usize,usize)>,Vec<(usize,usize)>);
+	type Decomposition=(Vec<C::Decomposition>,Vec<(usize,usize,usize,usize)>,Vec<(usize,usize)>);
 }
 impl<C:Op> Op for Graph<C>{
 	type Output=Vec<C::Output>;
@@ -131,7 +170,7 @@ impl<E> Merge for Vec<E>{
 }
 #[derive(Clone,Debug)]
 /// graph like ai operation structure. The connections run in the order they are connected
-pub struct Graph<C>{connections:Vec<(bool,usize,usize,usize)>,nodes:Vec<(usize,usize)>,layers:Vec<C>}
+pub struct Graph<C>{connections:Vec<(usize,usize,usize,usize)>,nodes:Vec<(usize,usize)>,layers:Vec<C>}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
 /// wraps the graph so it can take singular io
 pub struct Unvec<A>(pub A);
