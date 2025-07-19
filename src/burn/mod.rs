@@ -1,0 +1,473 @@
+impl MetricsRenderer for DontRender{
+	fn update_train(&mut self,_state:MetricState){}
+	fn update_valid(&mut self,_state:MetricState){}
+	fn render_train(&mut self,_item:TrainingProgress){}
+	fn render_valid(&mut self,_item:TrainingProgress){}
+}
+impl Op for Classification<()>{
+	type Output=ClassificationOutput<NdArray>;
+}
+impl Op for Regression<()>{
+	type Output=RegressionOutput<NdArray>;
+}
+impl<A:AI<X,(Value<B>,Value<B>,Value<B>)>,B:Backend,X> AI<X,ClassificationOutput<B>> for Classification<A>{// TODO make a loss output rather than raw tuples
+	fn forward(&self,input:X)->ClassificationOutput<B>{self.with_inner(()).forward(self.inner().forward(input))}
+	fn forward_mut(&mut self,input:X)->ClassificationOutput<B>{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
+}
+impl<A:AI<X,(Value<B>,Value<B>,Value<B>)>,B:Backend,X> AI<X,RegressionOutput<B>> for Regression<A>{
+	fn forward(&self,input:X)->RegressionOutput<B>{self.with_inner(()).forward(self.inner().forward(input))}
+	fn forward_mut(&mut self,input:X)->RegressionOutput<B>{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
+}
+impl<A:AutodiffBackend<InnerBackend=B>,B:Backend,W:'static+Wrappable<B=A>,Y:'static+ItemLazy+Send+Sync,Z:'static+ItemLazy+Send+Sync> Wrapped<W> where <Self as AutodiffModule<A>>::InnerModule:ValidStep<(Value<B>,Value<B>),Z>,Self:TrainStep<(Value<A>,Value<A>),Y>,W::Decomposition:AutodiffModule<A>,W::With<B>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>+Op<Output=Z>,W:Op<Output=Y>,Y::ItemSync:Adaptor<LossInput<NdArray>>,Z::ItemSync:Adaptor<LossInput<NdArray>>{
+	/// trains the model
+	pub fn train<I:'static+Clone+Debug+Into<(Value<A>,Value<A>)>+Send+Sync,J:'static+Clone+Debug+Into<(Value<B>,Value<B>)>+Send+Sync,O:Optimizer<Self,A>,S:LrScheduler,T:'static+Dataset<I>,V:'static+Dataset<J>>(self,config:&TrainConfig,optimizer:O,scheduler:S,train:T,valid:V)->Self where O::Record:'static,S::Record<A>:'static{
+		let batcher=BatchStacker;
+		let trainloader=DataLoaderBuilder::new(batcher).batch_size(config.batch_size).shuffle(random()).num_workers(config.workers).build(train);
+		let validloader=DataLoaderBuilder::new(batcher).batch_size(config.batch_size).shuffle(random()).num_workers(config.workers).build(valid);
+
+		create_folder(&config.artifact_directory).unwrap();
+		let builder=LearnerBuilder::new(&config.artifact_directory).metric_train_numeric(LossMetric::new()).metric_valid_numeric(LossMetric::new());
+		let builder=if config.checkpoints{builder.with_file_checkpointer(CompactRecorder::new())}else{builder};
+		let builder=if config.console_rendering{builder}else{builder.renderer(DontRender)};
+		let builder=builder.devices(vec![<W::B as Backend>::Device::default()]).num_epochs(config.epochs);
+		let builder=if config.summary{builder.summary()}else{builder};
+		let learner=builder.build(self,optimizer,scheduler);
+		learner.fit(trainloader,validloader)
+	}
+}
+impl<A:AutodiffBackend,W:AI<X,(Value<A>,Value<A>,Value<A>)>+Wrappable<B=A>,X> TrainStep<X,ClassificationOutput<A>> for Wrapped<Classification<W>> where W::Decomposition:AutodiffModule<A>,W::With<A::InnerBackend>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>{
+	fn step(&self,item:X)->TrainOutput<ClassificationOutput<A>>{
+		let output:ClassificationOutput<A>=self.forward(item);
+		TrainOutput::new(self,output.loss.backward(),output)
+	}
+}
+impl<A:AutodiffBackend,W:AI<X,(Value<A>,Value<A>,Value<A>)>+Wrappable<B=A>,X> TrainStep<X,RegressionOutput<A>> for Wrapped<Regression<W>> where W::Decomposition:AutodiffModule<A>,W::With<A::InnerBackend>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>{
+	fn step(&self,item:X)->TrainOutput<RegressionOutput<A>>{
+		let output:RegressionOutput<A>=self.forward(item);
+		TrainOutput::new(self,output.loss.backward(),output)
+	}
+}
+impl<A:AutodiffBackend,W:Wrappable<B=A>> AutodiffModule<A> for Wrapped<W> where W::Decomposition:AutodiffModule<A>,W::With<A::InnerBackend>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>{
+	fn valid(&self)->Self::InnerModule{Wrapped::new(Decompose::compose(self.inner.decompose_cloned().valid()))}
+	type InnerModule=Wrapped<W::With<A::InnerBackend>>;
+}
+impl<A:Decompose> Decompose for Classification<A>{
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
+	type Decomposition=A::Decomposition;
+}
+impl<A:Decompose> Decompose for Regression<A>{
+	fn compose(decomposition:Self::Decomposition)->Self{
+		Self{inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
+	type Decomposition=A::Decomposition;
+}
+impl<A:Op<Output=Y>+Wrappable,Y> Op for Classification<A> where Classification<()>:AI<Y,ClassificationOutput<A::B>>{
+	type Output=ClassificationOutput<A::B>;
+}
+impl<A:Op<Output=Y>+Wrappable,Y> Op for Regression<A> where Regression<()>:AI<Y,RegressionOutput<A::B>>{
+	type Output=RegressionOutput<A::B>;
+}
+impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>> Wrappable for (A,D){
+	type B=B;
+	type With<C:Backend>=(A::With<C>,D::With<C>);
+}
+impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>,E:Wrappable<B=B>> Wrappable for (A,D,E){
+	type B=B;
+	type With<C:Backend>=(A::With<C>,D::With<C>,E::With<C>);
+}
+impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>,E:Wrappable<B=B>,F:Wrappable<B=B>> Wrappable for (A,D,E,F){
+	type B=B;
+	type With<C:Backend>=(A::With<C>,D::With<C>,E::With<C>,F::With<C>);
+}
+impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>,E:Wrappable<B=B>,F:Wrappable<B=B>,G:Wrappable<B=B>> Wrappable for (A,D,E,F,G){
+	type B=B;
+	type With<C:Backend>=(A::With<C>,D::With<C>,E::With<C>,F::With<C>,G::With<C>);
+}
+impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>,E:Wrappable<B=B>,F:Wrappable<B=B>,G:Wrappable<B=B>,H:Wrappable<B=B>> Wrappable for (A,D,E,F,G,H){
+	type B=B;
+	type With<C:Backend>=(A::With<C>,D::With<C>,E::With<C>,F::With<C>,G::With<C>,H::With<C>);
+}
+impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>,E:Wrappable<B=B>,F:Wrappable<B=B>,G:Wrappable<B=B>,H:Wrappable<B=B>,I:Wrappable<B=B>> Wrappable for (A,D,E,F,G,H,I){
+	type B=B;
+	type With<C:Backend>=(A::With<C>,D::With<C>,E::With<C>,F::With<C>,G::With<C>,H::With<C>,I::With<C>);
+}
+impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>,E:Wrappable<B=B>,F:Wrappable<B=B>,G:Wrappable<B=B>,H:Wrappable<B=B>,I:Wrappable<B=B>,J:Wrappable<B=B>> Wrappable for (A,D,E,F,G,H,I,J){
+	type B=B;
+	type With<C:Backend>=(A::With<C>,D::With<C>,E::With<C>,F::With<C>,G::With<C>,H::With<C>,I::With<C>,J::With<C>);
+}
+impl<A:Wrappable<B=B>,B:Backend,X:Wrappable<B=B>,Y:Wrappable<B=B>> Wrappable for SetType<A,X,Y>{
+	type B=B;
+	type With<C:Backend>=SetType<A::With<C>,X::With<C>,Y::With<C>>;
+}
+impl<A> Classification<A>{
+	/// creates from the inner value
+	pub fn from_inner(inner:A)->Self where Classification<A>:Op{
+		Self{inner}
+	}
+	/// references the inner value
+	pub fn inner(&self)->&A{&self.inner}
+	/// references the inner value
+	pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+	/// converts into the inner value
+	pub fn into_inner(self)->A{self.inner}
+	/// replaces the inner value
+	pub fn with_inner<B>(&self,inner:B)->Classification<B> where Classification<B>:Op{Classification::from_inner(inner)}
+}
+impl<A> Regression<A>{
+	/// creates from the inner value
+	pub fn from_inner(inner:A)->Self where Regression<A>:Op{
+		Self{inner}
+	}
+	/// references the inner value
+	pub fn inner(&self)->&A{&self.inner}
+	/// references the inner value
+	pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+	/// converts into the inner value
+	pub fn into_inner(self)->A{self.inner}
+	/// replaces the inner value
+	pub fn with_inner<B>(&self,inner:B)->Regression<B> where Regression<B>:Op{Regression::from_inner(inner)}
+}
+impl<B:Backend,E:Into<(Value<B>,Value<B>)>> Batcher<B,E,(Value<B>,Value<B>)> for BatchStacker{
+	fn batch(&self,items:Vec<E>,_device:&<B as Backend>::Device)->(Value<B>,Value<B>){
+		let items=items.into_iter().map(Into::into);
+		let (input,target):(Vec<Value<B>>,Vec<Value<B>>)=items.unzip();
+
+		let (input,target)=(Value::Multi(input),Value::Multi(target));
+		(input.stack(0),target.stack(0))
+	}
+}
+impl<B:Backend,W:AI<X,(Value<B>,Value<B>,Value<B>)>+Wrappable<B=B>,X> ValidStep<X,ClassificationOutput<B>> for Wrapped<Classification<W>> where W::Decomposition:Module<B>{
+	fn step(&self,item:X)->ClassificationOutput<B>{self.forward(item)}
+}
+impl<B:Backend,W:AI<X,(Value<B>,Value<B>,Value<B>)>+Wrappable<B=B>,X> ValidStep<X,RegressionOutput<B>> for Wrapped<Regression<W>> where W::Decomposition:Module<B>{
+	fn step(&self,item:X)->RegressionOutput<B>{self.forward(item)}
+}
+impl<B:Backend,W:Wrappable<B=B>> Module<B> for Wrapped<W> where W::Decomposition:Module<B>{
+	fn collect_devices(&self,devices:Vec<<B as Backend>::Device>)->Vec<<B as Backend>::Device>{self.inner.decompose_cloned().collect_devices(devices)}
+	fn devices(&self)->Vec<<B as Backend>::Device>{self.inner.decompose_cloned().devices()}
+	fn fork(self,device:&<B as Backend>::Device)->Self{Self::new(W::compose(self.inner.decompose().fork(device)))}
+	fn into_record(self)->Self::Record{self.inner.decompose().into_record()}
+	fn load_file<F:FileRecorder<B>,P:Into<PathBuf>>(self,filepath:P,recorder:&F,device:&<B as Backend>::Device)->Result<Self,RecorderError>{self.inner.decompose().load_file(filepath,recorder,device).map(|a|Self::new(W::compose(a)))}
+	fn load_record(self,record:Self::Record)->Self{Self::new(W::compose(self.inner.decompose().load_record(record)))}
+	fn map<Mapper:ModuleMapper<B>>(self,mapper:&mut Mapper)->Self{Self::new(W::compose(self.inner.decompose().map(mapper)))}
+	fn num_params(&self)->usize{self.inner.decompose_cloned().num_params()}
+	fn quantize_weights(self,quantizer:&mut Quantizer)->Self{Self::new(W::compose(self.inner.decompose().quantize_weights(quantizer)))}
+	fn save_file<F:FileRecorder<B>,P:Into<PathBuf>>(self,filepath:P,recorder:&F)->Result<(),RecorderError>{self.inner.decompose().save_file(filepath,recorder)}
+	fn to_device(self,device:&<B as Backend>::Device)->Self{Self::new(W::compose(self.inner.decompose().to_device(device)))}
+	fn visit<Visitor:ModuleVisitor<B>>(&self,visitor:&mut Visitor){self.inner.decompose_cloned().visit(visitor)}
+	type Record=<W::Decomposition as Module<B>>::Record;
+}
+impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),ClassificationOutput<B>> for Classification<()>{
+	fn forward(&self,(loss,output,target):(Value<B>,Value<B>,Value<B>))->ClassificationOutput<B>{//TODO make work for multi
+		let loss=match loss{Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
+		let output=match output{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
+		let target=match target{Value::I1(x)=>x,Value::I2(x)=>x.flatten(0,1),Value::I3(x)=>x.flatten(0,2),Value::I4(x)=>x.flatten(0,3),Value::I5(x)=>x.flatten(0,4),Value::I6(x)=>x.flatten(0,5),Value::I7(x)=>x.flatten(0,6),Value::I8(x)=>x.flatten(0,7),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
+		ClassificationOutput::new(loss,output,target)
+	}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),RegressionOutput<B>> for Regression<()>{
+	fn forward(&self,(loss,output,target):(Value<B>,Value<B>,Value<B>))->RegressionOutput<B>{
+		let loss=match loss{Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		let output=match output{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		let target=match target{Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
+		RegressionOutput::new(loss,output,target)
+	}
+}/*
+impl<B:Backend> AI<Value<B>,Value<B>> for Dropout{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input{
+			Value::F1(x)=>self.forward(x).into(),Value::F2(x)=>self.forward(x).into(),Value::F3(x)=>self.forward(x).into(),Value::F4(x)=>self.forward(x).into(),Value::F5(x)=>self.forward(x).into(),Value::F6(x)=>self.forward(x).into(),Value::F7(x)=>self.forward(x).into(),Value::F8(x)=>self.forward(x).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>x.into_iter().map(|x|self.fix_type::<Value<B>>().forward(x)).collect::<Vec<_>>().into(),_=>"dropout is only available for floats".into()
+		}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for Embedding<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		fn apply_embed<B:Backend,const N:usize,const K:usize>(this:&Embedding<B>,x:Tensor<B,N,Int>)->Tensor<B,K>{
+			let dims=x.dims();
+			let [batch,seq]=[dims[0],dims.iter().skip(1).product()];
+			let x=x.reshape([batch,seq]);
+			let y=this.forward(x);
+			let embed=y.dims().last().copied().unwrap();
+			let mut ydims=[0;K];
+			ydims[..N].copy_from_slice(&dims);
+			ydims[N]=embed;
+			y.reshape(ydims)
+		}
+		fn apply_linear<B:Backend,const N:usize>(this:&Embedding<B>,x:Tensor<B,N>)->Tensor<B,N>{
+			Linear{bias:None,weight:this.weight.clone()}.forward(x)
+		}
+		match input{
+			Value::F1(x)=>apply_linear(self,x).into(),Value::F2(x)=>apply_linear(self,x).into(),Value::F3(x)=>apply_linear(self,x).into(),Value::F4(x)=>apply_linear(self,x).into(),Value::F5(x)=>apply_linear(self,x).into(),Value::F6(x)=>apply_linear(self,x).into(),Value::F7(x)=>apply_linear(self,x).into(),Value::F8(x)=>apply_linear(self,x).into(),Value::I1(x)=>apply_embed::<B,1,2>(self,x).into(),Value::I2(x)=>apply_embed::<B,2,3>(self,x).into(),Value::I3(x)=>apply_embed::<B,3,4>(self,x).into(),Value::I4(x)=>apply_embed::<B,4,5>(self,x).into(),Value::I5(x)=>apply_embed::<B,5,6>(self,x).into(),Value::I6(x)=>apply_embed::<B,6,7>(self,x).into(),Value::I7(x)=>apply_embed::<B,7,8>(self,x).into(),Value::I8(_x)=>"embedding output would exceed maximum supported rank".into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>x.into_iter().map(|x|self.fix_type::<Value<B>>().forward(x)).collect::<Vec<_>>().into(),_=>"embedding is only available for float or int inputs".into()
+		}
+	}
+}*/
+impl<B:Backend> Wrappable for Layer<B>{
+	type B=B;
+	type With<C:Backend>=Layer<C>;
+}
+impl<B:Backend> Wrappable for Value<B>{
+	type B=B;
+	type With<C:Backend>=Value<C>;
+}
+impl<T:?Sized+Op> Shortcuts for T{}
+impl<W:AI<X,Y>+Wrappable,X,Y> AI<X,Y> for Wrapped<W>{
+	fn forward(&self,input:X)->Y{self.inner.forward(input)}
+	fn forward_mut(&mut self,input:X)->Y{self.inner.forward_mut(input)}
+}
+impl<W:Op+Wrappable> Op for Wrapped<W>{
+	type Output=W::Output;
+}
+impl<W:Wrappable> Decompose for Wrapped<W>{
+	fn compose(decomposition:Self::Decomposition)->Self{Self::new(W::compose(decomposition))}
+	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
+	type Decomposition=W::Decomposition;
+}
+impl<W:Wrappable> Display for Wrapped<W>{
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->Result<(),std::fmt::Error>{write!(f,"todo")}
+}
+impl<W:Wrappable> From<W> for Wrapped<W>{
+	fn from(value:W)->Self{Self::new(value)}
+}
+impl<W:Wrappable> ModuleDisplay for Wrapped<W> where W::Decomposition:ModuleDisplay{
+	fn custom_content(&self,content:Content)->Option<Content>{self.inner.decompose_cloned().custom_content(content)}
+	fn custom_settings(&self)->Option<DisplaySettings>{self.inner.decompose_cloned().custom_settings()}
+	fn format(&self,passed_settings:DisplaySettings)->String{self.inner.decompose_cloned().format(passed_settings)}
+}
+impl<W:Wrappable> ModuleDisplayDefault for Wrapped<W> where W::Decomposition:ModuleDisplayDefault{
+	fn content(&self,content:Content)->Option<Content>{self.inner.decompose_cloned().content(content)}
+	fn num_params(&self)->usize{self.inner.decompose_cloned().num_params()}
+}
+impl<W:Wrappable> Wrappable for AccQ<W>{
+	type B=W::B;
+	type With<C:Backend>=AccQ<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Branch<W>{
+	type B=W::B;
+	type With<C:Backend>=Branch<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Cat<W>{
+	type B=W::B;
+	type With<C:Backend>=Cat<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Classification<W>{
+	type B=W::B;
+	type With<C:Backend>=Classification<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for CrossEntropy<W>{
+	type B=W::B;
+	type With<C:Backend>=CrossEntropy<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Duplicate<W>{
+	type B=W::B;
+	type With<C:Backend>=Duplicate<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Graph<W>{
+	type B=W::B;
+	type With<C:Backend>=Graph<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for MSE<W>{
+	type B=W::B;
+	type With<C:Backend>=MSE<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Map<W>{
+	type B=W::B;
+	type With<C:Backend>=Map<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Regression<W>{
+	type B=W::B;
+	type With<C:Backend>=Regression<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Sequential<W>{
+	type B=W::B;
+	type With<C:Backend>=Sequential<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for SoftChoose<W>{
+	type B=W::B;
+	type With<C:Backend>=SoftChoose<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Unvec<W>{
+	type B=W::B;
+	type With<C:Backend>=Unvec<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Zip<W>{
+	type B=W::B;
+	type With<C:Backend>=Zip<W::With<C>>;
+}
+impl<W:Wrappable> Wrapped<W>{
+	/// references the inner value
+	pub fn inner(&self)->&W{&self.inner}
+	/// references the inner value
+	pub fn inner_mut(&mut self)->&mut W{&mut self.inner}
+	/// unwraps the inner value
+	pub fn into_inner(self)->W{self.inner}
+	/// creates a new wrapped value
+	pub fn new(inner:W)->Self{
+		Self{inner}
+	}
+}
+#[cfg(test)]
+mod tests{
+	#[test]
+	fn learn_xor(){
+		type B=NdArray;
+		type A=Autodiff<B>;
+		let i0=Tensor::<A,1>::from_data(TensorData::new([0.0,0.0].to_vec(),[2]),&Default::default());
+		let i1=Tensor::<A,1>::from_data(TensorData::new([0.0,1.0].to_vec(),[2]),&Default::default());
+		let i2=Tensor::<A,1>::from_data(TensorData::new([1.0,0.0].to_vec(),[2]),&Default::default());
+		let i3=Tensor::<A,1>::from_data(TensorData::new([1.0,1.0].to_vec(),[2]),&Default::default());
+		let o0=Tensor::<A,1>::from_data(TensorData::new([0.0].to_vec(),[1]),&Default::default());
+		let o1=Tensor::<A,1>::from_data(TensorData::new([1.0].to_vec(),[1]),&Default::default());
+		let o2=Tensor::<A,1>::from_data(TensorData::new([1.0].to_vec(),[1]),&Default::default());
+		let o3=Tensor::<A,1>::from_data(TensorData::new([0.0].to_vec(),[1]),&Default::default());
+
+		let dataset:Vec<(Tensor<A,1>,Tensor<A,1>)>=[(i0,o0),(i1,o1),(i2,o2),(i3,o3)].into_iter().cycle().take(4000).collect();
+		let train=InMemDataset::new(dataset.clone().into_iter().map(|(i,o)|(Value::from(i),Value::from(o))).collect());
+		let valid=InMemDataset::new(dataset.into_iter().map(|(i,o)|(Value::from(i.valid()),Value::from(o.valid()))).collect());
+		let mut graph:Graph<Layer<A>>=Graph::new();
+		let mut l=VertexLabels::new();
+		graph.connect(true,l.label("input"),Layer::linear(true,2,10,1.0),l.label("x"));
+		graph.connect(true,l.label("x"),Layer::relu(),l.label("y"));
+		graph.connect(true,l.label("y"),Layer::linear(false,10,1,1.0),l.label("output"));
+		let graph=Unvec(graph).mse().set_type::<(Value<A>,Value<A>),(Value<A>,Value<A>,Value<A>)>().regression().wrap();
+		let graph=graph.train(&TrainConfig::new(),SgdConfig::new().init(),0.01,train,valid);
+		let graph=graph.valid().into_inner().into_inner().into_inner().into_inner();
+
+		let inputval=Value::from(Tensor::<B,2>::from_data(TensorData::new([0.0,0.0,0.0,1.0,1.0,0.0,1.0,1.0].to_vec(),[4,2]),&Default::default()));
+		let outputval=graph.forward(inputval);
+		if let Value::F2(o)=outputval{
+			let target=Tensor::<B,2>::from_data(TensorData::new([0.0,1.0,1.0,0.0].to_vec(),[4,1]),&Default::default());
+			let error=(target-o.clone()).abs().max();
+			println!("{}",o);
+			assert!(error.into_scalar()<0.1);
+		}else{
+			panic!("h");
+		}
+	}
+	use burn::{
+		backend::Autodiff,data::dataset::InMemDataset,optim::SgdConfig
+	};
+	use crate::graph::VertexLabels;
+	use super::*;
+}
+mod layer;
+mod value;
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+/// batcher that stacks things
+pub struct BatchStacker;
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wrapper for converting loss to classification output
+pub struct Classification<A>{inner:A}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+/// metrics renderer implementation that doesn't actually do anything
+pub struct DontRender;
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wrapper for converting loss to regression output
+pub struct Regression<A>{inner:A}
+#[derive(Config,Debug)]
+/// configuration for convenient training through the wrapper
+pub struct TrainConfig{
+	#[config(default="String::from(\".artifact\")")]
+	artifact_directory:String,
+	#[config(default="16")]
+	batch_size:usize,
+	#[config(default="false")]
+	checkpoints:bool,
+	#[config(default="false")]
+	console_rendering:bool,
+	#[config(default="10")]
+	epochs:usize,
+	#[config(default="false")]
+	summary:bool,
+	#[config(default="4")]
+	workers:usize
+}
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wraps in a burn wrapper
+pub struct Wrapped<W:Wrappable>{inner:W}
+/// chained method shortcut trait
+pub trait Shortcuts{
+	/// wraps in a classification wrapper
+	fn classification(self)->Classification<Self> where Classification<Self>:Op,Self:Sized{Classification::from_inner(self)}
+	/// wraps in a regression wrapper
+	fn regression(self)->Regression<Self> where Regression<Self>:Op,Self:Sized{Regression::from_inner(self)}
+	/// wraps in a burn wrapper
+	fn wrap(self)->Wrapped<Self> where Self:Wrappable{Wrapped::new(self)}
+}
+/// adds ability to convert into other backends such as autodiff backend
+pub trait ToBackend<A:Backend>:Sized{
+	/// converts to a module on the other backend with the given device
+	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>;
+	/// converts to a module on the other backend
+	fn to_backend(self)->Self::WithBackend<A>{self.to_backend_device(&Default::default())}
+	/// the current backend
+	type CurrentBackend:Backend;
+	/// the type with a different backend
+	type WithBackend<C:Backend>:ToBackend<A,CurrentBackend=C,WithBackend<C>=Self::WithBackend<C>>+ToBackend<A,CurrentBackend=C,WithBackend<Self::CurrentBackend>=Self>;
+}
+
+
+impl<A:Backend,B:Backend,const N:usize> ToBackend<A> for Tensor<B,N,Bool>{
+	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>{Tensor::<A,N,Bool>::from_data(self.to_data(),device)}
+	type CurrentBackend=B;
+	type WithBackend<C:Backend>=Tensor<C,N,Bool>;
+}
+
+impl<A:Backend,B:Backend,const N:usize> ToBackend<A> for Tensor<B,N,Float>{
+	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>{Tensor::<A,N,Float>::from_data(self.to_data(),device)}
+	type CurrentBackend=B;
+	type WithBackend<C:Backend>=Tensor<C,N,Float>;
+}
+
+impl<A:Backend,B:Backend,const N:usize> ToBackend<A> for Tensor<B,N,Int>{
+	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>{Tensor::<A,N,Int>::from_data(self.to_data(),device)}
+	type CurrentBackend=B;
+	type WithBackend<C:Backend>=Tensor<C,N,Int>;
+}
+impl<A:Backend,B:Backend> ToBackend<A> for Value<B>{
+	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>{
+		match self{Value::B1(x)=>x.to_backend_device(device).into(),Value::B2(x)=>x.to_backend_device(device).into(),Value::B3(x)=>x.to_backend_device(device).into(),Value::B4(x)=>x.to_backend_device(device).into(),Value::B5(x)=>x.to_backend_device(device).into(),Value::B6(x)=>x.to_backend_device(device).into(),Value::B7(x)=>x.to_backend_device(device).into(),Value::B8(x)=>x.to_backend_device(device).into(),Value::F1(x)=>x.to_backend_device(device).into(),Value::F2(x)=>x.to_backend_device(device).into(),Value::F3(x)=>x.to_backend_device(device).into(),Value::F4(x)=>x.to_backend_device(device).into(),Value::F5(x)=>x.to_backend_device(device).into(),Value::F6(x)=>x.to_backend_device(device).into(),Value::F7(x)=>x.to_backend_device(device).into(),Value::F8(x)=>x.to_backend_device(device).into(),Value::I1(x)=>x.to_backend_device(device).into(),Value::I2(x)=>x.to_backend_device(device).into(),Value::I3(x)=>x.to_backend_device(device).into(),Value::I4(x)=>x.to_backend_device(device).into(),Value::I5(x)=>x.to_backend_device(device).into(),Value::I6(x)=>x.to_backend_device(device).into(),Value::I7(x)=>x.to_backend_device(device).into(),Value::I8(x)=>x.to_backend_device(device).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|x.to_backend_device(device)).collect())}
+	}
+	type CurrentBackend=B;
+	type WithBackend<C:Backend>=Value<C>;
+}
+
+/// higher kinded type trait to allow rewrapping burn modules in different backends to implement some wrapper features
+pub trait Wrappable:Clone+Debug+Decompose+Send{
+	type B:Backend;
+	type With<C:Backend>:Wrappable<B=C,With<C>=Self::With<C>>+Wrappable<B=C,With<Self::B>=Self>;
+}
+pub use burn as lib;
+pub use layer::{Config,Layer};
+pub use value::{Shape,Value};
+use burn::{
+	backend::NdArray,
+	data::{
+		dataset::Dataset,dataloader::{batcher::Batcher,DataLoaderBuilder}
+	},
+	lr_scheduler::LrScheduler,
+	module::{AutodiffModule,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
+	optim::Optimizer,
+	prelude::*,
+	record::{CompactRecorder,FileRecorder,RecorderError},
+	tensor::backend::AutodiffBackend,
+	train::{
+		ClassificationOutput,LearnerBuilder,RegressionOutput,TrainOutput,TrainStep,ValidStep,metric::{Adaptor,ItemLazy,LossInput,LossMetric},renderer::{MetricState,MetricsRenderer,TrainingProgress}
+	}
+};
+use crate::{
+	ai::{AI,AccQ,Branch,Cat,CrossEntropy,Decompose,Duplicate,Map,MSE,Op,Sequential,SetType,SoftChoose,Zip},graph::{Graph,Unvec}
+};
+use rand::random;
+use std::{
+	fmt::{Debug,Display},fs::{create_dir_all as create_folder},path::PathBuf
+};
