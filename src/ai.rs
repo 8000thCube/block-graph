@@ -11,16 +11,10 @@ impl AI<(Vec<f32>,Vec<f32>),f32> for MSE<()>{
 	}
 }
 impl AI<(Vec<f32>,Vec<f32>),f32> for CrossEntropy<()>{
-	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{
-		let _todo=(output,target);
-		todo!()
-	}
+	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{-output.iter().zip(target.iter()).map(|(o,t)|o.ln()*t).fold(0.0,|acc,x|acc+x)}
 }
 impl AI<(Vec<f32>,u32),f32> for CrossEntropy<()>{
-	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{
-		let _todo=(output,target);
-		todo!()
-	}
+	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{-output[target as usize].ln()}
 }
 impl AI<Vec<f32>,Vec<f32>> for AccQ<()>{
 	fn forward(&self,mut input:Vec<f32>)->Vec<f32>{
@@ -92,20 +86,20 @@ impl Op for SoftChoose<()>{
 	type Output=u32;
 }
 impl WhichDims for All{
-	fn strict(&self)->bool{false}
-	fn which_dims(&self)->Self::Iter<'_>{0..usize::MAX}
+	fn is_strict(&self)->bool{false}
+	fn which_dims(&self,rank:usize)->Self::Iter<'_>{0..rank}
 	type Iter<'a>=Range<usize> where Self:'a;
 }
 impl WhichDims for Range<usize>{
-	fn which_dims(&self)->Self::Iter<'_>{self.clone()}
+	fn which_dims(&self,_rank:usize)->Self::Iter<'_>{self.clone()}
 	type Iter<'a>=Self where Self:'a;
 }
 impl WhichDims for Vec<usize>{
-	fn which_dims(&self)->Self::Iter<'_>{self.iter().copied()}
+	fn which_dims(&self,_rank:usize)->Self::Iter<'_>{self.iter().copied()}
 	type Iter<'a>=Copied<SliceIter<'a,usize>> where Self:'a;
 }
 impl WhichDims for usize{
-	fn which_dims(&self)->Self::Iter<'_>{iter::once(*self)}
+	fn which_dims(&self,_rank:usize)->Self::Iter<'_>{iter::once(*self)}
 	type Iter<'a>=Once<usize> where Self:'a;
 }
 impl<A:AI<R,S>+Op<Output=S>,B:AI<S,T>+Op<Output=T>,C:AI<T,U>+Op<Output=U>,D:AI<U,V>+Op<Output=V>,E:AI<V,W>+Op<Output=W>,F:AI<W,X>+Op<Output=X>,G:AI<X,Y>+Op<Output=Y>,H:AI<Y,Z>,R,S,T,U,V,W,X,Y,Z> AI<R,Z> for Sequential<(A,B,C,D,E,F,G,H)>{
@@ -547,8 +541,8 @@ impl<A> Zip<A>{
 }
 impl<D:WhichDims,X> AI<Vec<Vec<X>>,Vec<Vec<X>>> for TruncateToMatch<(),D>{
 	fn forward(&self,mut input:Vec<Vec<X>>)->Vec<Vec<X>>{
-		let mut dims=self.dims.which_dims();
-		if self.dims.strict(){
+		let mut dims=self.dims.which_dims(1);
+		if self.dims.is_strict(){
 			let dim=if let Some(d)=dims.next(){d}else{return input};
 			let count=dims.count()+1;
 			assert!((count,dim)==(1,0),"Dimension index was {dim} but a vec only has one tensor dimension");
@@ -561,8 +555,8 @@ impl<D:WhichDims,X> AI<Vec<Vec<X>>,Vec<Vec<X>>> for TruncateToMatch<(),D>{
 	}
 }
 impl<D:WhichDims> WhichDims for &D{
-	fn strict(&self)->bool{(**self).strict()}
-	fn which_dims(&self)->Self::Iter<'_>{(**self).which_dims()}
+	fn is_strict(&self)->bool{(**self).is_strict()}
+	fn which_dims(&self,rank:usize)->Self::Iter<'_>{(**self).which_dims(rank)}
 	type Iter<'a>=D::Iter<'a> where Self:'a;
 }
 impl<D> Op for TruncateToMatch<(),D>{
@@ -590,7 +584,7 @@ impl<X> AI<Vec<Vec<X>>,Vec<X>> for Cat<()>{
 	}
 }
 impl<const N:usize> WhichDims for [usize;N]{
-	fn which_dims(&self)->Self::Iter<'_>{self.iter().copied()}
+	fn which_dims(&self,_rank:usize)->Self::Iter<'_>{self.iter().copied()}
 	type Iter<'a>=Copied<SliceIter<'a,usize>> where Self:'a;
 }
 /// creates accessor functions for the inner value
@@ -603,15 +597,6 @@ macro_rules! accessible_inner{
 		/// returns the inner value
 		pub fn into_inner(self)->$type{self.$field}
 	);
-}
-/// implements decompose for primitive types
-macro_rules! decompose_primitive{
-	($($type:ty),*)=>($(impl Decompose for $type{
-		fn compose(decomposition:Self::Decomposition)->Self{decomposition}
-		fn decompose(self)->Self::Decomposition{self}
-		fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
-		type Decomposition=Self;
-	})*);
 }
 macro_rules! branch_tuple{
 	($(($($type:ident),+):$input:ident->($($output:ident),+)),*)=>($(
@@ -631,6 +616,15 @@ macro_rules! branch_tuple{
 			type Output=($($output),+);
 		}
 	)*);
+}
+/// implements decompose for primitive types
+macro_rules! decompose_primitive{
+	($($type:ty),*)=>($(impl Decompose for $type{
+		fn compose(decomposition:Self::Decomposition)->Self{decomposition}
+		fn decompose(self)->Self::Decomposition{self}
+		fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
+		type Decomposition=Self;
+	})*);
 }
 macro_rules! decompose_tuple{
 	($(($($type:ident),+)),*)=>($(impl<$($type:Decompose),+> Decompose for ($($type),+){
@@ -730,31 +724,31 @@ pub struct Cat<A>{dim:usize,inner:A}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wrapper for applying cross entropy loss
 pub struct CrossEntropy<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Default)]
 /// module for cloning things
 pub struct Duplicate<A>{inner:A}//TODO replicate that has a number and makes a vec
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[derive(Clone,Copy,Debug,Default)]
 /// ai module for returning the input
 pub struct Identity;
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Default)]
 /// wrapper for applying mean squared error loss
 pub struct MSE<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Default)]
 /// wraps to apply to every element of a vector
 pub struct Map<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Default)]
 /// wrapper for applying ai modules sequentially
 pub struct Sequential<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Default)]
 /// fixes the output type of a layer for a particular input type.
 pub struct SetType<A,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
 #[derive(Clone,Copy,Debug,Default)]
 /// chooses from the softmax
 pub struct SoftChoose<A>{dim:usize,inner:A,temperature:f32}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Default)]
 /// truncates each tensor dimension in the list to the minimum so that they match
 pub struct TruncateToMatch<A,D>{alignment:Alignment,dims:D,inner:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Default)]
 /// wraps to apply each function
 pub struct Zip<A>{inner:A}
 /// general ai trait
@@ -859,9 +853,9 @@ pub trait Op{
 /// tells which dimensions to apply an operation
 pub trait WhichDims{
 	/// returns true if specifying more dims than the tensor has should be an error
-	fn strict(&self)->bool{true}
-	/// iterates over the dims
-	fn which_dims(&self)->Self::Iter<'_>;
+	fn is_strict(&self)->bool{true}
+	/// iterates over the dims. tensor rank is provided to prevent eternal loops due to iteration, but isn't necessarily a limitation on what dims are returned
+	fn which_dims(&self,rank:usize)->Self::Iter<'_>;
 	/// the type of dimension iterator
 	type Iter<'a>:Iterator<Item=usize> where Self:'a;
 }
