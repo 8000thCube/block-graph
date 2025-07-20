@@ -9,27 +9,22 @@ impl AI<(Vec<f32>,Vec<f32>),Vec<f32>> for SquaredError<()>{
 		output.into_iter().zip(target).map(|(o,t)|o-t).map(|x|x*x).collect()
 	}
 }
-impl AI<Vec<f32>,f32> for Mean<()>{
-	fn forward(&self,input:Vec<f32>)->f32{
-		let sum:f32=input.iter().sum();
-
-		sum/input.len() as f32
-	}
-}
 impl AI<(Vec<f32>,Vec<f32>),f32> for CrossEntropy<()>{
 	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{-output.iter().zip(target.iter()).map(|(o,t)|o.ln()*t).fold(0.0,|acc,x|acc+x)}
+}
+impl AI<(Vec<f32>,Vec<f32>),f32> for SoftEntropy<()>{
+	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{-new().fix_type::<Vec<f32>>().log_softmax().forward_fixed(output).iter().zip(target.iter()).map(|(o,t)|o*t).fold(0.0,|acc,x|acc+x)}
 }
 impl AI<(Vec<f32>,u32),f32> for CrossEntropy<()>{
 	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{-output[target as usize].ln()}
 }
-impl AI<(Vec<f32>,Vec<f32>),f32> for SoftEntropy<()>{
-	fn forward(&self,(_output,_target):(Vec<f32>,Vec<f32>))->f32{
-		todo!()// TODO make log softmax and then soft entropy based on it
-	}
-}
 impl AI<(Vec<f32>,u32),f32> for SoftEntropy<()>{
-	fn forward(&self,(_output,_target):(Vec<f32>,u32))->f32{
-		todo!()
+	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{-new().fix_type::<Vec<f32>>().log_softmax().forward_fixed(output)[target as usize]}
+}
+impl AI<Vec<f32>,Vec<f32>> for AbnormalSoftmax<()>{
+	fn forward(&self,input:Vec<f32>)->Vec<f32>{
+		let max=input.iter().fold(f32::NEG_INFINITY,|x,&y|if x<y{y}else{x});
+		input.into_iter().map(|x|(x-max).exp()).collect()
 	}
 }
 impl AI<Vec<f32>,Vec<f32>> for AccQ<()>{
@@ -44,7 +39,16 @@ impl AI<Vec<f32>,Vec<f32>> for AccQ<()>{
 		input
 	}
 }
-impl AI<Vec<f32>,Vec<f32>> for Softmax<()>{// TODO f64 versions, hard choose (assume 1 bool), abnormal softmax
+impl AI<Vec<f32>,Vec<f32>> for LogSoftmax<()>{
+	fn forward(&self,input:Vec<f32>)->Vec<f32>{
+		let mut sum=0.0;
+		input.iter().for_each(|x|sum+=x.exp());
+		let r=sum.ln();
+		let output:Vec<f32>=input.into_iter().map(|x|x-r).collect();
+		output
+	}
+}
+impl AI<Vec<f32>,Vec<f32>> for Softmax<()>{
 	fn forward(&self,input:Vec<f32>)->Vec<f32>{
 		let max=input.iter().fold(f32::NEG_INFINITY,|x,&y|if x<y{y}else{x});
 		let mut sum=0.0;
@@ -54,16 +58,11 @@ impl AI<Vec<f32>,Vec<f32>> for Softmax<()>{// TODO f64 versions, hard choose (as
 		output
 	}
 }
-impl AI<Vec<f64>,Vec<f64>> for AccQ<()>{
-	fn forward(&self,mut input:Vec<f64>)->Vec<f64>{
-		let (dim,gamma)=(self.dim,self.gamma as f64);
-		assert!(dim==0,"Dimension index was {dim} but a vec only has one tensor dimension");
+impl AI<Vec<f32>,f32> for Mean<()>{
+	fn forward(&self,input:Vec<f32>)->f32{
+		let sum:f32=input.iter().sum();
 
-		input.iter_mut().rev().fold(0.0,|future,present|{
-			*present+=future*gamma;
-			*present
-		});
-		input
+		sum/input.len() as f32
 	}
 }
 impl AI<f32,f32> for Mean<()>{
@@ -99,6 +98,9 @@ impl Default for Alignment{
 impl Op for AccQ<()>{
 	type Output=Vec<f32>;
 }
+impl Op for AbnormalSoftmax<()>{
+	type Output=Vec<f32>;
+}
 impl Op for Cat<()>{
 	type Output=Vec<()>;
 }
@@ -111,11 +113,14 @@ impl Op for SoftEntropy<()>{
 impl Op for Identity{
 	type Output=();
 }
+impl Op for LogSoftmax<()>{
+	type Output=Vec<f32>;
+}
 impl Op for Mean<()>{
 	type Output=f32;
 }
 impl Op for SquaredError<()>{
-	type Output=Vec<f32>;
+	type Output=f32;
 }
 impl Op for SoftChoose<()>{
 	type Output=u32;
@@ -207,7 +212,25 @@ impl<A:AI<W,Z>+AI<X,Y>,W,X,Y,Z> AI<W,Z> for SetType<A,X,Y>{
 impl<A:AI<X,X>+Op<Output=X>,X> Op for Option<A>{
 	type Output=X;
 }
-impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{//TODO more tuple op sequential
+impl<A:Op<Output=S>,B:AI<S,T>+Op<Output=T>,C:AI<T,U>+Op<Output=U>,D:AI<U,V>+Op<Output=V>,E:AI<V,W>+Op<Output=W>,F:AI<W,X>+Op<Output=X>,G:AI<Y,Z>+Op<Output=Y>,H:AI<Y,Z>+Op<Output=Z>,S,T,U,V,W,X,Y,Z> Op for Sequential<(A,B,C,D,E,F,G,H)>{
+	type Output=Z;
+}
+impl<A:Op<Output=T>,B:AI<T,U>+Op<Output=U>,C:AI<U,V>+Op<Output=V>,D:AI<V,W>+Op<Output=W>,E:AI<W,X>+Op<Output=X>,F:AI<Y,Z>+Op<Output=Y>,G:AI<Y,Z>+Op<Output=Z>,T,U,V,W,X,Y,Z> Op for Sequential<(A,B,C,D,E,F,G)>{
+	type Output=Z;
+}
+impl<A:Op<Output=U>,B:AI<U,V>+Op<Output=V>,C:AI<V,W>+Op<Output=W>,D:AI<W,X>+Op<Output=X>,E:AI<Y,Z>+Op<Output=Y>,F:AI<Y,Z>+Op<Output=Z>,U,V,W,X,Y,Z> Op for Sequential<(A,B,C,D,E,F)>{
+	type Output=Z;
+}
+impl<A:Op<Output=V>,B:AI<V,W>+Op<Output=W>,C:AI<W,X>+Op<Output=X>,D:AI<Y,Z>+Op<Output=Y>,E:AI<Y,Z>+Op<Output=Z>,V,W,X,Y,Z> Op for Sequential<(A,B,C,D,E)>{
+	type Output=Z;
+}
+impl<A:Op<Output=W>,B:AI<W,X>+Op<Output=X>,C:AI<Y,Z>+Op<Output=Y>,D:AI<Y,Z>+Op<Output=Z>,W,X,Y,Z> Op for Sequential<(A,B,C,D)>{
+	type Output=Z;
+}
+impl<A:Op<Output=X>,B:AI<Y,Z>+Op<Output=Y>,C:AI<Y,Z>+Op<Output=Z>,X,Y,Z> Op for Sequential<(A,B,C)>{
+	type Output=Z;
+}
+impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{
 	type Output=Z;
 }
 impl<A:AI<X,X>+Op<Output=X>,X> Op for Sequential<Vec<A>>{
@@ -300,6 +323,16 @@ impl<A:AI<X,Y>,X:Clone,Y> AI<X,Vec<Y>> for Branch<Vec<A>>{
 		y
 	}
 }
+impl<A:AI<X,Y>,X,Y:Clone,const N:usize> AI<X,[Y;N]> for Duplicate<A>{
+	fn forward(&self,input:X)->[Y;N]{
+		let y=self.inner().forward(input);
+		[0;N].map(|_|y.clone())
+	}
+	fn forward_mut(&mut self,input:X)->[Y;N]{
+		let y=self.inner_mut().forward_mut(input);
+		[0;N].map(|_|y.clone())
+	}
+}
 impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y)> for Duplicate<A>{
 	fn forward(&self,input:X)->(Y,Y){
 		let y=self.inner().forward(input);
@@ -330,6 +363,46 @@ impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y,Y,Y)> for Duplicate<A>{
 		(y.clone(),y.clone(),y.clone(),y)
 	}
 }
+impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y,Y,Y,Y)> for Duplicate<A>{
+	fn forward(&self,input:X)->(Y,Y,Y,Y,Y){
+		let y=self.inner().forward(input);
+		(y.clone(),y.clone(),y.clone(),y.clone(),y)
+	}
+	fn forward_mut(&mut self,input:X)->(Y,Y,Y,Y,Y){
+		let y=self.inner_mut().forward_mut(input);
+		(y.clone(),y.clone(),y.clone(),y.clone(),y)
+	}
+}
+impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y,Y,Y,Y,Y)> for Duplicate<A>{
+	fn forward(&self,input:X)->(Y,Y,Y,Y,Y,Y){
+		let y=self.inner().forward(input);
+		(y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y)
+	}
+	fn forward_mut(&mut self,input:X)->(Y,Y,Y,Y,Y,Y){
+		let y=self.inner_mut().forward_mut(input);
+		(y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y)
+	}
+}
+impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y,Y,Y,Y,Y,Y)> for Duplicate<A>{
+	fn forward(&self,input:X)->(Y,Y,Y,Y,Y,Y,Y){
+		let y=self.inner().forward(input);
+		(y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y)
+	}
+	fn forward_mut(&mut self,input:X)->(Y,Y,Y,Y,Y,Y,Y){
+		let y=self.inner_mut().forward_mut(input);
+		(y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y)
+	}
+}
+impl<A:AI<X,Y>,X,Y:Clone> AI<X,(Y,Y,Y,Y,Y,Y,Y,Y)> for Duplicate<A>{
+	fn forward(&self,input:X)->(Y,Y,Y,Y,Y,Y,Y,Y){
+		let y=self.inner().forward(input);
+		(y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y)
+	}
+	fn forward_mut(&mut self,input:X)->(Y,Y,Y,Y,Y,Y,Y,Y){
+		let y=self.inner_mut().forward_mut(input);
+		(y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y.clone(),y)
+	}
+}
 impl<A:AI<X,Y>,X,Y> AI<X,Y> for &A{
 	fn forward(&self,input:X)->Y{(**self).forward(input)}
 }
@@ -337,7 +410,15 @@ impl<A:AI<X,Y>,X,Y> AI<X,Y> for &mut A{
 	fn forward(&self,input:X)->Y{(**self).forward(input)}
 	fn forward_mut(&mut self,input:X)->Y{(**self).forward_mut(input)}
 }
+impl<A:AI<X,Y>,X,Y> AI<X,Y> for AbnormalSoftmax<A> where AbnormalSoftmax<()>:AI<Y,Y>{
+	fn forward(&self,input:X)->Y{self.with_inner(()).forward(self.inner.forward(input))}
+	fn forward_mut(&mut self,input:X)->Y{self.with_inner(()).forward(self.inner.forward_mut(input))}
+}
 impl<A:AI<X,Y>,X,Y> AI<X,Y> for AccQ<A> where AccQ<()>:AI<Y,Y>{
+	fn forward(&self,input:X)->Y{self.with_inner(()).forward(self.inner.forward(input))}
+	fn forward_mut(&mut self,input:X)->Y{self.with_inner(()).forward(self.inner.forward_mut(input))}
+}
+impl<A:AI<X,Y>,X,Y> AI<X,Y> for LogSoftmax<A> where LogSoftmax<()>:AI<Y,Y>{
 	fn forward(&self,input:X)->Y{self.with_inner(()).forward(self.inner.forward(input))}
 	fn forward_mut(&mut self,input:X)->Y{self.with_inner(()).forward(self.inner.forward_mut(input))}
 }
@@ -375,6 +456,14 @@ impl<A:Decompose,X,Y> Decompose for SetType<A,X,Y>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
+impl<A:Decompose> Decompose for AbnormalSoftmax<A>{
+	fn compose((inner,_temperature,_dim):Self::Decomposition)->Self{
+		Self{inner:A::compose(inner)}
+	}
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),1.0,-1)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),1.0,-1)}
+	type Decomposition=(A::Decomposition,f32,isize);
+}
 impl<A:Decompose> Decompose for AccQ<A>{
 	fn compose((inner,gamma,dim):Self::Decomposition)->Self{
 		Self{dim,gamma,inner:A::compose(inner)}
@@ -399,7 +488,7 @@ impl<A:Decompose> Decompose for Cat<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.dim)}
 	type Decomposition=(A::Decomposition,usize);
 }
-impl<A:Decompose> Decompose for CrossEntropy<A>{//TODO more macros
+impl<A:Decompose> Decompose for CrossEntropy<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
 		Self{inner:A::compose(decomposition)}
 	}
@@ -407,7 +496,7 @@ impl<A:Decompose> Decompose for CrossEntropy<A>{//TODO more macros
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Decompose> Decompose for SoftEntropy<A>{//TODO more macros
+impl<A:Decompose> Decompose for SoftEntropy<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
 		Self{inner:A::compose(decomposition)}
 	}
@@ -416,12 +505,20 @@ impl<A:Decompose> Decompose for SoftEntropy<A>{//TODO more macros
 	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for Duplicate<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition)}
+	fn compose((inner,times):Self::Decomposition)->Self{
+		Self{inner:A::compose(inner),times}
 	}
-	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
-	type Decomposition=A::Decomposition;
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.times)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.times)}
+	type Decomposition=(A::Decomposition,usize);
+}
+impl<A:Decompose> Decompose for LogSoftmax<A>{
+	fn compose((inner,_temperature,_dim):Self::Decomposition)->Self{
+		Self{inner:A::compose(inner)}
+	}
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),1.0,-1)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),1.0,-1)}
+	type Decomposition=(A::Decomposition,f32,isize);
 }
 impl<A:Decompose> Decompose for Mean<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
@@ -503,6 +600,9 @@ impl<A:Op<Output=Y>,Y> Op for &A{
 impl<A:Op<Output=Y>,Y> Op for &mut A{
 	type Output=Y;
 }
+impl<A:Op<Output=Y>,Y> Op for AbnormalSoftmax<A> where AbnormalSoftmax<()>:AI<Y,Y>{
+	type Output=Y;
+}
 impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQ<()>:AI<Y,Y>{
 	type Output=Y;
 }
@@ -518,14 +618,17 @@ impl<A:Op<Output=Y>,Y> Op for Duplicate<A>{
 impl<A:Op<Output=Y>,Y> Op for Mean<A> where Mean<()>:AI<Y,f32>{
 	type Output=f32;
 }
-impl<A:Op<Output=Y>,Y> Op for SquaredError<A> where SquaredError<()>:AI<(Y,Y),Vec<f32>>{
-	type Output=Vec<f32>;
+impl<A:Op<Output=Y>,Y> Op for SquaredError<A> where SquaredError<()>:AI<(Y,Y),f32>{
+	type Output=f32;
 }
 impl<A:Op<Output=Y>,Y> Op for SoftChoose<A> where SoftChoose<()>:AI<Y,u32>{
 	type Output=u32;
 }
 impl<A:Op<Output=Y>,Y> Op for SoftEntropy<A> where SoftEntropy<()>:AI<(Y,Y),f32>{
 	type Output=f32;
+}
+impl<A:Op<Output=Y>,Y> Op for LogSoftmax<A> where LogSoftmax<()>:AI<Y,Y>{
+	type Output=Y;
 }
 impl<A:Op<Output=Y>,Y> Op for Map<A>{
 	type Output=Vec<Y>;
@@ -590,6 +693,19 @@ impl<A> CrossEntropy<A>{
 }
 impl<A> Duplicate<A>{
 	accessible_inner!(inner:A);
+	/// creates a new duplicate module from the inner value
+	pub fn from_inner(inner:A)->Self{
+		Duplicate{inner,times:2}
+	}
+	/// returns the suggested number of times to duplicate
+	pub fn times(&self)->usize{self.times}
+	/// replaces the inner value
+	pub fn with_inner<B>(&self,inner:B)->Duplicate<B>{Duplicate::from_inner(inner).with_times(self.times)}
+	/// sets the suggested number of times to duplicate for a variable sized output like a vec. fixed array outputs of other lengths will still be allowed
+	pub fn with_times(mut self,times:usize)->Self{
+		self.times=times;
+		self
+	}
 }
 impl<A> Mean<A>{
 	accessible_inner!(inner:A);
@@ -633,6 +749,24 @@ impl<A> SoftEntropy<A>{
 	}
 	/// replaces the inner value
 	pub fn with_inner<B>(&self,inner:B)->SoftEntropy<B> where SoftEntropy<B>:Op{SoftEntropy::from_inner(inner)}
+}
+impl<A> AbnormalSoftmax<A>{
+	accessible_inner!(inner:A);
+	/// creates from the inner value
+	pub fn from_inner(inner:A)->Self{
+		AbnormalSoftmax{inner}
+	}
+	/// replaces the inner value
+	pub fn with_inner<B>(&self,inner:B)->AbnormalSoftmax<B> where AbnormalSoftmax<B>:Op{AbnormalSoftmax::from_inner(inner)}
+}
+impl<A> LogSoftmax<A>{
+	accessible_inner!(inner:A);
+	/// creates from the inner value
+	pub fn from_inner(inner:A)->Self{
+		LogSoftmax{inner}
+	}
+	/// replaces the inner value
+	pub fn with_inner<B>(&self,inner:B)->LogSoftmax<B> where LogSoftmax<B>:Op{LogSoftmax::from_inner(inner)}
 }
 impl<A> Softmax<A>{
 	accessible_inner!(inner:A);
@@ -813,6 +947,8 @@ pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
 }
 /// starts the building of an ai structure in chained method style from an identity operation
 pub fn new()->Identity{Identity}
+/// undivided softmax
+pub struct AbnormalSoftmax<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// accumulates cumulative
 pub struct AccQ<A>{dim:usize,gamma:f32,inner:A}
@@ -836,10 +972,13 @@ pub struct Cat<A>{dim:usize,inner:A}
 pub struct CrossEntropy<A>{inner:A}//TODO dim
 #[derive(Clone,Copy,Debug,Default)]
 /// module for cloning things
-pub struct Duplicate<A>{inner:A}//TODO replicate that has a number and makes a vec
+pub struct Duplicate<A>{inner:A,times:usize}
 #[derive(Clone,Copy,Debug,Default)]
 /// ai module for returning the input
 pub struct Identity;
+#[derive(Clone,Copy,Debug,Default)]
+/// log softmax
+pub struct LogSoftmax<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// wrapper for applying mean squared error loss
 pub struct SquaredError<A>{inner:A}
@@ -857,7 +996,7 @@ pub struct Sequential<A>{inner:A}
 pub struct SetType<A,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
 #[derive(Clone,Copy,Debug,Default)]
 /// chooses from the softmax
-pub struct SoftChoose<A>{dim:usize,inner:A,temperature:f32}//TODO with operations
+pub struct SoftChoose<A>{dim:usize,inner:A,temperature:f32}//TODO with operations //TODO hard choose
 #[derive(Clone,Copy,Debug,Default)]
 /// wrapper for applying cross entropy loss
 pub struct SoftEntropy<A>{inner:A}//TODO dim
@@ -890,6 +1029,10 @@ pub trait Decompose{
 }
 /// composition trait
 pub trait Op{
+	/// wraps with a softmax operation
+	fn abnormal_softmax(self)->AbnormalSoftmax<Self> where Self:Sized,AbnormalSoftmax<Self>:Op{
+		AbnormalSoftmax{inner:self}
+	}
 	/// wraps with a accq operation
 	fn acc_q(self,dim:usize,gamma:f32)->AccQ<Self> where AccQ<Self>:Op,Self:Sized{
 		AccQ{dim,gamma,inner:self}
@@ -912,7 +1055,7 @@ pub trait Op{
 	}
 	/// wraps with a duplicate operation
 	fn duplicate(self)->Duplicate<Self> where Duplicate<Self>:Op,Self:Sized{
-		Duplicate{inner:self}
+		Duplicate{inner:self,times:2}
 	}
 	/// set type but with the same input and output
 	fn fix_type<Z>(self)->SetType<Self,Z,Z> where Self:AI<Z,Z>+Sized{self.set_type()}
@@ -929,6 +1072,10 @@ pub trait Op{
 		let mut ai=self;
 		let state=Some(ai.forward_mut(input));
 		Autoregression{ai,state}
+	}
+	/// wraps with a softmax operation
+	fn log_softmax(self)->LogSoftmax<Self> where Self:Sized,LogSoftmax<Self>:Op{
+		LogSoftmax{inner:self}
 	}
 	/// applies the operation to every output
 	fn map<B>(self,b:B)->Map<Sequential<(Self,B)>> where Map<Sequential<(Self,B)>>:Op,Self:Sized,Sequential<(Self,B)>:Op{self.chain(b).to_each()}
@@ -958,7 +1105,7 @@ pub trait Op{
 	fn soft_entropy(self)->SoftEntropy<Self> where SoftEntropy<Self>:Op,Self:Sized{
 		SoftEntropy{inner:self}
 	}
-	/// wraps with a choose operation
+	/// wraps with a softmax operation
 	fn softmax(self)->Softmax<Self> where Self:Sized,Softmax<Self>:Op{
 		Softmax{inner:self}
 	}
