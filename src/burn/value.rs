@@ -116,15 +116,36 @@ impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for Value<B>{
 impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for CrossEntropy<()>{// TODO float float version, separate logits and normal (CrossEntropy, SoftEntropy), make smoothing and such work on burn specific one
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
 		fn cross_entropy<B:Backend,const N:usize>(y:Tensor<B,N>,t:Tensor<B,N,Int>)->Value<B>{
-			if y.dims()==t.dims(){F1(log_softmax(y,N-1).gather(N-1,t).mean().neg())}else{"incompatible".into()}
+			if y.dims()==t.dims(){F1(y.log().gather(N-1,t).mean().neg())}else{"incompatible".into()}
 		}
 
 		match (output,target){(F2(y),I1(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F3(y),I2(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F4(y),I3(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F5(y),I4(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F6(y),I5(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F7(y),I6(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F8(y),I7(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(Value::Incompatible(y),_)=>y.into(),(_,Value::Incompatible(t))=>t.into(),(Value::Multi(y),Value::Multi(t))=>Value::Multi(y.into_iter().zip(t).map(|x|self.forward_typed::<_,Value<B>>(x)).collect()),_=>"incompatible".into()}
 	}
 }
 impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for CrossEntropyLoss<B>{
-	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{ai::new().fix_type::<Value<B>>().cross_entropy().forward((output,target))}
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
+		if self.logits{ai::new().fix_type::<Value<B>>().soft_entropy().forward((output,target))}else{ai::new().fix_type::<Value<B>>().cross_entropy().forward((output,target))}
+	}
 }
+impl<B:Backend> AI<(Value<B>,Value<B>),LossOutput<B>> for SquaredError<()>{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->LossOutput<B>{
+		let loss=self.forward((output.clone(),target.clone()));
+		LossOutput::new(loss,output,target)
+	}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for SquaredError<()>{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
+		match (output.float(),target.float()){(F1(y),F1(t))=>MseLoss.forward_no_reduction(y,t).into(),(F2(y),F2(t))=>MseLoss.forward_no_reduction(y,t).into(),(F3(y),F3(t))=>MseLoss.forward_no_reduction(y,t).into(),(F4(y),F4(t))=>MseLoss.forward_no_reduction(y,t).into(),(F5(y),F5(t))=>MseLoss.forward_no_reduction(y,t).into(),(F6(y),F6(t))=>MseLoss.forward_no_reduction(y,t).into(),(F7(y),F7(t))=>MseLoss.forward_no_reduction(y,t).into(),(F8(y),F8(t))=>MseLoss.forward_no_reduction(y,t).into(),(Value::Incompatible(y),_)=>y.into(),(_,Value::Incompatible(t))=>t.into(),(Value::Multi(y),Value::Multi(t))=>Value::Multi(y.into_iter().zip(t).map(|x|self.forward_typed::<_,Value<B>>(x)).collect()),_=>"compatible inputs for squared error are float tensors of the same shape".into()}
+	}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>),Vec<f32>> for SquaredError<()>{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->Vec<f32>{
+		let error:Value<B>=self.forward((output,target));
+		error.into_float_vec()
+	}
+}
+
+/*
 impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for MSE<()>{
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
 		fn mse<B:Backend,const N:usize>(y:Tensor<B,N>,t:Tensor<B,N>)->Value<B>{
@@ -133,46 +154,46 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for MSE<()>{
 
 		match (output.float(),target.float()){(F1(y),F1(t))=>mse(y,t),(F2(y),F2(t))=>mse(y,t),(F3(y),F3(t))=>mse(y,t),(F4(y),F4(t))=>mse(y,t),(F5(y),F5(t))=>mse(y,t),(F6(y),F6(t))=>mse(y,t),(F7(y),F7(t))=>mse(y,t),(F8(y),F8(t))=>mse(y,t),(Value::Incompatible(y),_)=>y.into(),(_,Value::Incompatible(t))=>t.into(),(Value::Multi(y),Value::Multi(t))=>Value::Multi(y.into_iter().zip(t).map(|x|self.forward_typed::<_,Value<B>>(x)).collect()),_=>"compatible inputs for squared error are float tensors of the same shape".into()}
 	}
-}
+}*/
+/*
 impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for MseLoss{
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{ai::new().fix_type::<Value<B>>().mse().forward((output,target))}
-}
-impl<B:Backend> AI<(Value<B>,Value<B>),f32> for CrossEntropy<()>{
-	fn forward(&self,(output,target):(Value<B>,Value<B>))->f32{
-		fn avg_multi<B:Backend>(value:Value<B>)->f32{//TODO code duplication
-			match value{
-				F1(x)=>x.into_scalar().to_f32(),
-				Value::Incompatible(x)=>panic!("Could not reduce to a scalar due to incompatibility: {x}"),
-				Value::Multi(x)=>{
-					let l=x.len();
-					let s:f32=x.into_iter().map(|x|avg_multi(x)).sum();
-
-					s/l as f32
-				}
-				_=>panic!("unexpected shape")
-			}
+}*/
+impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for SoftEntropy<()>{// TODO float float version, separate logits and normal (CrossEntropy, SoftEntropy), make smoothing and such work on burn specific one
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
+		fn cross_entropy<B:Backend,const N:usize>(y:Tensor<B,N>,t:Tensor<B,N,Int>)->Value<B>{
+			if y.dims()==t.dims(){F1(log_softmax(y,N-1).gather(N-1,t).mean().neg())}else{"incompatible".into()}
 		}
 
-		avg_multi(ai::new().fix_type::<Value<B>>().cross_entropy().forward((output,target)))
+		match (output,target){(F2(y),I1(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F3(y),I2(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F4(y),I3(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F5(y),I4(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F6(y),I5(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F7(y),I6(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(F8(y),I7(t))=>cross_entropy(y,t.unsqueeze_dim(1)),(Value::Incompatible(y),_)=>y.into(),(_,Value::Incompatible(t))=>t.into(),(Value::Multi(y),Value::Multi(t))=>Value::Multi(y.into_iter().zip(t).map(|x|self.forward_typed::<_,Value<B>>(x)).collect()),_=>"incompatible".into()}
 	}
 }
-impl<B:Backend> AI<(Value<B>,Value<B>),f32> for MSE<()>{
-	fn forward(&self,(output,target):(Value<B>,Value<B>))->f32{
-		fn avg_multi<B:Backend>(value:Value<B>)->f32{
-			match value{
-				F1(x)=>x.into_scalar().to_f32(),
-				Value::Incompatible(x)=>panic!("Could not reduce to a scalar due to incompatibility: {x}"),
-				Value::Multi(x)=>{
-					let l=x.len();
-					let s:f32=x.into_iter().map(|x|avg_multi(x)).sum();
 
-					s/l as f32
-				}
-				_=>panic!("unexpected shape")
-			}
-		}
+impl<B:Backend> AI<(Value<B>,Value<B>),f32> for SoftEntropy<()>{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->f32{ai::new().fix_type::<Value<B>>().soft_entropy().mean().forward((output,target))}
+}
+impl<B:Backend> AI<(Value<B>,Value<B>),f32> for CrossEntropy<()>{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->f32{ai::new().fix_type::<Value<B>>().cross_entropy().mean().forward((output,target))}
+}
+impl<B:Backend> AI<Value<B>,Tensor<B,1>> for Mean<()>{
+	fn forward(&self,input:Value<B>)->Tensor<B,1>{
+		fn avg<B:Backend,const N:usize>(x:Tensor<B,N>)->Tensor<B,1>{x.mean()}
+		let l=input.len();
 
-		avg_multi(ai::new().fix_type::<Value<B>>().mse().forward((output,target)))
+		if l==0{return Tensor::from_data(TensorData::new(vec![f32::NAN],[1]),&Default::default())}
+		match input.float(){F1(x)=>avg(x),F2(x)=>avg(x),F3(x)=>avg(x),F4(x)=>avg(x),F5(x)=>avg(x),F6(x)=>avg(x),F7(x)=>avg(x),F8(x)=>avg(x),Value::Incompatible(e)=>panic!("Could not reduce to a scalar due to incompatibility: {e}"),Value::Multi(v)=>v.into_iter().map(|x|self.forward_typed::<_,Tensor<B,1>>(x)).reduce(|x,y|x+y).unwrap()/l as f32,_=>panic!("internal error")}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for Mean<()>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		//TODO tensor mean version
+		F1(self.forward(input))
+	}
+}
+impl<B:Backend> AI<Value<B>,f32> for Mean<()>{
+	fn forward(&self,input:Value<B>)->f32{
+		let y:Tensor<B,1>=self.forward(input);
+		y.into_scalar().to_f32()
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for AccQ<()>{
@@ -207,6 +228,45 @@ impl<B:Backend> AI<Value<B>,Vec<u32>> for SoftChoose<()>{
 		match input.float(){F1(x)=>soft_choose_burn_multi(dim,x,temperature),F2(x)=>soft_choose_burn_multi(dim,x,temperature),F3(x)=>soft_choose_burn_multi(dim,x,temperature),F4(x)=>soft_choose_burn_multi(dim,x,temperature),F5(x)=>soft_choose_burn_multi(dim,x,temperature),F6(x)=>soft_choose_burn_multi(dim,x,temperature),F7(x)=>soft_choose_burn_multi(dim,x,temperature),F8(x)=>soft_choose_burn_multi(dim,x,temperature),Value::Incompatible(e)=>panic!("Could not create vector due to incompatibility: {e}"),Value::Multi(v)=>v.into_iter().flat_map(|x|self.forward_typed::<_,Vec<u32>>(x)).collect(),_=>panic!("internal error")}
 	}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for Dropout{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for Embedding<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		fn apply_embed<B:Backend,const N:usize,const K:usize>(this:&Embedding<B>,x:Tensor<B,N,Int>)->Tensor<B,K>{
+			let dims=x.dims();
+			let [batch,seq]=[dims[0],dims.iter().skip(1).product()];
+			let x=x.reshape([batch,seq]);
+			let y=this.forward(x);
+			let embed=y.dims().last().copied().unwrap();
+			let mut ydims=[0;K];
+			ydims[..N].copy_from_slice(&dims);
+			ydims[N]=embed;
+			y.reshape(ydims)
+		}
+		fn apply_linear<B:Backend,const N:usize>(this:&Embedding<B>,x:Tensor<B,N>)->Tensor<B,N>{
+			Linear{bias:None,weight:this.weight.clone()}.forward(x)
+		}
+		match input{F1(x)=>apply_linear(self,x).into(),F2(x)=>apply_linear(self,x).into(),F3(x)=>apply_linear(self,x).into(),F4(x)=>apply_linear(self,x).into(),F5(x)=>apply_linear(self,x).into(),F6(x)=>apply_linear(self,x).into(),F7(x)=>apply_linear(self,x).into(),F8(x)=>apply_linear(self,x).into(),I1(x)=>apply_embed::<B,1,2>(self,x).into(),I2(x)=>apply_embed::<B,2,3>(self,x).into(),I3(x)=>apply_embed::<B,3,4>(self,x).into(),I4(x)=>apply_embed::<B,4,5>(self,x).into(),I5(x)=>apply_embed::<B,5,6>(self,x).into(),I6(x)=>apply_embed::<B,6,7>(self,x).into(),I7(x)=>apply_embed::<B,7,8>(self,x).into(),I8(_x)=>"embedding output would exceed maximum supported rank".into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>x.into_iter().map(|x|AI::forward(self,x)).collect::<Vec<_>>().into(),_=>"embedding is only available for float or int inputs".into()}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for LayerNorm<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for Linear<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for Relu{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+	}
+}
 impl<B:Backend> AI<Value<B>,Value<B>> for SoftChoose<()>{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		let (dim,temperature)=(self.dim(),self.temperature());
@@ -214,8 +274,19 @@ impl<B:Backend> AI<Value<B>,Value<B>> for SoftChoose<()>{
 		match input.float(){F1(x)=>I1(soft_choose_burn_tensor(dim,x,temperature)),F2(x)=>I1(soft_choose_burn_tensor(dim,x,temperature).squeeze(1)),F3(x)=>I2(soft_choose_burn_tensor(dim,x,temperature).squeeze(2)),F4(x)=>I3(soft_choose_burn_tensor(dim,x,temperature).squeeze(3)),F5(x)=>I4(soft_choose_burn_tensor(dim,x,temperature).squeeze(4)),F6(x)=>I5(soft_choose_burn_tensor(dim,x,temperature).squeeze(5)),F7(x)=>I6(soft_choose_burn_tensor(dim,x,temperature).squeeze(6)),F8(x)=>I7(soft_choose_burn_tensor(dim,x,temperature).squeeze(7)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|v|self.forward_typed::<_,Value<B>>(v)).collect()),_=>panic!("internal error")}
 	}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for Tanh{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+	}
+}
 impl<B:Backend> AsRef<Self> for Value<B>{
 	fn as_ref(&self)->&Self{self}
+}
+impl<B:Backend> Decompose for LossOutput<B>{
+	fn compose((loss,output,target):Self::Decomposition)->Self{Self::new(loss,output,target)}
+	fn decompose(self)->Self::Decomposition{(self.loss(),self.output(),self.target())}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.loss(),self.output(),self.target())}
+	type Decomposition=(Value<B>,Value<B>,Value<B>);
 }
 impl<B:Backend> Decompose for Value<B>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
@@ -309,6 +380,18 @@ impl<B:Backend> IntoIterator for Value<B>{
 	type IntoIter=VecIntoIter<Value<B>>;
 	type Item=Value<B>;
 }
+impl<B:Backend> LossOutput<B>{
+	/// references the loss
+	pub fn loss(&self)->Value<B>{self.loss.clone()}
+	/// creates a new loss output
+	pub fn new(loss:Value<B>,output:Value<B>,target:Value<B>)->Self{
+		Self{loss,output,target}
+	}
+	/// gets the output
+	pub fn output(&self)->Value<B>{self.output.clone()}
+	/// gets the target
+	pub fn target(&self)->Value<B>{self.target.clone()}
+}
 impl<B:Backend> Merge for Value<B>{
 	fn merge(&mut self,other:Self){
 		match (mem::take(self),other){
@@ -352,6 +435,16 @@ impl<B:Backend> Value<B>{// TODO more builtin functions // TODO be more decisive
 	}
 	/// creates a new empty value
 	pub fn empty()->Self{Self::Multi(Vec::new())}
+	/// converts to a flattened vector of floats, ignoring incompatibility errors
+	pub fn into_float_vec(self)->Vec<f32>{
+		fn cat_vec<T>(mut a:Vec<T>,b:Vec<T>)->Vec<T>{
+			a.extend(b);
+			a
+		}
+		fn to_vec<B:Backend,const N:usize>(x:Tensor<B,N>)->Vec<f32>{x.into_data().to_vec().unwrap_or_default()}
+
+		match self.float(){F1(x)=>to_vec(x),F2(x)=>to_vec(x),F3(x)=>to_vec(x),F4(x)=>to_vec(x),F5(x)=>to_vec(x),F6(x)=>to_vec(x),F7(x)=>to_vec(x),F8(x)=>to_vec(x),Value::Incompatible(_e)=>Vec::new(),Value::Multi(v)=>v.into_iter().map(Value::into_float_vec).reduce(cat_vec).unwrap_or_default(),_=>panic!("internal error")}
+	}
 	/// tests if the tensor is empty. incompatible isn't considered empty for the purposes of this function
 	pub fn is_empty(&self)->bool{self.len()==0}
 	/// tests if the tensor represents the result of an incompatible input and operation
@@ -611,18 +704,23 @@ pub enum Shape{Incompatible(String),Multi(usize),Recursive(Vec<Shape>),X1([usize
 #[derive(Clone,Debug)]//TODO implement module for this
 /// enumerates burn tensors up to 8 dimensions, along with a variant to represent operation compatibility errors, and a variant for multiple tensors. An empty multi variant can be used to represent a lack of data. Once a the depth of a multi variant is enough for an operation to take full effect, further nesting should result in the same as applying separately
 pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
+#[derive(Clone,Debug)]
+/// general loss output for being converted into other loss outputs
+pub struct LossOutput<B:Backend>{loss:Value<B>,output:Value<B>,target:Value<B>}
 use Bound::{Excluded,Included,Unbounded};
 use Shape::{X1,X2,X3,X4,X5,X6,X7,X8};
 use Value::{B1,B2,B3,B4,B5,B6,B7,B8,F1,F2,F3,F4,F5,F6,F7,F8,I1,I2,I3,I4,I5,I6,I7,I8};
 use burn::{
 	prelude::{Backend,Bool,Float,Int,Tensor,TensorData},
-	nn::loss::{CrossEntropyLoss,MseLoss},
+	nn::{
+		Dropout,Embedding,LayerNorm,Linear,Relu,Tanh,loss::{CrossEntropyLoss,MseLoss}
+	},
 	tensor::{
 		BasicOps,TensorKind,activation::{log_softmax,softmax},cast::ToElement
 	}
 };
 use crate::{
-	ai::{AI,AccQ,Alignment,Cat,CrossEntropy,Decompose,MSE,Op,SoftChoose,TruncateToMatch,WhichDims,self},graph::Merge
+	ai::{AI,AccQ,Alignment,Cat,CrossEntropy,Decompose,Mean,Op,SoftChoose,SoftEntropy,SquaredError,TruncateToMatch,WhichDims,self},graph::Merge
 };
 use rand::random;
 use std::{

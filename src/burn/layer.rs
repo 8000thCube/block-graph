@@ -30,6 +30,20 @@ impl From<LayerNormConfig> for Config{
 impl From<LinearConfig> for Config{
 	fn from(value:LinearConfig)->Self{Config::Linear(value)}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match self{
+			//Layer::CrossEntropy(f)=>AI::forward(f,input),// TODO implement forward on these for one multi input with two values
+			Layer::Dropout(f)=>AI::forward(f,input),
+			Layer::Embedding(f)=>AI::forward(f,input),
+			Layer::LayerNorm(f)=>AI::forward(f,input),
+			Layer::Linear(f)=>AI::forward(f,input),
+			//Layer::MseLoss(f)=>AI::forward(f,input),
+			Layer::Relu(f)=>AI::forward(f,input),
+			_=>todo!()
+		}
+	}
+}
 impl<B:Backend> Decompose for Layer<B>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
 	fn decompose(self)->Self::Decomposition{self}
@@ -80,5 +94,5 @@ use burn::{
 	prelude::*
 };
 use crate::{
-	ai::{Decompose,Op},burn::Value
+	ai::{AI,Decompose,Op},burn::Value
 };
