@@ -4,11 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-burn = { version = "0.17", features = ["fusion","ndarray","train","wgpu"]}
-bincode = {version = "2", features = ["serde"]}
+burn = { version = "0.18", features = ["fusion","ndarray","train","wgpu"]}
 rand = "0.9"
-serde = { version = "1", features = ["derive"] }
-walkdir = "2"
 
 [profile.test]
 opt-level = 3
