@@ -79,6 +79,7 @@ pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
 		Initializer::KaimingUniform{gain,fan_out_only}=>Initializer::KaimingUniform{gain:gain*r,fan_out_only},
 		Initializer::Normal{mean,std}=>Initializer::Normal{mean:mean*r,std:std*r},
 		Initializer::Ones=>Initializer::Constant{value:r},
+		Initializer::Orthogonal{gain}=>Initializer::Orthogonal{gain:gain*r},
 		Initializer::Uniform{min,max}=>Initializer::Uniform{min:min*r,max:max*r},
 		Initializer::XavierNormal{gain}=>Initializer::XavierNormal{gain:gain*r},
 		Initializer::XavierUniform{gain}=>Initializer::XavierUniform{gain:gain*r},

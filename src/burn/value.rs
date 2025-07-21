@@ -144,6 +144,9 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Vec<f32>> for SquaredError<()>{
 		error.into_float_vec()
 	}
 }
+impl<B:Backend> AI<(Value<B>,Value<B>),f32> for SquaredError<()>{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->f32{ai::new().fix_type::<Value<B>>().squared_error().mean().forward((output,target))}
+}
 
 /*
 impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for MSE<()>{

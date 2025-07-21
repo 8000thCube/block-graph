@@ -163,6 +163,9 @@ impl<B:Backend,W:Wrappable<B=B>> Module<B> for Wrapped<W> where W::Decomposition
 	fn visit<Visitor:ModuleVisitor<B>>(&self,visitor:&mut Visitor){self.inner.decompose_cloned().visit(visitor)}
 	type Record=<W::Decomposition as Module<B>>::Record;
 }
+impl<B:Backend,X:Into<Y>,Y> AI<X,Y> for Identity<B>{
+	fn forward(&self,input:X)->Y{input.into()}
+}
 impl<B:Backend> AI<LossOutput<B>,ClassificationOutput<B>> for Classification<()>{
 	fn forward(&self,lossoutput:LossOutput<B>)->ClassificationOutput<B>{//TODO make work for multi
 		let loss=match lossoutput.loss(){Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
@@ -179,6 +182,19 @@ impl<B:Backend> AI<LossOutput<B>,RegressionOutput<B>> for Regression<()>{
 		RegressionOutput::new(loss,output,target)
 	}
 }
+impl<B:Backend> Decompose for Identity<B>{
+	fn compose(_decomposition:Self::Decomposition)->Self{new()}
+	fn decompose(self){}
+	fn decompose_cloned(&self){}
+	type Decomposition=();
+}
+impl<B:Backend> Op for Identity<B>{
+	type Output=();
+}
+impl<B:Backend> Wrappable for Identity<B>{
+	type B=B;
+	type With<C:Backend>=Identity<C>;
+}
 impl<B:Backend> Wrappable for Layer<B>{
 	type B=B;
 	type With<C:Backend>=Layer<C>;
@@ -190,6 +206,12 @@ impl<B:Backend> Wrappable for LossOutput<B>{
 impl<B:Backend> Wrappable for Value<B>{
 	type B=B;
 	type With<C:Backend>=Value<C>;
+}
+impl<C:Backend,W:ToBackend<C,OnBackend=W::With<C>>+Wrappable> ToBackend<C> for Wrapped<W>{
+	fn to_backend_device(self,device:&C::Device)->Self::OnBackend{
+		Wrapped{inner:self.inner.to_backend_device(device)}
+	}
+	type OnBackend=Wrapped<W::With<C>>;
 }
 impl<T:?Sized+Op> Shortcuts for T{}
 impl<W:AI<X,Y>+Wrappable,X,Y> AI<X,Y> for Wrapped<W>{
@@ -315,10 +337,10 @@ mod tests{
 		let train=InMemDataset::new(dataset.clone().into_iter().map(|(i,o)|(Value::from(i),Value::from(o))).collect());
 		let valid=InMemDataset::new(dataset.into_iter().map(|(i,o)|(Value::from(i.valid()),Value::from(o.valid()))).collect());
 		let mut graph:Graph<Layer<A>>=Graph::new();
-		let mut l=VertexLabels::new();
-		graph.connect(true,l.label("input"),Layer::linear(true,2,10,1.0),l.label("x"));
-		graph.connect(true,l.label("x"),Layer::relu(),l.label("y"));
-		graph.connect(true,l.label("y"),Layer::linear(false,10,1,1.0),l.label("output"));
+		graph.connect(true,"input",Layer::linear(true,2,10,1.0),"x");
+		graph.connect(true,"x",Layer::relu(),"y");
+		graph.connect(true,"y",Layer::linear(false,10,1,1.0),"output");
+
 		let graph=Unvec(graph).squared_error().set_type::<(Value<A>,Value<A>),LossOutput<A>>().regression().wrap();
 		let graph=graph.train(&TrainConfig::new(),SgdConfig::new().init(),0.01,train,valid);
 		let graph=graph.valid().into_inner().into_inner().into_inner().into_inner();//TODO this chain of into_inner is annoying
@@ -337,23 +359,27 @@ mod tests{
 	use burn::{
 		backend::Autodiff,data::dataset::InMemDataset,optim::SgdConfig
 	};
-	use crate::graph::VertexLabels;
 	use super::*;
 }
 mod layer;
 mod value;
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+/// starts the building of an ai structure in chained method style from an identity operation
+pub fn new<B:Backend>()->Identity<B>{
+	Identity{phantom:PhantomData}
+}
+#[derive(Clone,Copy,Debug,Default)]
 /// batcher that stacks things
 pub struct BatchStacker;
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+#[derive(Clone,Copy,Debug,Default)]
 /// wrapper for converting loss to classification output
 pub struct Classification<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[derive(Clone,Copy,Debug,Default)]
 /// metrics renderer implementation that doesn't actually do anything
 pub struct DontRender;
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+#[derive(Clone,Copy,Debug,Default)]
+/// identity version that knows what backend
+pub struct Identity<B:Backend>{phantom:PhantomData<B>}
+#[derive(Clone,Copy,Debug,Default)]
 /// wrapper for converting loss to regression output
 pub struct Regression<A>{inner:A}
 #[derive(Config,Debug)]
@@ -374,8 +400,7 @@ pub struct TrainConfig{
 	#[config(default="4")]
 	workers:usize
 }
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
-#[repr(transparent)]
+#[derive(Clone,Copy,Debug,Default)]
 /// wraps in a burn wrapper
 pub struct Wrapped<W:Wrappable>{inner:W}
 /// chained method shortcut trait
@@ -387,44 +412,15 @@ pub trait Shortcuts{
 	/// wraps in a burn wrapper
 	fn wrap(self)->Wrapped<Self> where Self:Wrappable{Wrapped::new(self)}
 }
-/// adds ability to convert into other backends such as autodiff backend
-pub trait ToBackend<A:Backend>:Sized{
-	/// converts to a module on the other backend with the given device
-	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>;
-	/// converts to a module on the other backend
-	fn to_backend(self)->Self::WithBackend<A>{self.to_backend_device(&Default::default())}
-	/// the current backend
-	type CurrentBackend:Backend;
-	/// the type with a different backend
-	type WithBackend<C:Backend>:ToBackend<A,CurrentBackend=C,WithBackend<C>=Self::WithBackend<C>>+ToBackend<A,CurrentBackend=C,WithBackend<Self::CurrentBackend>=Self>;
+/// trait for switching the backend of a module
+pub trait ToBackend<B:Backend>:Sized{
+	/// moves the module to the backend with the device
+	fn to_backend_device(self,device:&B::Device)->Self::OnBackend;
+	/// moves the module to the backend with the device
+	fn to_backend(self)->Self::OnBackend{self.to_backend_device(&Default::default())}
+	/// the type on the new backend
+	type OnBackend;
 }
-
-
-impl<A:Backend,B:Backend,const N:usize> ToBackend<A> for Tensor<B,N,Bool>{
-	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>{Tensor::<A,N,Bool>::from_data(self.to_data(),device)}
-	type CurrentBackend=B;
-	type WithBackend<C:Backend>=Tensor<C,N,Bool>;
-}
-
-impl<A:Backend,B:Backend,const N:usize> ToBackend<A> for Tensor<B,N,Float>{
-	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>{Tensor::<A,N,Float>::from_data(self.to_data(),device)}
-	type CurrentBackend=B;
-	type WithBackend<C:Backend>=Tensor<C,N,Float>;
-}
-
-impl<A:Backend,B:Backend,const N:usize> ToBackend<A> for Tensor<B,N,Int>{
-	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>{Tensor::<A,N,Int>::from_data(self.to_data(),device)}
-	type CurrentBackend=B;
-	type WithBackend<C:Backend>=Tensor<C,N,Int>;
-}
-impl<A:Backend,B:Backend> ToBackend<A> for Value<B>{
-	fn to_backend_device(self,device:&A::Device)->Self::WithBackend<A>{
-		match self{Value::B1(x)=>x.to_backend_device(device).into(),Value::B2(x)=>x.to_backend_device(device).into(),Value::B3(x)=>x.to_backend_device(device).into(),Value::B4(x)=>x.to_backend_device(device).into(),Value::B5(x)=>x.to_backend_device(device).into(),Value::B6(x)=>x.to_backend_device(device).into(),Value::B7(x)=>x.to_backend_device(device).into(),Value::B8(x)=>x.to_backend_device(device).into(),Value::F1(x)=>x.to_backend_device(device).into(),Value::F2(x)=>x.to_backend_device(device).into(),Value::F3(x)=>x.to_backend_device(device).into(),Value::F4(x)=>x.to_backend_device(device).into(),Value::F5(x)=>x.to_backend_device(device).into(),Value::F6(x)=>x.to_backend_device(device).into(),Value::F7(x)=>x.to_backend_device(device).into(),Value::F8(x)=>x.to_backend_device(device).into(),Value::I1(x)=>x.to_backend_device(device).into(),Value::I2(x)=>x.to_backend_device(device).into(),Value::I3(x)=>x.to_backend_device(device).into(),Value::I4(x)=>x.to_backend_device(device).into(),Value::I5(x)=>x.to_backend_device(device).into(),Value::I6(x)=>x.to_backend_device(device).into(),Value::I7(x)=>x.to_backend_device(device).into(),Value::I8(x)=>x.to_backend_device(device).into(),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|x.to_backend_device(device)).collect())}
-	}
-	type CurrentBackend=B;
-	type WithBackend<C:Backend>=Value<C>;
-}
-
 /// higher kinded type trait to allow rewrapping burn modules in different backends to implement some wrapper features
 pub trait Wrappable:Clone+Debug+Decompose+Send{
 	type B:Backend;
@@ -453,5 +449,5 @@ use crate::{
 };
 use rand::random;
 use std::{
-	fmt::{Debug,Display},fs::{create_dir_all as create_folder},path::PathBuf
+	fmt::{Debug,Display},fs::{create_dir_all as create_folder},marker::PhantomData,path::PathBuf
 };
