@@ -12,6 +12,14 @@ impl AI<(Vec<f32>,Vec<f32>),Vec<f32>> for SquaredError<()>{
 impl AI<(Vec<f32>,Vec<f32>),f32> for CrossEntropy<()>{
 	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{-output.iter().zip(target.iter()).map(|(o,t)|o.ln()*t).fold(0.0,|acc,x|acc+x)}
 }
+impl AI<(Vec<f32>,Vec<f32>),f32> for SquaredError<()>{
+	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{
+		let (ol,tl)=(output.len(),target.len());
+		assert!(ol==tl,"output len {ol} should match target len {tl}");
+
+		output.into_iter().zip(target).map(|(o,t)|o-t).map(|x|x*x).sum::<f32>()/ol as f32
+	}
+}
 impl AI<(Vec<f32>,Vec<f32>),f32> for SoftEntropy<()>{
 	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{-new().fix_type::<Vec<f32>>().log_softmax().forward_fixed(output).iter().zip(target.iter()).map(|(o,t)|o*t).fold(0.0,|acc,x|acc+x)}
 }
@@ -84,6 +92,12 @@ impl Decompose for All{
 	fn compose(_decomposition:Self::Decomposition)->Self{All}
 	fn decompose(self)->Self::Decomposition{}
 	fn decompose_cloned(&self)->Self::Decomposition{}
+	type Decomposition=();
+}
+impl Decompose for Identity{
+	fn compose(_decomposition:Self::Decomposition)->Self{Self}
+	fn decompose(self){}
+	fn decompose_cloned(&self){}
 	type Decomposition=();
 }
 impl Decompose for Range<usize>{
@@ -812,6 +826,12 @@ impl<F:Fn(X)->Y,X,Y> AI<X,Y> for Apply<F,X,Y>{
 impl<F:Fn(X)->Y,X,Y> Op for Apply<F,X,Y>{
 	type Output=Y;
 }
+impl<K:Decompose+Eq+Hash,V:Decompose,S:Default+BuildHasher> Decompose for HashMap<K,V,S>{
+	fn compose(decomposition:Self::Decomposition)->Self{decomposition.into_iter().map(Decompose::compose).collect()}
+	fn decompose(self)->Self::Decomposition{self.into_iter().map(Decompose::decompose).collect()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.iter().map(|(k,v)|(k.decompose_cloned(),v.decompose_cloned())).collect()}
+	type Decomposition=Vec<(K::Decomposition,V::Decomposition)>;
+}
 impl<X:Into<Y>,Y> AI<X,Y> for Identity{
 	fn forward(&self,input:X)->Y{input.into()}
 }
@@ -928,13 +948,13 @@ mod tests{
 		let y=op.forward(x);
 		assert_eq!(y,[1.0,1.0,1.0,1.0,1.0,2.0,2.0,2.0]);
 	}
-	/*#[test]
+	#[test]
 	fn mse_vec(){
-		let op=new().fix_type::<Vec<f32>>().mse();
+		let op=new().fix_type::<Vec<f32>>().squared_error().mean();
 		let x:(Vec<f32>,Vec<f32>)=(vec![0.0,0.5,1.5],vec![-2.0,1.5,5.5]);
 		let y:f32=op.forward(x);
 		assert_eq!(y,7.0);
-	}*/
+	}
 	use super::*;
 }
 op_tuple!((A,B),(A,B,C),(A,B,C,D),(A,B,C,D,E),(A,B,C,D,E,F),(A,B,C,D,E,F,G),(A,B,C,D,E,F,G,H));
@@ -1134,7 +1154,7 @@ pub trait UnwrapInner<T>{
 	fn unwrap_inner(self)->T;
 }
 /// tells which dimensions to apply an operation
-pub trait WhichDims{
+pub trait WhichDims:Clone{
 	/// returns true if specifying more dims than the tensor has should be an error
 	fn is_strict(&self)->bool{true}
 	/// iterates over the dims. tensor rank is provided to prevent eternal or excessively long loops due to iteration, but isn't necessarily a limitation on what dims are returned
@@ -1144,6 +1164,6 @@ pub trait WhichDims{
 }
 use {accessible_inner,branch_tuple,op_tuple,decompose_primitive,decompose_tuple,zip_tuple};
 use std::{
-	iter::{Copied,FromIterator,Once,self},marker::PhantomData,ops::Range,slice::Iter as SliceIter
+	collections::HashMap,hash::{BuildHasher,Hash},iter::{Copied,FromIterator,Once,self},marker::PhantomData,ops::Range,slice::Iter as SliceIter
 };
 zip_tuple!((A,B):(W,X)->(Y,Z),(A,B,C):(U,V,W)->(X,Y,Z),(A,B,C,D):(S,T,U,V)->(W,X,Y,Z),(A,B,C,D,E):(Q,R,S,T,U)->(V,W,X,Y,Z),(A,B,C,D,E,F):(O,P,Q,R,S,T)->(U,V,W,X,Y,Z),(A,B,C,D,E,F,G):(M,N,O,P,Q,R,S)->(T,U,V,W,X,Y,Z),(A,B,C,D,E,F,G,H):(K,L,M,N,O,P,Q,R)->(S,T,U,V,W,X,Y,Z));
