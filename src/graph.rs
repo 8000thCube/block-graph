@@ -157,7 +157,47 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		self.add_connection(clear,connectionlabel.clone(),input,layerlabel.clone(),output);
 		self.add_layer(layerlabel.clone(),layer);
 		(connectionlabel,layerlabel)
-	}/*
+	}
+/*	pub fn sort(&mut self){//TODO finish and test
+		let connections=&mut self.connections;
+		let mut nodes:HashMap<&Label,(Vec<&Label>,Vec<&Label>)>=HashMap::with_capacity(connections.len());
+		let mut order=Vec::with_capacity(connections.len());
+		self.order.iter().rev().for_each(|label|if let Some((_clear,input,_layer,output))=connections.get(label){
+			nodes.entry(input).or_default().1.push(label);
+			nodes.entry(output).or_default().0.push(label);
+		});
+
+		let mut stack=Vec::with_capacity(10);
+		while nodes.len()>0{
+			let mut mininputs=usize::MAX;
+			nodes.retain(|node,(inputs,outputs)|{
+				let l=inputs.len();
+				if l<mininputs{mininputs=l}
+				if l==0{
+					stack.extend(outputs.drain(..).cloned().map(Some));
+					stack.push(None);
+				}
+				outputs.len()>0
+			});
+			if mininputs==0{
+				let mut clear=true;
+				stack.iter().for_each(|label|if let Some(label)=label{
+					if let Some((clearinput,_input,_layer,_output))=connections.get_mut(label){*clearinput=clear}
+				}else{
+					clear=true;
+				});
+			}else{
+				stack.extend(nodes.iter_mut().map(|(_node,(_inputs,outputs))|outputs.pop().cloned()));
+			}
+			stack.drain(..).filter_map(|l|l).for_each(|label|if let Some((_clear,_input,_layer,output))=connections.get(&label){
+				nodes.get_mut(output).unwrap().0.pop();
+				order.push(label);
+			});
+		}
+		self.order=order;
+	}*/
+
+	/*
 	/// topologically sorts the graph. connections in the same topological position will remain in the same relative order. node clearing will be moved to the last output of each node
 	pub fn sort(&mut self){//TODO test
 		let connections=&mut self.connections;
@@ -240,5 +280,5 @@ type LabelMap<E>=HashMap<Label,E,H>;
 use crate::ai::{AI,Decompose,Op};
 use rand::random;
 use std::{
-	collections::HashMap,hash::{BuildHasher,Hasher}
+	collections::{HashMap},hash::{BuildHasher,Hasher}
 };
