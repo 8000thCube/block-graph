@@ -158,85 +158,34 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		self.add_layer(layerlabel.clone(),layer);
 		(connectionlabel,layerlabel)
 	}
-/*	pub fn sort(&mut self){//TODO finish and test
+	pub fn sort(&mut self){//TODO finish and test
 		let connections=&mut self.connections;
-		let mut nodes:HashMap<&Label,(Vec<&Label>,Vec<&Label>)>=HashMap::with_capacity(connections.len());
+		let mut nodes:HashMap<Label,(usize,Vec<Label>)>=HashMap::with_capacity(connections.len());
 		let mut order=Vec::with_capacity(connections.len());
-		self.order.iter().rev().for_each(|label|if let Some((_clear,input,_layer,output))=connections.get(label){
-			nodes.entry(input).or_default().1.push(label);
-			nodes.entry(output).or_default().0.push(label);
+		self.order.iter().rev().for_each(|label|if let Some((clear,input,_layer,output))=connections.get_mut(label){
+			let (_inputinputcount,inputoutputs)=nodes.entry(input.clone()).or_default();
+			*clear=inputoutputs.len()==0;
+			inputoutputs.push(label.clone());
+			let (outputinputcount,_outputoutputs)=nodes.entry(output.clone()).or_default();
+			*outputinputcount+=1;
 		});
 
 		let mut stack=Vec::with_capacity(10);
 		while nodes.len()>0{
 			let mut mininputs=usize::MAX;
-			nodes.retain(|node,(inputs,outputs)|{
-				let l=inputs.len();
-				if l<mininputs{mininputs=l}
-				if l==0{
-					stack.extend(outputs.drain(..).cloned().map(Some));
-					stack.push(None);
-				}
+			nodes.retain(|_node,(inputs,outputs)|{
+				if *inputs<mininputs{mininputs=*inputs}
+				if *inputs==0{stack.extend(outputs.drain(..).rev())}
 				outputs.len()>0
 			});
-			if mininputs==0{
-				let mut clear=true;
-				stack.iter().for_each(|label|if let Some(label)=label{
-					if let Some((clearinput,_input,_layer,_output))=connections.get_mut(label){*clearinput=clear}
-				}else{
-					clear=true;
-				});
-			}else{
-				stack.extend(nodes.iter_mut().map(|(_node,(_inputs,outputs))|outputs.pop().cloned()));
-			}
-			stack.drain(..).filter_map(|l|l).for_each(|label|if let Some((_clear,_input,_layer,output))=connections.get(&label){
-				nodes.get_mut(output).unwrap().0.pop();
+			if mininputs>0{stack.extend(nodes.iter_mut().filter_map(|(_node,(_inputs,outputs))|outputs.pop()))}
+			stack.drain(..).for_each(|label|if let Some((_clear,_input,_layer,output))=connections.get(&label){
+				nodes.get_mut(output).unwrap().0-=1;
 				order.push(label);
 			});
 		}
 		self.order=order;
-	}*/
-
-	/*
-	/// topologically sorts the graph. connections in the same topological position will remain in the same relative order. node clearing will be moved to the last output of each node
-	pub fn sort(&mut self){//TODO test
-		let connections=&mut self.connections;
-		let nodes=&self.nodes;
-		let mut nodeconnectiondata=vec![0;connections.len()+nodes.len()];
-		let mut nodeconnectiondata=nodeconnectiondata.as_mut_slice();
-		let mut nodeconnections:Vec<(&mut [usize],&mut [usize])>=Vec::with_capacity(nodes.len());
-		for &(inputs,_outputs) in nodes.iter(){
-			let (filled,nc)=nodeconnectiondata.split_at_mut(1);
-			let (inputs,nc)=nc.split_at_mut(inputs);
-
-			nodeconnectiondata=nc;
-			nodeconnections.push((filled,inputs));
-		}
-		for (n,(_clear,_input,_layer,output)) in connections.iter().enumerate(){
-			let (filled,inputs)=&mut nodeconnections[*output];
-			inputs[filled[0]]=n;
-			filled[0]+=1;
-		}
-
-		let mut newconnections:Vec<(usize,usize,usize,usize)>=Vec::with_capacity(connections.len());
-		for (&(_inputcount,outputcount),(_filled,inputs)) in nodes.iter().zip(nodeconnections.iter()){
-			if outputcount>0{continue}
-			newconnections.extend(inputs.iter().rev().map(|&n|connections[n]));
-		}
-		for n in 0..connections.len(){
-			let (clear,input,_layer,_output)=&mut newconnections[n];
-			let (filled,inputs)=&nodeconnections[*input];
-
-			if filled[0]==0{
-				*clear=0;
-			}else{
-				*clear=1;
-				newconnections.extend(inputs.iter().rev().map(|&n|connections[n]));
-			}
-		}
-		newconnections.reverse();
-		*connections=newconnections;
-	}*/
+	}
 }
 impl<C:Decompose> Decompose for Graph<C>{
 	fn compose((connections,layers,order):Self::Decomposition)->Self{
