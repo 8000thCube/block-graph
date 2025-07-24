@@ -56,11 +56,11 @@ impl<B:Backend,D:WhichDims> AI<Value<B>,Value<B>> for TruncateToMatch<(),D>{//TO
 		let mut shouldtruncate=[false;8];
 
 		for dim in dims.which_dims(8){
-			if dim>=8{
-				if strict{return "Cannot truncate dims above index 7 because more than 8 dims is currently not supported".into()}
-			}else{
+			if dim<8{
 				maxdim=dim.max(maxdim);
 				shouldtruncate[dim]=true;
+			}else if strict{
+				return "Cannot truncate dims above index 7 because more than 8 dims is currently not supported".into();
 			}
 		}
 		let mut sizes=[usize::MAX;8];
@@ -68,7 +68,7 @@ impl<B:Backend,D:WhichDims> AI<Value<B>,Value<B>> for TruncateToMatch<(),D>{//TO
 			v
 		}else{
 			let rank=input.rank().unwrap();
-			if maxdim>=rank{return format!("Highest dim to truncate must be less than tensor rank. dim: {maxdim} rank: {rank}").into()}
+			if maxdim>=rank&&strict{return format!("Highest dim to truncate must be less than tensor rank. dim: {maxdim} rank: {rank}").into()}
 			return input
 		};
 		let incompatible=mem::discriminant(&Value::Incompatible(String::new()));
@@ -86,9 +86,10 @@ impl<B:Backend,D:WhichDims> AI<Value<B>,Value<B>> for TruncateToMatch<(),D>{//TO
 			if variant==multi{continue}
 
 			let rank=x.rank().unwrap();
-			if maxdim>=rank{return format!("Highest dim to truncate must be less than tensor rank. dim: {maxdim} rank: {rank}").into()}
+			if maxdim>=rank&&strict{return format!("Highest dim to truncate must be less than tensor rank. dim: {maxdim} rank: {rank}").into()}
 			shouldtruncate.iter().zip(sizes.iter_mut()).zip(x.shape().to_x8(Alignment::Left)).for_each(|((&t,s),d)|if t{*s=d.min(*s)});
 		}
+		if shouldmulti.unwrap_or_default(){return Value::Multi(v.into_iter().map(|x|self.forward(x)).collect())}
 		for x in v.iter_mut(){
 			let dims=x.shape().to_x8(Alignment::Left);
 			let mut ranges=sizes.map(|s|0..s);
