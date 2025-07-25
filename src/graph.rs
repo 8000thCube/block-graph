@@ -73,6 +73,16 @@ impl<A:Decompose> Decompose for Unvec<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
+impl<A:Into<C>,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Extend<Graph<A>> for Graph<C>{
+	fn extend<I:IntoIterator<Item=Graph<A>>>(&mut self,iter:I){iter.into_iter().for_each(|graph|self.merge(graph))}
+}
+impl<A:Into<C>,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> FromIterator<Graph<A>> for Graph<C>{
+	fn from_iter<I:IntoIterator<Item=Graph<A>>>(iter:I)->Self{
+		let mut graph=Graph::default();
+		graph.extend(iter);
+		graph
+	}
+}
 impl<A:Op<Output=Vec<Y>>,Y> Op for Unvec<A>{
 	type Output=Y;
 }
@@ -164,7 +174,15 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let (clear,input,layer,output)=self.connections.get(label)?;
 		Some((*clear>0,input,layer,output))
 	}
-	/// topologically sorts the graph. Inputs to the same node will retain their relative order.
+	/// gets the layer information by label
+	pub fn get_layer(&self,label:&Label)->Option<&C>{self.layers.get(label)}
+	/// another graphs into this one
+	pub fn merge<A:Into<C>>(&mut self,graph:Graph<A>){
+		self.connections.extend(graph.connections);
+		self.layers.extend(graph.layers.into_iter().map(|(l,a)|(l,a.into())));
+		self.order.extend(graph.order);
+	}
+	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a split trait and output splitter might be helpful if output order must be maintained somewhere
 	pub fn sort(&mut self){
 		let connections=&mut self.connections;
 		let mut dedup=HashSet::with_capacity(connections.len());
@@ -282,7 +300,7 @@ pub struct Label{id:u64,name:Option<String>}
 /// wraps the graph so it can take singular io
 pub struct Unvec<A>(pub A);
 /// trait to allow merging multiple outputs into one graph node
-pub trait Merge{
+pub trait Merge{// TODO wrapper to implement in terms of intoiterator and from iterator might be useful
 	/// merges the other into self, taking out of other if convenient
 	fn merge(&mut self,other:Self);
 }
@@ -291,5 +309,5 @@ struct H(u64);
 type LabelMap<E>=HashMap<Label,E,H>;
 use crate::ai::{AI,Decompose,Op};
 use std::{
-	collections::{HashMap,HashSet},hash::{BuildHasher,Hasher}
+	collections::{HashMap,HashSet},hash::{BuildHasher,Hasher},iter::{FromIterator,Extend}
 };
