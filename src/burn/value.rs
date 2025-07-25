@@ -412,7 +412,7 @@ impl<B:Backend> Merge for Value<B>{
 			(u,Value::Multi(mut v))=>if v.len()==0{
 				*self=u;
 			}else{
-				v.push(u);
+				v.insert(0,u);
 				*self=v.into();
 			},
 			(u,v)=>*self=vec![u,v].into()
