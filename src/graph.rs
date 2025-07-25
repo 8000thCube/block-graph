@@ -48,6 +48,11 @@ impl Hasher for H{
     fn write_u64(&mut self,n:u64){self.0^=n}
 }
 impl Label{
+	/// xors the id
+	fn xor_id(mut self,x:u64)->Self{
+		self.id^=x;
+		self
+	}
 	/// creates a new random label
 	pub fn new()->Self{
 		Self{id:rand::random(),name:None}
@@ -159,33 +164,66 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		self.add_layer(layerlabel.clone(),layer);
 		(connectionlabel,layerlabel)
 	}
-	pub fn sort(&mut self){//TODO do this backwards to preserve input order rather than output order
+	/// gets connection information by label. (clear, input, layer, output)
+	pub fn get_connection(&self,label:&Label)->Option<(bool,&Label,&Label,&Label)>{
+		let (clear,input,layer,output)=self.connections.get(label)?;
+		Some((*clear>0,input,layer,output))
+	}
+	/// topologically sorts the graph. inputs to the same node will retain their relative order.
+	pub fn sort(&mut self){// TODO make this work with less cloning
 		let connections=&mut self.connections;
-		let mut nodes:HashMap<Label,(usize,Vec<Label>)>=HashMap::with_capacity(connections.len());
-		let mut order=Vec::with_capacity(connections.len());
-		self.order.iter().rev().for_each(|label|if let Some((clear,input,_layer,output))=connections.get_mut(label){
-			let (_inputinputcount,inputoutputs)=nodes.entry(input.clone()).or_default();
-			*clear=set_bit(*clear,1,inputoutputs.len()==0);
+		let nx=rand::random();
+		let order=&mut self.order;
+		let mut nodes:HashMap<Label,(Vec<Label>,Vec<Label>)>=HashMap::with_capacity(connections.len());
+		let mut dedup=HashMap::new();
+		order.drain(..).rev().for_each(|label|if let Some((clear,input,_layer,output))=connections.get_mut(&label){
+			let (_inputinput,inputoutputs)=nodes.entry(input.clone().xor_id(nx)).or_default();
+			let inputsibling=inputoutputs.last().cloned();
 			inputoutputs.push(label.clone());
-			let (outputinputcount,_outputoutputs)=nodes.entry(output.clone()).or_default();
-			*outputinputcount+=1;
+			let (outputinputs,_outputoutputs)=nodes.entry(output.clone().xor_id(nx)).or_default();
+			let outputsibling=outputinputs.last().cloned();
+			outputinputs.push(label.clone());
+
+			*clear=set_bit(*clear,1,inputsibling.is_none());
+			if let Some(i)=inputsibling.clone(){nodes.entry(i).or_default().0.push(label.clone())}
+			if let Some(o)=outputsibling.clone(){nodes.entry(o).or_default().0.push(label.clone())}
+			let (inputs,outputs)=nodes.entry(label).or_default();
+
+			inputs.push(input.clone().xor_id(nx));
+			outputs.extend(inputsibling);
+			outputs.extend(outputsibling);
+			outputs.push(output.clone().xor_id(nx));
 		});
 
-		let mut stack=Vec::with_capacity(10);
 		while nodes.len()>0{
-			let mut mininputs=usize::MAX;
+			let mut cycle=true;
+			let orderheight=order.len();
+
 			nodes.retain(|_node,(inputs,outputs)|{
-				if *inputs<mininputs{mininputs=*inputs}
-				if *inputs==0{stack.extend(outputs.drain(..).rev())}
+				if inputs.len()==0{
+					cycle=false;
+					order.extend(outputs.drain(..).filter(|o|dedup.insert(o.clone(),()).is_none()).rev());
+				}
 				outputs.len()>0
 			});
-			if mininputs>0{stack.extend(nodes.iter_mut().filter_map(|(_node,(_inputs,outputs))|outputs.pop()))}
-			stack.drain(..).for_each(|label|if let Some((_clear,_input,_layer,output))=connections.get(&label){
-				if let Some(o)=nodes.get_mut(output){o.0-=1}
-				order.push(label);
-			});
+			if cycle{order.extend(nodes.iter_mut().filter_map(|(_node,(_inputs,outputs))|outputs.pop()).filter(|o|dedup.insert(o.clone(),()).is_none()))}
+			let mut n=orderheight;
+			while n<order.len(){// TODO this loop can be optimized to do some of the work of the retain loop in the common case of chains of single input nodes
+				let outputs=if let Some((_inputs,outputs))=nodes.get(&order[n]){outputs.clone()}else{Vec::new()};
+				outputs.into_iter().for_each(|o|if let Some((inputs,_outputs))=nodes.get_mut(&o){
+					inputs.pop();
+				});
+				n+=1;
+			}
+			/*while n<order.len(){
+				if let Some((inputs,outputs))=connections.get(&order[n]).and_then(|(_clear,_input,_layer,output)|nodes.get_mut(output)){
+					inputs.pop();
+					if inputs.len()==0&&outputs.len()==1{order.push(outputs.pop().unwrap())}
+				}
+				n+=1;
+			}*/
 		}
-		self.order=order;
+		order.retain(|label|connections.get(label).is_some());
 	}
 }
 impl<C:Decompose> Decompose for Graph<C>{
@@ -210,25 +248,25 @@ impl<E> Merge for Vec<E>{
 impl<S:?Sized+AsRef<str>> From<&S> for Label{
 	fn from(value:&S)->Self{value.as_ref().to_string().into()}
 }
-
 #[cfg(test)]
 mod tests{
-	/*#[test]
+	#[test]
 	fn sort_digons(){
 		let mut graph:Graph<Append<u64>>=Graph::new();
-		let mut order=[0,1,2,3];
+		let mut order=[0,1,2,3,4];
 
-		//order.shuffle(&mut rand::rng());
+		order.shuffle(&mut rand::rng());
 		for &n in order.iter(){
-			todo!()
+			graph.connect(true,n,Append(n+100),n+1);
+			graph.connect(true,n,Append(n+200),n+1);
 		}
 		let unsorted:Vec<u64>=Unvec(&graph).forward(Vec::new());
 
 		graph.sort();
 		let sorted:Vec<u64>=Unvec(&graph).forward(Vec::new());
-		assert_eq!(sorted,[100, 300, 0, 200, 1, 201, 101, 301, 2, 202, 102, 302, 3, 203, 103, 303]);//,[0,200,100,300,1,201,101,301,2,202,102,302,3,203,103,303]);
+		assert_eq!(sorted,[100,200,101,201,102,202,103,203,104,204]);
 		assert_ne!(sorted,unsorted);
-	}*/
+	}
 	#[test]
 	fn sort_line(){
 		let mut graph:Graph<Append<u64>>=Graph::new();
