@@ -1,3 +1,4 @@
+fn set_bit(x: u64, idx: u8, b: bool) -> u64{(x & !(1 << idx)) | ((b as u64) << idx)}
 impl BuildHasher for H{
 	fn build_hasher(&self)->Self::Hasher{*self}
 	type Hasher=H;
@@ -12,7 +13,7 @@ impl Decompose for Label{
 }
 impl Default for Label{
 	fn default()->Self{
-		Self{id:random(),name:None}
+		Self{id:rand::random(),name:None}
 	}
 }
 impl From<Option<String>> for Label{
@@ -49,7 +50,7 @@ impl Hasher for H{
 impl Label{
 	/// creates a new random label
 	pub fn new()->Self{
-		Self{id:random(),name:None}
+		Self{id:rand::random(),name:None}
 	}
 	/// sets the label id
 	pub fn with_id(mut self,id:u64)->Self{
@@ -113,7 +114,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let layers=&self.layers;
 
 		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get(layer){
-			let x=if *clear{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
+			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
 			let y=f.forward(x);
 			map.entry(output.clone()).or_default().merge(y);
 		});
@@ -124,7 +125,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let layers=&mut self.layers;
 
 		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get_mut(layer){
-			let x=if *clear{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
+			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
 			let y=f.forward_mut(x);
 			map.entry(output.clone()).or_default().merge(y);
 		});
@@ -144,7 +145,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let (connections,order)=(&mut self.connections,&mut self.order);
 		let (connection,input,layer,output)=(connection.into(),input.into(),layer.into(),output.into());
 
-		connections.insert(connection.clone(),(clear,input,layer,output));
+		connections.insert(connection.clone(),(clear as u64,input,layer,output));
 		order.push(connection);
 	}
 	/// adds a layer without connecting it
@@ -158,13 +159,13 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		self.add_layer(layerlabel.clone(),layer);
 		(connectionlabel,layerlabel)
 	}
-	pub fn sort(&mut self){//TODO finish and test
+	pub fn sort(&mut self){//TODO do this backwards to preserve input order rather than output order
 		let connections=&mut self.connections;
 		let mut nodes:HashMap<Label,(usize,Vec<Label>)>=HashMap::with_capacity(connections.len());
 		let mut order=Vec::with_capacity(connections.len());
 		self.order.iter().rev().for_each(|label|if let Some((clear,input,_layer,output))=connections.get_mut(label){
 			let (_inputinputcount,inputoutputs)=nodes.entry(input.clone()).or_default();
-			*clear=inputoutputs.len()==0;
+			*clear=set_bit(*clear,1,inputoutputs.len()==0);
 			inputoutputs.push(label.clone());
 			let (outputinputcount,_outputoutputs)=nodes.entry(output.clone()).or_default();
 			*outputinputcount+=1;
@@ -180,7 +181,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 			});
 			if mininputs>0{stack.extend(nodes.iter_mut().filter_map(|(_node,(_inputs,outputs))|outputs.pop()))}
 			stack.drain(..).for_each(|label|if let Some((_clear,_input,_layer,output))=connections.get(&label){
-				nodes.get_mut(output).unwrap().0-=1;
+				if let Some(o)=nodes.get_mut(output){o.0-=1}
 				order.push(label);
 			});
 		}
@@ -193,7 +194,7 @@ impl<C:Decompose> Decompose for Graph<C>{
 	}
 	fn decompose(self)->Self::Decomposition{(self.connections.decompose(),self.layers.decompose(),self.order.decompose())}
 	fn decompose_cloned(&self)->Self::Decomposition{(self.connections.decompose_cloned(),self.layers.decompose_cloned(),self.order.decompose_cloned())}
-	type Decomposition=(Vec<((u64,Option<String>),(bool,(u64,Option<String>),(u64,Option<String>),(u64,Option<String>)))>,Vec<((u64,Option<String>),C::Decomposition)>,Vec<(u64,Option<String>)>);
+	type Decomposition=(Vec<((u64,Option<String>),(u64,(u64,Option<String>),(u64,Option<String>),(u64,Option<String>)))>,Vec<((u64,Option<String>),C::Decomposition)>,Vec<(u64,Option<String>)>);
 }
 impl<C:Op> Op for Graph<C>{
 	type Output=Vec<C::Output>;
@@ -209,9 +210,59 @@ impl<E> Merge for Vec<E>{
 impl<S:?Sized+AsRef<str>> From<&S> for Label{
 	fn from(value:&S)->Self{value.as_ref().to_string().into()}
 }
-#[derive(Clone,Debug)]
+
+#[cfg(test)]
+mod tests{
+	/*#[test]
+	fn sort_digons(){
+		let mut graph:Graph<Append<u64>>=Graph::new();
+		let mut order=[0,1,2,3];
+
+		//order.shuffle(&mut rand::rng());
+		for &n in order.iter(){
+			todo!()
+		}
+		let unsorted:Vec<u64>=Unvec(&graph).forward(Vec::new());
+
+		graph.sort();
+		let sorted:Vec<u64>=Unvec(&graph).forward(Vec::new());
+		assert_eq!(sorted,[100, 300, 0, 200, 1, 201, 101, 301, 2, 202, 102, 302, 3, 203, 103, 303]);//,[0,200,100,300,1,201,101,301,2,202,102,302,3,203,103,303]);
+		assert_ne!(sorted,unsorted);
+	}*/
+	#[test]
+	fn sort_line(){
+		let mut graph:Graph<Append<u64>>=Graph::new();
+		let mut order=[0,1,2,3,4,5,6,7,8,9];
+
+		order.shuffle(&mut rand::rng());
+		for &n in order.iter(){
+			graph.connect(false,n,Append(n),n+1);
+		}
+		let unsorted:Vec<u64>=Unvec(&graph).forward(Vec::new());
+
+		graph.sort();
+		let sorted:Vec<u64>=Unvec(&graph).forward(Vec::new());
+		assert_eq!(sorted,[0,1,2,3,4,5,6,7,8,9]);
+		assert_ne!(sorted,unsorted);
+	}
+	impl<E:Clone> AI<Vec<E>,Vec<E>> for Append<E>{
+		fn forward(&self,mut input:Vec<E>)->Vec<E>{
+			input.push(self.0.clone());
+			input
+		}
+	}
+	impl<E:Clone> Op for Append<E>{
+		type Output=Vec<E>;
+	}
+	#[derive(Clone,Debug)]
+	/// test ai module that appends a number to a vec
+	struct Append<E:Clone>(E);
+	use rand::seq::SliceRandom;
+	use super::*;
+}
+#[derive(Clone,Debug,Eq,PartialEq)]
 /// graph like ai operation structure. The connections run in the order they are connected
-pub struct Graph<C>{connections:LabelMap<(bool,Label,Label,Label)>,layers:LabelMap<C>,order:Vec<Label>}
+pub struct Graph<C>{connections:LabelMap<(u64,Label,Label,Label)>,layers:LabelMap<C>,order:Vec<Label>}
 #[derive(Clone,Debug,Eq,Hash,PartialEq)]
 /// label for graph connections or layers or nodes
 pub struct Label{id:u64,name:Option<String>}
@@ -227,7 +278,6 @@ pub trait Merge{
 struct H(u64);
 type LabelMap<E>=HashMap<Label,E,H>;
 use crate::ai::{AI,Decompose,Op};
-use rand::random;
 use std::{
 	collections::{HashMap},hash::{BuildHasher,Hasher}
 };
