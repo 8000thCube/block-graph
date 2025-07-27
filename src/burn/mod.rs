@@ -290,13 +290,9 @@ impl<W:Wrappable> Wrappable for Sequential<W>{
 	type B=W::B;
 	type With<C:Backend>=Sequential<W::With<C>>;
 }
-impl<W:Wrappable> Wrappable for SoftChoose<W>{
+impl<W:Wrappable> Wrappable for Choose<W>{
 	type B=W::B;
-	type With<C:Backend>=SoftChoose<W::With<C>>;
-}
-impl<W:Wrappable> Wrappable for SoftEntropy<W>{
-	type B=W::B;
-	type With<C:Backend>=SoftEntropy<W::With<C>>;
+	type With<C:Backend>=Choose<W::With<C>>;
 }
 impl<W:Wrappable> Wrappable for Unvec<W>{
 	type B=W::B;
@@ -342,7 +338,7 @@ mod tests{
 		graph.connect(true,"y",Layer::linear(false,10,1,1.0),"output");
 
 		let graph=Unvec(graph).squared_error().set_type::<(Value<A>,Value<A>),LossOutput<A>>().regression().wrap();
-		let graph=graph.train(&TrainConfig::new(),SgdConfig::new().init(),0.01,train,valid);
+		let graph=graph.train(&TrainConfig::new().with_checkpoints(false),SgdConfig::new().init(),0.01,train,valid);
 		let graph=graph.valid().into_inner().into_inner().into_inner().into_inner();//TODO this chain of into_inner is annoying
 
 		let inputval=Value::from(Tensor::<B,2>::from_data(TensorData::new([0.0,0.0,0.0,1.0,1.0,0.0,1.0,1.0].to_vec(),[4,2]),&Default::default()));
@@ -389,7 +385,7 @@ pub struct TrainConfig{
 	artifact_directory:String,
 	#[config(default="16")]
 	batch_size:usize,
-	#[config(default="false")]
+	#[config(default="true")]
 	checkpoints:bool,
 	#[config(default="false")]
 	console_rendering:bool,
@@ -445,7 +441,7 @@ use burn::{
 	}
 };
 use crate::{
-	ai::{AI,AccQ,Branch,Cat,CrossEntropy,Decompose,Duplicate,Map,Mean,Op,Sequential,SetType,SoftChoose,SoftEntropy,SquaredError,Zip},graph::{Graph,Unvec}
+	ai::{AI,AccQ,Branch,Cat,Choose,CrossEntropy,Decompose,Duplicate,Map,Mean,Op,Sequential,SetType,SquaredError,Zip},graph::{Graph,Unvec}
 };
 use rand::random;
 use std::{
