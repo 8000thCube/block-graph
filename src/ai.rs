@@ -100,14 +100,42 @@ impl Decompose for Identity{
 	fn decompose_cloned(&self){}
 	type Decomposition=();
 }
+impl Decompose for OnMismatch{
+	fn compose(decomposition:Self::Decomposition)->Self{
+		match decomposition%10{0=>Self::Error,1=>Self::Pad(Alignment::compose(decomposition/10)),2=>Self::Truncate(Alignment::compose(decomposition/10)),_=>panic!("unknown mismatch number")}
+	}
+	fn decompose(self)->Self::Decomposition{
+		match self{Self::Error=>0,Self::Pad(a)=>a.decompose()*10+1,Self::Truncate(a)=>a.decompose()*10+2}
+	}
+	fn decompose_cloned(&self)->Self::Decomposition{self.clone().decompose()}
+	type Decomposition=usize;
+}
 impl Decompose for Range<usize>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition.0..decomposition.1}
 	fn decompose(self)->Self::Decomposition{(self.start,self.end)}
 	fn decompose_cloned(&self)->Self::Decomposition{(self.start,self.end)}
 	type Decomposition=(usize,usize);
 }
+impl Decompose for ReductionMode{
+	fn compose(decomposition:usize)->Self{
+		const C:usize=usize::MAX-1;
+		const T:usize=usize::MAX;
+		match decomposition{C=>Self::Component,T=>Self::Tensor,x=>Self::Dim(x)}
+	}
+	fn decompose(self)->Self::Decomposition{
+		match self{Self::Component=>usize::MAX-1,Self::Dim(x)=>x,Self::Tensor=>usize::MAX}
+	}
+	fn decompose_cloned(&self)->Self::Decomposition{self.clone().decompose()}
+	type Decomposition=usize;
+}
 impl Default for Alignment{
 	fn default()->Self{Self::Left}
+}
+impl Default for OnMismatch{
+	fn default()->Self{Self::Error}
+}
+impl Default for ReductionMode{
+	fn default()->Self{Self::Component}
 }
 impl Op for AccQ<()>{
 	type Output=Vec<f32>;
@@ -115,10 +143,7 @@ impl Op for AccQ<()>{
 impl Op for AbnormalSoftmax<()>{
 	type Output=Vec<f32>;
 }
-impl Op for Cat<()>{
-	type Output=Vec<()>;
-}
-impl Op for CrossEntropy<()>{
+impl Op for CrossEntropy<()>{// TODO these should have vec outputs. explicit reduction would compose more intuitively
 	type Output=f32;
 }
 impl Op for SoftEntropy<()>{
@@ -314,10 +339,6 @@ impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J
 		input.into_iter().map(|x|a.forward_mut(x)).collect()
 	}
 }
-impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for Cat<A> where Cat<()>:AI<Y,Z>{
-	fn forward(&self,input:X)->Z{self.with_inner(()).forward(self.inner().forward(input))}
-	fn forward_mut(&mut self,input:X)->Z{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
-}
 impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for SoftChoose<A> where SoftChoose<()>:AI<Y,Z>{
 	fn forward(&self,input:X)->Z{self.with_inner(()).forward(self.inner().forward(input))}
 	fn forward_mut(&mut self,input:X)->Z{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
@@ -494,14 +515,6 @@ impl<A:Decompose> Decompose for Branch<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Decompose> Decompose for Cat<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition.0),dim:decomposition.1}
-	}
-	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.dim)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.dim)}
-	type Decomposition=(A::Decomposition,usize);
-}
 impl<A:Decompose> Decompose for CrossEntropy<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
 		Self{inner:A::compose(decomposition)}
@@ -605,9 +618,6 @@ impl<A:Decompose> Decompose for Zip<A>{
 impl<A:Op<Output=Y>,D,Y> Op for TruncateToMatch<A,D> where TruncateToMatch<(),D>:AI<Y,Y>{
 	type Output=Y;
 }
-impl<A:Op<Output=Y>,Y:IntoIterator<Item=Z>,Z> Op for Cat<A> where Cat<()>:AI<Y,Z>{
-	type Output=Z;
-}
 impl<A:Op<Output=Y>,Y> Op for &A{
 	type Output=Y;
 }
@@ -684,17 +694,6 @@ impl<A> AccQ<A>{
 }
 impl<A> Branch<A>{
 	accessible_inner!(inner:A);
-}
-impl<A> Cat<A>{
-	accessible_inner!(inner:A);
-	/// gets the dimension
-	pub fn dim(&self)->usize{self.dim}
-	/// creates from the inner value
-	pub fn from_inner(dim:usize,inner:A)->Self{
-		Cat{dim,inner}
-	}
-	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->Cat<B> where Cat<B>:Op{Cat::from_inner(self.dim,inner)}
 }
 impl<A> CrossEntropy<A>{
 	accessible_inner!(inner:A);
@@ -835,7 +834,7 @@ impl<K:Decompose+Eq+Hash,V:Decompose,S:Default+BuildHasher> Decompose for HashMa
 impl<X:Into<Y>,Y> AI<X,Y> for Identity{
 	fn forward(&self,input:X)->Y{input.into()}
 }
-impl<X> AI<Vec<Vec<X>>,Vec<X>> for Cat<()>{
+impl<X> AI<Vec<Vec<X>>,Vec<X>> for CatLayer{
 	fn forward(&self,input:Vec<Vec<X>>)->Vec<X>{
 		let dim=self.dim;
 		assert!(dim==0,"Dimension index was {dim} but a vec only has one tensor dimension");
@@ -955,12 +954,22 @@ mod tests{
 		let y:f32=op.forward(x);
 		assert_eq!(y,7.0);
 	}
+	/*#[test]
+	fn sum_vec(){
+		let op=new().fix_type::<Vec<f32>>().sum()
+	}*/
 	use super::*;
 }
 op_tuple!((A,B),(A,B,C),(A,B,C,D),(A,B,C,D,E),(A,B,C,D,E,F),(A,B,C,D,E,F,G),(A,B,C,D,E,F,G,H));
 #[derive(Clone,Copy,Debug,Eq,Hash,PartialEq)]
 /// alignment
 pub enum Alignment{Center,Left,Right}
+#[derive(Clone,Copy,Debug,Eq,Hash,PartialEq)]
+/// shape mismatch handling
+pub enum OnMismatch{Error,Pad(Alignment),Truncate(Alignment)}
+#[derive(Clone,Copy,Debug,Eq,Hash,PartialEq)]
+/// reduction mode
+pub enum ReductionMode{Component,Dim(usize),Tensor}
 /// creates an operation that applies the closure
 pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
 	Apply{inner:f,phantom:PhantomData}
@@ -968,7 +977,252 @@ pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
 /// starts the building of an ai structure in chained method style from an identity operation
 pub fn new()->Identity{Identity}
 /// undivided softmax
-pub struct AbnormalSoftmax<A>{inner:A}
+pub struct AbnormalSoftmax<A>{inner:A}// TODO macros: cat_like map_like reduce_like soft_like
+
+/*
+impl AI<Vec<f32>,f32> for SumLayer{
+	fn forward(&self,input:Vec<f32>)->f32{input.into_iter().sum()}//TODO check dim
+}*/
+
+impl<E> AI<Vec<Vec<E>>,Vec<E>> for StackLayer{// TODO squeeze unsqueeze so we can properly implement this
+	fn forward(&self,input:Vec<Vec<E>>)->Vec<E>{todo!()}
+}
+impl<E> AI<Vec<Vec<E>>,Vec<Vec<E>>> for StackLayer{
+	fn forward(&self,input:Vec<Vec<E>>)->Vec<Vec<E>>{todo!()}
+}
+
+/// declares layer and wrapper structs and implements accessor functions, decompose and op for reduction operations that have dim and mismatch behavior as configuration fields. ai will still have to be externally implemented for the layer stuct
+macro_rules! cat_like{
+	($layer:ident,$wrap:ident)=>{
+		impl $layer{
+			/// gets the dimension
+			pub fn dim(&self)->&usize{&self.dim}
+			/// gets the dimension
+			pub fn dim_mut(&mut self)->&mut usize{&mut self.dim}
+			/// gets the dimension
+			pub fn get_dim(&self)->usize{self.dim}
+			/// gets the mismatch behavior
+			pub fn get_mismatch_behavior(&self)->OnMismatch{self.mismatchbehavior}
+			/// gets the mismatch behavior
+			pub fn mismatch_behavior(&self)->&OnMismatch{&self.mismatchbehavior}
+			/// gets the mismatch behavior
+			pub fn mismatch_behavior_mut(&mut self)->&mut OnMismatch{&mut self.mismatchbehavior}
+			/// creates a new layer
+			pub fn new(dim:usize)->Self{Self::default().with_dim(dim)}
+			/// sets the dimension
+			pub fn set_dim(&mut self,dim:usize){self.dim=dim}
+			/// sets the mismatch behavior
+			pub fn set_mismatch_behavior(&mut self,behavior:OnMismatch){self.mismatchbehavior=behavior}
+			/// sets the dimension
+			pub fn with_dim(mut self,dim:usize)->Self{
+				self.dim=dim;
+				self
+			}
+			/// sets the mismatch behavior
+			pub fn with_mismatch_behavior(mut self,behavior:OnMismatch)->Self{
+				self.mismatchbehavior=behavior;
+				self
+			}
+		}
+		impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for $wrap<A> where $layer:AI<Y,Z>{
+			fn forward(&self,input:X)->Z{self.layer.forward(self.inner.forward(input))}
+			fn forward_mut(&mut self,input:X)->Z{self.layer.forward_mut(self.inner.forward_mut(input))}
+		}
+		impl<A:Decompose> Decompose for $wrap<A>{
+			fn compose((inner,layer):Self::Decomposition)->Self{
+				Self{inner:A::compose(inner),layer:$layer::compose(layer)}
+			}
+			fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.layer.decompose())}
+			fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.layer.decompose_cloned())}
+			type Decomposition=(A::Decomposition,<$layer as Decompose>::Decomposition);
+		}
+		impl<A:Op<Output=Y>,Y:IntoIterator<Item=Z>,Z> Op for $wrap<A> where $layer:AI<Y,Z>{
+			type Output=Z;
+		}
+		impl<A> $wrap<A>{
+			/// gets the dimension
+			pub fn dim(&self)->&usize{&self.layer.dim}
+			/// gets the dimension
+			pub fn dim_mut(&mut self)->&mut usize{&mut self.layer.dim}
+			/// gets the dimension
+			pub fn get_dim(&self)->usize{self.layer.dim}
+			/// gets the inner layer
+			pub fn get_inner(&self)->A where A:Copy{self.inner}
+			/// gets the mismatch behavior
+			pub fn get_mismatch_behavior(&self)->OnMismatch{self.layer.mismatchbehavior}
+			/// gets the inner layer
+			pub fn inner(&self)->&A{&self.inner}
+			/// gets the inner layer
+			pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+			/// gets the inner layer
+			pub fn into_inner(self)->A{self.inner}
+			/// gets the mismatch behavior
+			pub fn mismatch_behavior(&self)->&OnMismatch{&self.layer.mismatchbehavior}
+			/// gets the mismatch behavior
+			pub fn mismatch_behavior_mut(&mut self)->&mut OnMismatch{&mut self.layer.mismatchbehavior}
+			/// creates a new layer
+			pub fn new(dim:usize,inner:A)->Self where Self:Op{
+				Self{inner,layer:$layer::new(dim)}
+			}
+			/// sets the dimension
+			pub fn set_dim(&mut self,dim:usize){self.layer.dim=dim}
+			/// sets the inner module
+			pub fn set_inner(&mut self,inner:A){self.inner=inner}
+			/// sets the mismatch behavior
+			pub fn set_mismatch_behavior(&mut self,behavior:OnMismatch){self.layer.mismatchbehavior=behavior}
+			/// sets the dimension
+			pub fn with_dim(mut self,dim:usize)->Self{
+				self.layer.dim=dim;
+				self
+			}
+			/// sets the inner module
+			pub fn with_inner<B>(self,inner:B)->$wrap<B> where $wrap<B>:Op{
+				$wrap{inner,layer:self.layer}
+			}
+			/// sets the mismatch behavior
+			pub fn with_mismatch_behavior(mut self,behavior:OnMismatch)->Self{
+				self.layer.mismatchbehavior=behavior;
+				self
+			}
+		}
+		impl Decompose for $layer{
+			fn compose((dim,mismatchbehavior):Self::Decomposition)->Self{
+				Self{dim,mismatchbehavior:OnMismatch::compose(mismatchbehavior)}
+			}
+			fn decompose(self)->Self::Decomposition{(self.dim,self.mismatchbehavior.decompose())}
+			fn decompose_cloned(&self)->Self::Decomposition{(self.dim,self.mismatchbehavior.decompose_cloned())}
+			type Decomposition=(usize,usize);
+		}
+		impl Op for $layer{
+			type Output=Vec<()>;
+		}
+		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		/// layer to apply an operation
+		pub struct $layer{dim:usize,mismatchbehavior:OnMismatch}
+		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		/// wrapper to apply an operation
+		pub struct $wrap<A>{inner:A,layer:$layer}
+	}
+}
+
+/// declares layer and wrapper structs and implements accessor functions, decompose and op for reduction operations that have dim and reduction mode as configuration fields. ai will still have to be externally implemented for the layer stuct
+macro_rules! reduce_like{
+	($layer:ident,$wrap:ident)=>{
+		impl $layer{
+			/// gets the dimension
+			pub fn dim(&self)->&usize{&self.dim}
+			/// gets the dimension
+			pub fn dim_mut(&mut self)->&mut usize{&mut self.dim}
+			/// gets the dimension
+			pub fn get_dim(&self)->usize{self.dim}
+			/// gets the reduction mode
+			pub fn get_reduction_mode(&self)->ReductionMode{self.reductionmode}
+			/// gets the reduction mode
+			pub fn reduction_mode(&self)->&ReductionMode{&self.reductionmode}
+			/// gets the reduction mode
+			pub fn reduction_mode_mut(&mut self)->&mut ReductionMode{&mut self.reductionmode}
+			/// creates a new layer
+			pub fn new(dim:usize)->Self{Self::default().with_dim(dim)}
+			/// sets the dimension
+			pub fn set_dim(&mut self,dim:usize){self.dim=dim}
+			/// sets the reduction mode
+			pub fn set_reduction_mode(&mut self,mode:ReductionMode){self.reductionmode=mode}
+			/// sets the dimension
+			pub fn with_dim(mut self,dim:usize)->Self{
+				self.dim=dim;
+				self
+			}
+			/// sets the reduction mode
+			pub fn with_reduction_mode(mut self,mode:ReductionMode)->Self{
+				self.reductionmode=mode;
+				self
+			}
+		}
+		impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for $wrap<A> where $layer:AI<Y,Z>{
+			fn forward(&self,input:X)->Z{self.layer.forward(self.inner.forward(input))}
+			fn forward_mut(&mut self,input:X)->Z{self.layer.forward_mut(self.inner.forward_mut(input))}
+		}
+		impl<A:Decompose> Decompose for $wrap<A>{
+			fn compose((inner,layer):Self::Decomposition)->Self{
+				Self{inner:A::compose(inner),layer:$layer::compose(layer)}
+			}
+			fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.layer.decompose())}
+			fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.layer.decompose_cloned())}
+			type Decomposition=(A::Decomposition,<$layer as Decompose>::Decomposition);
+		}
+		impl<A:Op<Output=Y>,Y> Op for $wrap<A> where $layer:AI<Y,f32>{
+			type Output=f32;
+		}
+		impl<A> $wrap<A>{
+			/// gets the dimension
+			pub fn dim(&self)->&usize{&self.layer.dim}
+			/// gets the dimension
+			pub fn dim_mut(&mut self)->&mut usize{&mut self.layer.dim}
+			/// gets the dimension
+			pub fn get_dim(&self)->usize{self.layer.dim}
+			/// gets the inner layer
+			pub fn get_inner(&self)->A where A:Copy{self.inner}
+			/// gets the reduction mode
+			pub fn get_reduction_mode(&self)->ReductionMode{self.layer.reductionmode}
+			/// gets the inner layer
+			pub fn inner(&self)->&A{&self.inner}
+			/// gets the inner layer
+			pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+			/// gets the inner layer
+			pub fn into_inner(self)->A{self.inner}
+			/// gets the reduction mode
+			pub fn reduction_mode(&self)->&ReductionMode{&self.layer.reductionmode}
+			/// gets the reduction mode
+			pub fn reduction_mode_mut(&mut self)->&mut ReductionMode{&mut self.layer.reductionmode}
+			/// creates a new layer
+			pub fn new(dim:usize,inner:A)->Self where Self:Op{
+				Self{inner,layer:$layer::new(dim)}
+			}
+			/// sets the dimension
+			pub fn set_dim(&mut self,dim:usize){self.layer.dim=dim}
+			/// sets the inner module
+			pub fn set_inner(&mut self,inner:A){self.inner=inner}
+			/// sets the reduction mode
+			pub fn set_reduction_mode(&mut self,mode:ReductionMode){self.layer.reductionmode=mode}
+			/// sets the dimension
+			pub fn with_dim(mut self,dim:usize)->Self{
+				self.layer.dim=dim;
+				self
+			}
+			/// sets the inner module
+			pub fn with_inner<B>(self,inner:B)->$wrap<B> where $wrap<B>:Op{
+				$wrap{inner,layer:self.layer}
+			}
+			/// sets the reduction mode
+			pub fn with_reduction_mode(mut self,mode:ReductionMode)->Self{
+				self.layer.reductionmode=mode;
+				self
+			}
+		}
+		impl Decompose for $layer{
+			fn compose((dim,reductionmode):Self::Decomposition)->Self{
+				Self{dim,reductionmode:ReductionMode::compose(reductionmode)}
+			}
+			fn decompose(self)->Self::Decomposition{(self.dim,self.reductionmode.decompose())}
+			fn decompose_cloned(&self)->Self::Decomposition{(self.dim,self.reductionmode.decompose_cloned())}
+			type Decomposition=(usize,usize);
+		}
+		impl Op for $layer{
+			type Output=f32;
+		}
+		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		/// layer to apply an operation
+		pub struct $layer{dim:usize,reductionmode:ReductionMode}
+		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		/// wrapper to apply an operation
+		pub struct $wrap<A>{inner:A,layer:$layer}
+	}
+}
+cat_like!(CatLayer,Cat);
+//cat_like!(MeanLayer,Mean);
+cat_like!(StackLayer,Stack);
+reduce_like!(SumLayer,Sum);
+
 #[derive(Clone,Copy,Debug,Default)]
 /// accumulates cumulative
 pub struct AccQ<A>{dim:usize,gamma:f32,inner:A}
@@ -984,9 +1238,6 @@ pub struct Autoregression<A,X>{ai:A,state:Option<X>}
 #[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 /// wrapper for applying ai modules to the same input
 pub struct Branch<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default)]
-/// wrapper for concatenating tensors in the output
-pub struct Cat<A>{dim:usize,inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// wrapper for applying cross entropy loss
 pub struct CrossEntropy<A>{inner:A}//TODO dim
@@ -1062,9 +1313,7 @@ pub trait Op{
 		Branch{inner:self}
 	}
 	/// wraps with a cat operation
-	fn cat(self,dim:usize)->Cat<Self> where Cat<Self>:Op,Self:Sized{
-		Cat{inner:self,dim}
-	}
+	fn cat(self,dim:usize)->Cat<Self> where Cat<Self>:Op,Self:Sized{Cat::new(dim,self)}
 	/// sequences with another ai operation
 	fn chain<B>(self,b:B)->Sequential<(Self,B)> where Self:Sized,Sequential<(Self,B)>:Op{
 		Sequential{inner:(self,b)}
