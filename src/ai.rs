@@ -9,9 +9,6 @@ impl AI<(Vec<f32>,Vec<f32>),Vec<f32>> for SquaredError<()>{
 		output.into_iter().zip(target).map(|(o,t)|o-t).map(|x|x*x).collect()
 	}
 }
-impl AI<(Vec<f32>,Vec<f32>),f32> for CrossEntropy<()>{
-	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{-output.iter().zip(target.iter()).map(|(o,t)|o.ln()*t).fold(0.0,|acc,x|acc+x)}
-}
 impl AI<(Vec<f32>,Vec<f32>),f32> for SquaredError<()>{
 	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{
 		let (ol,tl)=(output.len(),target.len());
@@ -20,16 +17,22 @@ impl AI<(Vec<f32>,Vec<f32>),f32> for SquaredError<()>{
 		output.into_iter().zip(target).map(|(o,t)|o-t).map(|x|x*x).sum::<f32>()/ol as f32
 	}
 }
-impl AI<(Vec<f32>,Vec<f32>),f32> for SoftEntropy<()>{
-	fn forward(&self,(output,target):(Vec<f32>,Vec<f32>))->f32{-new().fix_type::<Vec<f32>>().log_softmax().forward_fixed(output).iter().zip(target.iter()).map(|(o,t)|o*t).fold(0.0,|acc,x|acc+x)}
+impl AI<(Vec<f32>,Vec<f32>),f32> for CrossEntropyLayer{
+	fn forward(&self,(_output,_target):(Vec<f32>,Vec<f32>))->f32{
+		//let t=self.temperature;
+		//-if t.i
+
+		//-new().fix_type::<Vec<f32>>().log_softmax().forward_fixed(output).iter().zip(target.iter()).map(|(o,t)|o*t).fold(0.0,|acc,x|acc+x)
+		todo!()
+	}
 }
-impl AI<(Vec<f32>,u32),f32> for CrossEntropy<()>{
-	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{-output[target as usize].ln()}
+impl AI<(Vec<f32>,u32),f32> for CrossEntropyLayer{
+	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{
+		let t=self.temperature;
+		-if t.is_nan(){output[target as usize].ln()}else{LogSoftmaxLayer::new(0).with_temperature(t).forward_fixed(output)[target as usize]}
+	}
 }
-impl AI<(Vec<f32>,u32),f32> for SoftEntropy<()>{
-	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{-new().fix_type::<Vec<f32>>().log_softmax().forward_fixed(output)[target as usize]}
-}
-impl AI<Vec<f32>,Vec<f32>> for AbnormalSoftmax<()>{
+impl AI<Vec<f32>,Vec<f32>> for AbnormalSoftmaxLayer{
 	fn forward(&self,input:Vec<f32>)->Vec<f32>{
 		let max=input.iter().fold(f32::NEG_INFINITY,|x,&y|if x<y{y}else{x});
 		input.into_iter().map(|x|(x-max).exp()).collect()
@@ -47,33 +50,47 @@ impl AI<Vec<f32>,Vec<f32>> for AccQ<()>{
 		input
 	}
 }
-impl AI<Vec<f32>,Vec<f32>> for LogSoftmax<()>{
+impl AI<Vec<f32>,Vec<f32>> for LogSoftmaxLayer{
 	fn forward(&self,input:Vec<f32>)->Vec<f32>{
+		let t=self.temperature.recip();
 		let mut sum=0.0;
-		input.iter().for_each(|x|sum+=x.exp());
+		input.iter().for_each(|x|sum+=(t*x).exp());
 		let r=sum.ln();
-		let output:Vec<f32>=input.into_iter().map(|x|x-r).collect();
+		let output:Vec<f32>=input.into_iter().map(|x|t*x-r).collect();
 		output
 	}
 }
-impl AI<Vec<f32>,Vec<f32>> for Softmax<()>{
+impl AI<Vec<f32>,Vec<f32>> for ArgmaxLayer{
 	fn forward(&self,input:Vec<f32>)->Vec<f32>{
+		let t=self.temperature.recip();
+		if t.is_nan(){
+			let mut count=0;
+			let max=input.iter().fold(f32::NEG_INFINITY,|x,&y|if x<y{
+				count=0;
+				y
+			}else{
+				if x==y{count+=1}
+				x
+			});
+			let r=(count as f32).recip();
+			return input.into_iter().map(|x|if x==max{r}else{0.0}).collect();
+		}
 		let max=input.iter().fold(f32::NEG_INFINITY,|x,&y|if x<y{y}else{x});
 		let mut sum=0.0;
-		let intermediate:Vec<f32>=input.into_iter().map(|x|(x-max).exp()).inspect(|y|sum+=y).collect();
+		let intermediate:Vec<f32>=input.into_iter().map(|x|((x-max)*t).exp()).inspect(|y|sum+=y).collect();
 		let r=sum.recip();
-		let output:Vec<f32>=intermediate.into_iter().map(|x|r*x).collect();
+		let output:Vec<f32>=intermediate.into_iter().map(|y|r*y).collect();
 		output
 	}
 }
-impl AI<Vec<f32>,f32> for Mean<()>{
+impl AI<Vec<f32>,f32> for MeanLayer{
 	fn forward(&self,input:Vec<f32>)->f32{
 		let sum:f32=input.iter().sum();
 
 		sum/input.len() as f32
 	}
 }
-impl AI<f32,f32> for Mean<()>{
+impl AI<f32,f32> for MeanLayer{
 	fn forward(&self,input:f32)->f32{input}
 }
 impl Decompose for Alignment{
@@ -87,12 +104,6 @@ impl Decompose for Alignment{
 		match self{Self::Center=>0,Self::Left=>1,Self::Right=>2}
 	}
 	type Decomposition=usize;
-}
-impl Decompose for All{
-	fn compose(_decomposition:Self::Decomposition)->Self{All}
-	fn decompose(self)->Self::Decomposition{}
-	fn decompose_cloned(&self)->Self::Decomposition{}
-	type Decomposition=();
 }
 impl Decompose for Identity{
 	fn compose(_decomposition:Self::Decomposition)->Self{Self}
@@ -140,49 +151,11 @@ impl Default for ReductionMode{
 impl Op for AccQ<()>{
 	type Output=Vec<f32>;
 }
-impl Op for AbnormalSoftmax<()>{
-	type Output=Vec<f32>;
-}
-impl Op for CrossEntropy<()>{// TODO these should have vec outputs. explicit reduction would compose more intuitively
-	type Output=f32;
-}
-impl Op for SoftEntropy<()>{
-	type Output=f32;
-}
 impl Op for Identity{
 	type Output=();
 }
-impl Op for LogSoftmax<()>{
-	type Output=Vec<f32>;
-}
-impl Op for Mean<()>{
-	type Output=f32;
-}
 impl Op for SquaredError<()>{
 	type Output=f32;
-}
-impl Op for SoftChoose<()>{
-	type Output=u32;
-}
-impl Op for Softmax<()>{
-	type Output=Vec<f32>;
-}
-impl WhichDims for All{
-	fn is_strict(&self)->bool{false}
-	fn which_dims(&self,rank:usize)->Self::Iter<'_>{0..rank}
-	type Iter<'a>=Range<usize> where Self:'a;
-}
-impl WhichDims for Range<usize>{
-	fn which_dims(&self,rank:usize)->Self::Iter<'_>{rank.min(self.start)..rank.min(self.end)}
-	type Iter<'a>=Self where Self:'a;
-}
-impl WhichDims for Vec<usize>{
-	fn which_dims(&self,_rank:usize)->Self::Iter<'_>{self.iter().copied()}
-	type Iter<'a>=Copied<SliceIter<'a,usize>> where Self:'a;
-}
-impl WhichDims for usize{
-	fn which_dims(&self,_rank:usize)->Self::Iter<'_>{iter::once(*self)}
-	type Iter<'a>=Once<usize> where Self:'a;
 }
 impl<A:AI<R,S>+Op<Output=S>,B:AI<S,T>+Op<Output=T>,C:AI<T,U>+Op<Output=U>,D:AI<U,V>+Op<Output=V>,E:AI<V,W>+Op<Output=W>,F:AI<W,X>+Op<Output=X>,G:AI<X,Y>+Op<Output=Y>,H:AI<Y,Z>,R,S,T,U,V,W,X,Y,Z> AI<R,Z> for Sequential<(A,B,C,D,E,F,G,H)>{
 	fn forward(&self,input:R)->Z{
@@ -275,19 +248,7 @@ impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{
 impl<A:AI<X,X>+Op<Output=X>,X> Op for Sequential<Vec<A>>{
 	type Output=X;
 }
-impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for CrossEntropy<A> where CrossEntropy<()>:AI<(Y,T),Z>{
-	fn forward(&self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner().forward(input),target))}
-	fn forward_mut(&mut self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner_mut().forward_mut(input),target))}
-}
-impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for Mean<A> where Mean<()>:AI<Y,Z>{
-	fn forward(&self,input:X)->Z{self.with_inner(()).forward(self.inner().forward(input))}
-	fn forward_mut(&mut self,input:X)->Z{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
-}
 impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for SquaredError<A> where SquaredError<()>:AI<(Y,T),Z>{
-	fn forward(&self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner().forward(input),target))}
-	fn forward_mut(&mut self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner_mut().forward_mut(input),target))}
-}
-impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for SoftEntropy<A> where SoftEntropy<()>:AI<(Y,T),Z>{
 	fn forward(&self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner().forward(input),target))}
 	fn forward_mut(&mut self,(input,target):(X,T))->Z{self.with_inner(()).forward((self.inner_mut().forward_mut(input),target))}
 }
@@ -322,13 +283,6 @@ impl<A:AI<X,Y>+Op<Output=Y>,B:AI<Y,Z>,X,Y,Z> AI<X,Z> for Sequential<(A,B)>{
 		b.forward_mut(a.forward_mut(input))
 	}
 }
-impl<A:AI<X,Y>+Op<Output=Y>,D,X,Y,Z> AI<X,Z> for TruncateToMatch<A,D> where for<'a>TruncateToMatch<(),&'a D>:AI<Y,Z>{
-	fn forward(&self,input:X)->Z{self.with_inner(&self.dims,()).forward(self.inner().forward(input))}
-	fn forward_mut(&mut self,input:X)->Z{
-		let input=self.inner_mut().forward_mut(input);
-		self.with_inner(&self.dims,()).forward(input)
-	}
-}
 impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J> for Map<A>{
 	fn forward(&self,input:I)->J{
 		let a=self.inner();
@@ -338,10 +292,6 @@ impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J
 		let a=self.inner_mut();
 		input.into_iter().map(|x|a.forward_mut(x)).collect()
 	}
-}
-impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for SoftChoose<A> where SoftChoose<()>:AI<Y,Z>{
-	fn forward(&self,input:X)->Z{self.with_inner(()).forward(self.inner().forward(input))}
-	fn forward_mut(&mut self,input:X)->Z{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
 }
 impl<A:AI<X,Y>,X:Clone,Y> AI<X,Vec<Y>> for Branch<Vec<A>>{
 	fn forward(&self,input:X)->Vec<Y>{
@@ -445,19 +395,7 @@ impl<A:AI<X,Y>,X,Y> AI<X,Y> for &mut A{
 	fn forward(&self,input:X)->Y{(**self).forward(input)}
 	fn forward_mut(&mut self,input:X)->Y{(**self).forward_mut(input)}
 }
-impl<A:AI<X,Y>,X,Y> AI<X,Y> for AbnormalSoftmax<A> where AbnormalSoftmax<()>:AI<Y,Y>{
-	fn forward(&self,input:X)->Y{self.with_inner(()).forward(self.inner.forward(input))}
-	fn forward_mut(&mut self,input:X)->Y{self.with_inner(()).forward(self.inner.forward_mut(input))}
-}
 impl<A:AI<X,Y>,X,Y> AI<X,Y> for AccQ<A> where AccQ<()>:AI<Y,Y>{
-	fn forward(&self,input:X)->Y{self.with_inner(()).forward(self.inner.forward(input))}
-	fn forward_mut(&mut self,input:X)->Y{self.with_inner(()).forward(self.inner.forward_mut(input))}
-}
-impl<A:AI<X,Y>,X,Y> AI<X,Y> for LogSoftmax<A> where LogSoftmax<()>:AI<Y,Y>{
-	fn forward(&self,input:X)->Y{self.with_inner(()).forward(self.inner.forward(input))}
-	fn forward_mut(&mut self,input:X)->Y{self.with_inner(()).forward(self.inner.forward_mut(input))}
-}
-impl<A:AI<X,Y>,X,Y> AI<X,Y> for Softmax<A> where Softmax<()>:AI<Y,Y>{
 	fn forward(&self,input:X)->Y{self.with_inner(()).forward(self.inner.forward(input))}
 	fn forward_mut(&mut self,input:X)->Y{self.with_inner(()).forward(self.inner.forward_mut(input))}
 }
@@ -466,14 +404,6 @@ impl<A:AI<X,Y>,X,Y> Op for SetType<A,X,Y>{
 }
 impl<A:AI<X,Y>,X,Y> SetType<A,X,Y>{
 	accessible_inner!(inner:A);
-}
-impl<A:Decompose,D:Decompose> Decompose for TruncateToMatch<A,D>{
-	fn compose((inner,alignment,dims):Self::Decomposition)->Self{
-		Self{alignment:Alignment::compose(alignment),dims:D::compose(dims),inner:A::compose(inner)}
-	}
-	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.alignment.decompose(),self.dims.decompose())}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.alignment.decompose_cloned(),self.dims.decompose_cloned())}
-	type Decomposition=(A::Decomposition,<Alignment as Decompose>::Decomposition,D::Decomposition);
 }
 impl<A:Decompose,X:Decompose> Decompose for Autoregression<A,X>{
 	fn compose(decomposition:Self::Decomposition)->Self{
@@ -491,39 +421,15 @@ impl<A:Decompose,X,Y> Decompose for SetType<A,X,Y>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Decompose> Decompose for AbnormalSoftmax<A>{
-	fn compose((inner,_temperature,_dim):Self::Decomposition)->Self{
-		Self{inner:A::compose(inner)}
-	}
-	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),1.0,-1)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),1.0,-1)}
-	type Decomposition=(A::Decomposition,f32,isize);
-}
 impl<A:Decompose> Decompose for AccQ<A>{
 	fn compose((inner,gamma,dim):Self::Decomposition)->Self{
 		Self{dim,gamma,inner:A::compose(inner)}
 	}
 	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.gamma,self.dim)}
 	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.gamma,self.dim)}
-	type Decomposition=(A::Decomposition,f32,usize);
+	type Decomposition=(A::Decomposition,f32,i32);
 }
 impl<A:Decompose> Decompose for Branch<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition)}
-	}
-	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
-	type Decomposition=A::Decomposition;
-}
-impl<A:Decompose> Decompose for CrossEntropy<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition)}
-	}
-	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
-	type Decomposition=A::Decomposition;
-}
-impl<A:Decompose> Decompose for SoftEntropy<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
 		Self{inner:A::compose(decomposition)}
 	}
@@ -538,22 +444,6 @@ impl<A:Decompose> Decompose for Duplicate<A>{
 	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.times)}
 	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.times)}
 	type Decomposition=(A::Decomposition,usize);
-}
-impl<A:Decompose> Decompose for LogSoftmax<A>{
-	fn compose((inner,_temperature,_dim):Self::Decomposition)->Self{
-		Self{inner:A::compose(inner)}
-	}
-	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),1.0,-1)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),1.0,-1)}
-	type Decomposition=(A::Decomposition,f32,isize);
-}
-impl<A:Decompose> Decompose for Mean<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition)}
-	}
-	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
-	type Decomposition=A::Decomposition;
 }
 impl<A:Decompose> Decompose for SquaredError<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
@@ -577,22 +467,6 @@ impl<A:Decompose> Decompose for Sequential<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Decompose> Decompose for SoftChoose<A>{// TODO dim should really be isize
-	fn compose((inner,temperature,dim):Self::Decomposition)->Self{
-		Self{dim,inner:A::compose(inner),temperature}
-	}
-	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.temperature,self.dim)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.temperature,self.dim)}
-	type Decomposition=(A::Decomposition,f32,usize);
-}
-impl<A:Decompose> Decompose for Softmax<A>{
-	fn compose((inner,_temperature,_dim):Self::Decomposition)->Self{
-		Self{inner:A::compose(inner)}
-	}
-	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),1.0,-1)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),1.0,-1)}
-	type Decomposition=(A::Decomposition,f32,isize);
-}
 impl<A:Decompose> Decompose for Map<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
 		Self{inner:A::compose(decomposition)}
@@ -615,16 +489,10 @@ impl<A:Decompose> Decompose for Zip<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Op<Output=Y>,D,Y> Op for TruncateToMatch<A,D> where TruncateToMatch<(),D>:AI<Y,Y>{
-	type Output=Y;
-}
 impl<A:Op<Output=Y>,Y> Op for &A{
 	type Output=Y;
 }
 impl<A:Op<Output=Y>,Y> Op for &mut A{
-	type Output=Y;
-}
-impl<A:Op<Output=Y>,Y> Op for AbnormalSoftmax<A> where AbnormalSoftmax<()>:AI<Y,Y>{
 	type Output=Y;
 }
 impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQ<()>:AI<Y,Y>{
@@ -633,45 +501,14 @@ impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQ<()>:AI<Y,Y>{
 impl<A:Op<Output=Y>,Y> Op for Branch<Vec<A>>{
 	type Output=Vec<Y>;
 }
-impl<A:Op<Output=Y>,Y> Op for CrossEntropy<A> where CrossEntropy<()>:AI<(Y,Y),f32>{
-	type Output=f32;
-}
 impl<A:Op<Output=Y>,Y> Op for Duplicate<A>{
 	type Output=(Y,Y);
-}
-impl<A:Op<Output=Y>,Y> Op for Mean<A> where Mean<()>:AI<Y,f32>{
-	type Output=f32;
 }
 impl<A:Op<Output=Y>,Y> Op for SquaredError<A> where SquaredError<()>:AI<(Y,Y),f32>{
 	type Output=f32;
 }
-impl<A:Op<Output=Y>,Y> Op for SoftChoose<A> where SoftChoose<()>:AI<Y,u32>{
-	type Output=u32;
-}
-impl<A:Op<Output=Y>,Y> Op for SoftEntropy<A> where SoftEntropy<()>:AI<(Y,Y),f32>{
-	type Output=f32;
-}
-impl<A:Op<Output=Y>,Y> Op for LogSoftmax<A> where LogSoftmax<()>:AI<Y,Y>{
-	type Output=Y;
-}
 impl<A:Op<Output=Y>,Y> Op for Map<A>{
 	type Output=Vec<Y>;
-}
-impl<A:Op<Output=Y>,Y> Op for Softmax<A> where Softmax<()>:AI<Y,Y>{
-	type Output=Y;
-}
-impl<A,D> TruncateToMatch<A,D>{
-	accessible_inner!(inner:A);
-	/// gets the alignment
-	pub fn alignment(&self)->Alignment{self.alignment}
-	/// gets the dims
-	pub fn dims(&self)->&D{&self.dims}
-	/// creates from the inner value
-	pub fn from_inner(alignment:Alignment,dims:D,inner:A)->Self{
-		TruncateToMatch{alignment,dims,inner}
-	}
-	/// replaces the inner value
-	pub fn with_inner<B,E>(&self,dims:E,inner:B)->TruncateToMatch<B,E> where TruncateToMatch<B,E>:Op{TruncateToMatch::from_inner(self.alignment,dims,inner)}
 }
 impl<A,X> Autoregression<A,X>{
 	accessible_inner!(ai:A);
@@ -682,9 +519,9 @@ impl<A> Op for Vec<A>{
 impl<A> AccQ<A>{
 	accessible_inner!(inner:A);
 	/// gets the dimension
-	pub fn dim(&self)->usize{self.dim}
+	pub fn dim(&self)->i32{self.dim}
 	/// creates from the inner value
-	pub fn from_inner(dim:usize,gamma:f32,inner:A)->Self{
+	pub fn from_inner(dim:i32,gamma:f32,inner:A)->Self{
 		AccQ{dim,inner,gamma}
 	}
 	/// gets the gamma
@@ -694,15 +531,6 @@ impl<A> AccQ<A>{
 }
 impl<A> Branch<A>{
 	accessible_inner!(inner:A);
-}
-impl<A> CrossEntropy<A>{
-	accessible_inner!(inner:A);
-	/// creates from the inner value
-	pub fn from_inner(inner:A)->Self{
-		CrossEntropy{inner}
-	}
-	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->CrossEntropy<B> where CrossEntropy<B>:Op{CrossEntropy::from_inner(inner)}
 }
 impl<A> Duplicate<A>{
 	accessible_inner!(inner:A);
@@ -720,15 +548,6 @@ impl<A> Duplicate<A>{
 		self
 	}
 }
-impl<A> Mean<A>{
-	accessible_inner!(inner:A);
-	/// creates from the inner value
-	pub fn from_inner(inner:A)->Self{
-		Mean{inner}
-	}
-	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->Mean<B> where Mean<B>:Op{Mean::from_inner(inner)}
-}
 impl<A> SquaredError<A>{
 	accessible_inner!(inner:A);
 	/// creates from the inner value
@@ -741,83 +560,11 @@ impl<A> SquaredError<A>{
 impl<A> Sequential<A>{
 	accessible_inner!(inner:A);
 }
-impl<A> SoftChoose<A>{
-	accessible_inner!(inner:A);
-	/// gets the dimension to choose along
-	pub fn dim(&self)->usize{self.dim}
-	/// creates from the inner value
-	pub fn from_inner(dim:usize,inner:A,temperature:f32)->Self{
-		SoftChoose{dim,inner,temperature}
-	}
-	/// gets the temperature to soft choose with
-	pub fn temperature(&self)->f32{self.temperature}
-	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->SoftChoose<B> where SoftChoose<B>:Op{SoftChoose::from_inner(self.dim,inner,self.temperature)}
-}
-impl<A> SoftEntropy<A>{
-	accessible_inner!(inner:A);
-	/// creates from the inner value
-	pub fn from_inner(inner:A)->Self{
-		SoftEntropy{inner}
-	}
-	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->SoftEntropy<B> where SoftEntropy<B>:Op{SoftEntropy::from_inner(inner)}
-}
-impl<A> AbnormalSoftmax<A>{
-	accessible_inner!(inner:A);
-	/// creates from the inner value
-	pub fn from_inner(inner:A)->Self{
-		AbnormalSoftmax{inner}
-	}
-	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->AbnormalSoftmax<B> where AbnormalSoftmax<B>:Op{AbnormalSoftmax::from_inner(inner)}
-}
-impl<A> LogSoftmax<A>{
-	accessible_inner!(inner:A);
-	/// creates from the inner value
-	pub fn from_inner(inner:A)->Self{
-		LogSoftmax{inner}
-	}
-	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->LogSoftmax<B> where LogSoftmax<B>:Op{LogSoftmax::from_inner(inner)}
-}
-impl<A> Softmax<A>{
-	accessible_inner!(inner:A);
-	/// creates from the inner value
-	pub fn from_inner(inner:A)->Self{
-		Softmax{inner}
-	}
-	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->Softmax<B> where Softmax<B>:Op{Softmax::from_inner(inner)}
-}
 impl<A> Map<A>{
 	accessible_inner!(inner:A);
 }
 impl<A> Zip<A>{
 	accessible_inner!(inner:A);
-}
-impl<D:WhichDims,X> AI<Vec<Vec<X>>,Vec<Vec<X>>> for TruncateToMatch<(),D>{
-	fn forward(&self,mut input:Vec<Vec<X>>)->Vec<Vec<X>>{
-		let mut dims=self.dims.which_dims(1);
-		if self.dims.is_strict(){
-			let dim=if let Some(d)=dims.next(){d}else{return input};
-			let count=dims.count()+1;
-			assert!((count,dim)==(1,0),"Dimension index was {dim} but a vec only has one tensor dimension");
-		}else{
-			if dims.all(|x|x!=0){return input}
-		}
-		let l=input.iter().map(|x|x.len()).min().unwrap_or(0);
-		input.iter_mut().for_each(|x|x.truncate(l));
-		input
-	}
-}
-impl<D:WhichDims> WhichDims for &D{
-	fn is_strict(&self)->bool{(**self).is_strict()}
-	fn which_dims(&self,rank:usize)->Self::Iter<'_>{(**self).which_dims(rank)}
-	type Iter<'a>=D::Iter<'a> where Self:'a;
-}
-impl<D> Op for TruncateToMatch<(),D>{
-	type Output=Vec<Vec<()>>;
 }
 impl<F:Fn(X)->Y,X,Y> AI<X,Y> for Apply<F,X,Y>{
 	fn forward(&self,input:X)->Y{(&self.inner)(input)}
@@ -845,10 +592,6 @@ impl<X> AI<Vec<Vec<X>>,Vec<X>> for CatLayer{
 			acc
 		})
 	}
-}
-impl<const N:usize> WhichDims for [usize;N]{
-	fn which_dims(&self,_rank:usize)->Self::Iter<'_>{self.iter().copied()}
-	type Iter<'a>=Copied<SliceIter<'a,usize>> where Self:'a;
 }
 /// creates accessor functions for the inner value
 macro_rules! accessible_inner{
@@ -976,57 +719,43 @@ pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
 }
 /// starts the building of an ai structure in chained method style from an identity operation
 pub fn new()->Identity{Identity}
-/// undivided softmax
-pub struct AbnormalSoftmax<A>{inner:A}// TODO macros: cat_like map_like reduce_like soft_like
 
-/*
+
 impl AI<Vec<f32>,f32> for SumLayer{
 	fn forward(&self,input:Vec<f32>)->f32{input.into_iter().sum()}//TODO check dim
-}*/
+}
 
 impl<E> AI<Vec<Vec<E>>,Vec<E>> for StackLayer{// TODO squeeze unsqueeze so we can properly implement this
-	fn forward(&self,input:Vec<Vec<E>>)->Vec<E>{todo!()}
+	fn forward(&self,_input:Vec<Vec<E>>)->Vec<E>{todo!()}
 }
 impl<E> AI<Vec<Vec<E>>,Vec<Vec<E>>> for StackLayer{
-	fn forward(&self,input:Vec<Vec<E>>)->Vec<Vec<E>>{todo!()}
+	fn forward(&self,_input:Vec<Vec<E>>)->Vec<Vec<E>>{todo!()}
 }
 
 /// declares layer and wrapper structs and implements accessor functions, decompose and op for reduction operations that have dim and mismatch behavior as configuration fields. ai will still have to be externally implemented for the layer stuct
 macro_rules! cat_like{
-	($layer:ident,$wrap:ident)=>{
-		impl $layer{
-			/// gets the dimension
-			pub fn dim(&self)->&usize{&self.dim}
-			/// gets the dimension
-			pub fn dim_mut(&mut self)->&mut usize{&mut self.dim}
-			/// gets the dimension
-			pub fn get_dim(&self)->usize{self.dim}
-			/// gets the mismatch behavior
-			pub fn get_mismatch_behavior(&self)->OnMismatch{self.mismatchbehavior}
-			/// gets the mismatch behavior
-			pub fn mismatch_behavior(&self)->&OnMismatch{&self.mismatchbehavior}
-			/// gets the mismatch behavior
-			pub fn mismatch_behavior_mut(&mut self)->&mut OnMismatch{&mut self.mismatchbehavior}
-			/// creates a new layer
-			pub fn new(dim:usize)->Self{Self::default().with_dim(dim)}
-			/// sets the dimension
-			pub fn set_dim(&mut self,dim:usize){self.dim=dim}
-			/// sets the mismatch behavior
-			pub fn set_mismatch_behavior(&mut self,behavior:OnMismatch){self.mismatchbehavior=behavior}
-			/// sets the dimension
-			pub fn with_dim(mut self,dim:usize)->Self{
-				self.dim=dim;
-				self
-			}
-			/// sets the mismatch behavior
-			pub fn with_mismatch_behavior(mut self,behavior:OnMismatch)->Self{
-				self.mismatchbehavior=behavior;
-				self
-			}
-		}
+	(@aiwrap $layer:ident,$wrap:ident)=>{
 		impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for $wrap<A> where $layer:AI<Y,Z>{
 			fn forward(&self,input:X)->Z{self.layer.forward(self.inner.forward(input))}
 			fn forward_mut(&mut self,input:X)->Z{self.layer.forward_mut(self.inner.forward_mut(input))}
+		}
+	};
+	(@declare $layer:ident,$wrap:ident)=>{
+		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		/// layer to apply an operation
+		pub struct $layer{dim:i32,mismatchbehavior:OnMismatch}
+		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		/// wrapper to apply an operation
+		pub struct $wrap<A>{inner:A,layer:$layer}
+	};
+	(@decompose $layer:ident,$wrap:ident)=>{
+		impl Decompose for $layer{
+			fn compose((dim,mismatchbehavior):Self::Decomposition)->Self{
+				Self{dim,mismatchbehavior:OnMismatch::compose(mismatchbehavior)}
+			}
+			fn decompose(self)->Self::Decomposition{(self.dim,self.mismatchbehavior.decompose())}
+			fn decompose_cloned(&self)->Self::Decomposition{(self.dim,self.mismatchbehavior.decompose_cloned())}
+			type Decomposition=(i32,usize);
 		}
 		impl<A:Decompose> Decompose for $wrap<A>{
 			fn compose((inner,layer):Self::Decomposition)->Self{
@@ -1036,18 +765,32 @@ macro_rules! cat_like{
 			fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.layer.decompose_cloned())}
 			type Decomposition=(A::Decomposition,<$layer as Decompose>::Decomposition);
 		}
-		impl<A:Op<Output=Y>,Y:IntoIterator<Item=Z>,Z> Op for $wrap<A> where $layer:AI<Y,Z>{
-			type Output=Z;
+	};
+	(@impl $layer:ident,$wrap:ident)=>{
+		impl $layer{
+			/// gets the dimension
+			pub fn get_dim(&self)->i32{self.dim}
+			/// gets the mismatch behavior
+			pub fn get_mismatch_behavior(&self)->OnMismatch{self.mismatchbehavior}
+			/// creates a new layer
+			pub fn new(dim:i32)->Self{Self::default().with_dim(dim)}
+			/// sets the dimension
+			pub fn set_dim(&mut self,dim:i32){self.dim=dim}
+			/// sets the mismatch behavior
+			pub fn set_mismatch_behavior(&mut self,behavior:OnMismatch){self.mismatchbehavior=behavior}
+			/// sets the dimension
+			pub fn with_dim(mut self,dim:i32)->Self{
+				self.dim=dim;
+				self
+			}
+			/// sets the mismatch behavior
+			pub fn with_mismatch_behavior(mut self,behavior:OnMismatch)->Self{
+				self.mismatchbehavior=behavior;
+				self
+			}
 		}
 		impl<A> $wrap<A>{
-			/// gets the dimension
-			pub fn dim(&self)->&usize{&self.layer.dim}
-			/// gets the dimension
-			pub fn dim_mut(&mut self)->&mut usize{&mut self.layer.dim}
-			/// gets the dimension
-			pub fn get_dim(&self)->usize{self.layer.dim}
-			/// gets the inner layer
-			pub fn get_inner(&self)->A where A:Copy{self.inner}
+			pub fn get_dim(&self)->i32{self.layer.dim}
 			/// gets the mismatch behavior
 			pub fn get_mismatch_behavior(&self)->OnMismatch{self.layer.mismatchbehavior}
 			/// gets the inner layer
@@ -1056,22 +799,16 @@ macro_rules! cat_like{
 			pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
 			/// gets the inner layer
 			pub fn into_inner(self)->A{self.inner}
-			/// gets the mismatch behavior
-			pub fn mismatch_behavior(&self)->&OnMismatch{&self.layer.mismatchbehavior}
-			/// gets the mismatch behavior
-			pub fn mismatch_behavior_mut(&mut self)->&mut OnMismatch{&mut self.layer.mismatchbehavior}
 			/// creates a new layer
-			pub fn new(dim:usize,inner:A)->Self where Self:Op{
+			pub fn new(dim:i32,inner:A)->Self where Self:Op{
 				Self{inner,layer:$layer::new(dim)}
 			}
 			/// sets the dimension
-			pub fn set_dim(&mut self,dim:usize){self.layer.dim=dim}
-			/// sets the inner module
-			pub fn set_inner(&mut self,inner:A){self.inner=inner}
+			pub fn set_dim(&mut self,dim:i32){self.layer.dim=dim}
 			/// sets the mismatch behavior
 			pub fn set_mismatch_behavior(&mut self,behavior:OnMismatch){self.layer.mismatchbehavior=behavior}
 			/// sets the dimension
-			pub fn with_dim(mut self,dim:usize)->Self{
+			pub fn with_dim(mut self,dim:i32)->Self{
 				self.layer.dim=dim;
 				self
 			}
@@ -1085,53 +822,144 @@ macro_rules! cat_like{
 				self
 			}
 		}
-		impl Decompose for $layer{
-			fn compose((dim,mismatchbehavior):Self::Decomposition)->Self{
-				Self{dim,mismatchbehavior:OnMismatch::compose(mismatchbehavior)}
-			}
-			fn decompose(self)->Self::Decomposition{(self.dim,self.mismatchbehavior.decompose())}
-			fn decompose_cloned(&self)->Self::Decomposition{(self.dim,self.mismatchbehavior.decompose_cloned())}
-			type Decomposition=(usize,usize);
-		}
+	};
+	(@op $layer:ident,$wrap:ident)=>{
 		impl Op for $layer{
 			type Output=Vec<()>;
 		}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		impl<A:Op<Output=Y>,Y:IntoIterator<Item=Z>,Z> Op for $wrap<A> where $layer:AI<Y,Z>{
+			type Output=Z;
+		}
+	};
+	($layer:ident,$wrap:ident)=>{
+		cat_like!(@aiwrap @declare @decompose @impl @op $layer,$wrap);
+	};
+	($(@$command:tt)* $layer:ident,$wrap:ident)=>{
+		$(cat_like!(@$command $layer,$wrap);)*
+	};
+}
+/// declares layer and wrapper structs and implements accessor functions, decompose and op for reduction operations that have dim and temperature as configuration fields. ai will still have to be externally implemented for the layer stuct
+macro_rules! soft_like{
+	(@aiwrap $layer:ident,$wrap:ident)=>{
+		impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for $wrap<A> where $layer:AI<Y,Z>{
+			fn forward(&self,input:X)->Z{self.layer.forward(self.inner.forward(input))}
+			fn forward_mut(&mut self,input:X)->Z{self.layer.forward_mut(self.inner.forward_mut(input))}
+		}
+	};
+	(@declare $layer:ident,$wrap:ident)=>{
+		impl Default for $layer{
+			fn default()->Self{
+				Self{dim:0,temperature:1.0}
+			}
+		}
+		#[derive(Clone,Copy,Debug,PartialEq)]
 		/// layer to apply an operation
-		pub struct $layer{dim:usize,mismatchbehavior:OnMismatch}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		pub struct $layer{dim:i32,temperature:f32}
+		#[derive(Clone,Copy,Debug,Default,PartialEq)]// TODO eq and hash that do something about the float
 		/// wrapper to apply an operation
 		pub struct $wrap<A>{inner:A,layer:$layer}
-	}
-}
-
-/// declares layer and wrapper structs and implements accessor functions, decompose and op for reduction operations that have dim and reduction mode as configuration fields. ai will still have to be externally implemented for the layer stuct
-macro_rules! reduce_like{
-	($layer:ident,$wrap:ident)=>{
+	};
+	(@decompose $layer:ident,$wrap:ident)=>{
+		impl Decompose for $layer{
+			fn compose((dim,temperature):Self::Decomposition)->Self{
+				Self{dim,temperature}
+			}
+			fn decompose(self)->Self::Decomposition{(self.dim,self.temperature)}
+			fn decompose_cloned(&self)->Self::Decomposition{(self.dim,self.temperature)}
+			type Decomposition=(i32,f32);
+		}
+		impl<A:Decompose> Decompose for $wrap<A>{
+			fn compose((inner,layer):Self::Decomposition)->Self{
+				Self{inner:A::compose(inner),layer:$layer::compose(layer)}
+			}
+			fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.layer.decompose())}
+			fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.layer.decompose_cloned())}
+			type Decomposition=(A::Decomposition,<$layer as Decompose>::Decomposition);
+		}
+	};
+	(@impl $layer:ident,$wrap:ident)=>{
 		impl $layer{
 			/// gets the dimension
-			pub fn dim(&self)->&usize{&self.dim}
-			/// gets the dimension
-			pub fn dim_mut(&mut self)->&mut usize{&mut self.dim}
-			/// gets the dimension
-			pub fn get_dim(&self)->usize{self.dim}
-			/// gets the reduction mode
-			pub fn get_reduction_mode(&self)->ReductionMode{self.reductionmode}
-			/// gets the reduction mode
-			pub fn reduction_mode(&self)->&ReductionMode{&self.reductionmode}
-			/// gets the reduction mode
-			pub fn reduction_mode_mut(&mut self)->&mut ReductionMode{&mut self.reductionmode}
+			pub fn get_dim(&self)->i32{self.dim}
+			/// gets the temperature
+			pub fn get_temperature(&self)->f32{self.temperature}
 			/// creates a new layer
-			pub fn new(dim:usize)->Self{Self::default().with_dim(dim)}
+			pub fn new(dim:i32)->Self{Self::default().with_dim(dim)}
 			/// sets the dimension
-			pub fn set_dim(&mut self,dim:usize){self.dim=dim}
-			/// sets the reduction mode
-			pub fn set_reduction_mode(&mut self,mode:ReductionMode){self.reductionmode=mode}
+			pub fn set_dim(&mut self,dim:i32){self.dim=dim}
+			/// sets the mismatch behavior. A temperature of NaN will make the non soft version if possible. A finite temperature will make the soft version
+			pub fn set_temperature(&mut self,temperature:f32){self.temperature=temperature}
 			/// sets the dimension
-			pub fn with_dim(mut self,dim:usize)->Self{
+			pub fn with_dim(mut self,dim:i32)->Self{
 				self.dim=dim;
 				self
 			}
+			/// sets the temperature. A temperature of NaN will make the non soft version if possible. A finite temperature will make the soft version
+			pub fn with_temperature(mut self,temperature:f32)->Self{
+				self.temperature=temperature;
+				self
+			}
+		}
+		impl<A> $wrap<A>{
+			pub fn get_dim(&self)->i32{self.layer.dim}
+			/// gets the temperature
+			pub fn get_temperature(&self)->f32{self.layer.temperature}
+			/// gets the inner layer
+			pub fn inner(&self)->&A{&self.inner}
+			/// gets the inner layer
+			pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+			/// gets the inner layer
+			pub fn into_inner(self)->A{self.inner}
+			/// creates a new layer
+			pub fn new(dim:i32,inner:A)->Self where Self:Op{
+				Self{inner,layer:$layer::new(dim)}
+			}
+			/// sets the dimension
+			pub fn set_dim(&mut self,dim:i32){self.layer.dim=dim}
+			/// sets the temperature
+			pub fn set_temperature(&mut self,temperature:f32){self.layer.temperature=temperature}
+			/// sets the dimension
+			pub fn with_dim(mut self,dim:i32)->Self{
+				self.layer.dim=dim;
+				self
+			}
+			/// sets the inner module
+			pub fn with_inner<B>(self,inner:B)->$wrap<B> where $wrap<B>:Op{
+				$wrap{inner,layer:self.layer}
+			}
+			/// sets the mismatch behavior
+			pub fn with_temperature(mut self,temperature:f32)->Self{
+				self.layer.temperature=temperature;
+				self
+			}
+		}
+	};
+	(@op $layer:ident,$wrap:ident)=>{
+		impl Op for $layer{
+			type Output=Vec<f32>;
+		}
+		impl<A:Op<Output=Y>,Y> Op for $wrap<A> where $layer:AI<Y,Vec<f32>>{
+			type Output=Vec<f32>;
+		}
+	};
+	($layer:ident,$wrap:ident)=>{
+		soft_like!(@aiwrap @declare @decompose @impl @op $layer,$wrap);
+	};
+	($(@$command:tt)* $layer:ident,$wrap:ident)=>{
+		$(soft_like!(@$command $layer,$wrap);)*
+	};
+}
+
+/// declares layer and wrapper structs and implements accessor functions, decompose and op for reduction operations that have a reduction mode as configuration fields. ai will still have to be externally implemented for the layer stuct
+macro_rules! sum_like{
+	($layer:ident,$wrap:ident)=>{
+		impl $layer{
+			/// gets the reduction mode
+			pub fn get_reduction_mode(&self)->ReductionMode{self.reductionmode}
+			/// creates a new layer
+			pub fn new()->Self{Self::default()}
+			/// sets the reduction mode
+			pub fn set_reduction_mode(&mut self,mode:ReductionMode){self.reductionmode=mode}
 			/// sets the reduction mode
 			pub fn with_reduction_mode(mut self,mode:ReductionMode)->Self{
 				self.reductionmode=mode;
@@ -1154,14 +982,6 @@ macro_rules! reduce_like{
 			type Output=f32;
 		}
 		impl<A> $wrap<A>{
-			/// gets the dimension
-			pub fn dim(&self)->&usize{&self.layer.dim}
-			/// gets the dimension
-			pub fn dim_mut(&mut self)->&mut usize{&mut self.layer.dim}
-			/// gets the dimension
-			pub fn get_dim(&self)->usize{self.layer.dim}
-			/// gets the inner layer
-			pub fn get_inner(&self)->A where A:Copy{self.inner}
 			/// gets the reduction mode
 			pub fn get_reduction_mode(&self)->ReductionMode{self.layer.reductionmode}
 			/// gets the inner layer
@@ -1170,22 +990,14 @@ macro_rules! reduce_like{
 			pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
 			/// gets the inner layer
 			pub fn into_inner(self)->A{self.inner}
-			/// gets the reduction mode
-			pub fn reduction_mode(&self)->&ReductionMode{&self.layer.reductionmode}
-			/// gets the reduction mode
-			pub fn reduction_mode_mut(&mut self)->&mut ReductionMode{&mut self.layer.reductionmode}
 			/// creates a new layer
-			pub fn new(dim:usize,inner:A)->Self where Self:Op{
-				Self{inner,layer:$layer::new(dim)}
+			pub fn new(inner:A)->Self where Self:Op{
+				Self{inner,layer:$layer::new()}
 			}
-			/// sets the dimension
-			pub fn set_dim(&mut self,dim:usize){self.layer.dim=dim}
-			/// sets the inner module
-			pub fn set_inner(&mut self,inner:A){self.inner=inner}
 			/// sets the reduction mode
 			pub fn set_reduction_mode(&mut self,mode:ReductionMode){self.layer.reductionmode=mode}
 			/// sets the dimension
-			pub fn with_dim(mut self,dim:usize)->Self{
+			pub fn with_dim(mut self,dim:i32)->Self{
 				self.layer.dim=dim;
 				self
 			}
@@ -1205,30 +1017,53 @@ macro_rules! reduce_like{
 			}
 			fn decompose(self)->Self::Decomposition{(self.dim,self.reductionmode.decompose())}
 			fn decompose_cloned(&self)->Self::Decomposition{(self.dim,self.reductionmode.decompose_cloned())}
-			type Decomposition=(usize,usize);
+			type Decomposition=(i32,usize);
 		}
 		impl Op for $layer{
 			type Output=f32;
 		}
 		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 		/// layer to apply an operation
-		pub struct $layer{dim:usize,reductionmode:ReductionMode}
+		pub struct $layer{dim:i32,reductionmode:ReductionMode}
 		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
 		/// wrapper to apply an operation
 		pub struct $wrap<A>{inner:A,layer:$layer}
 	}
 }
+
+
+impl Op for ChooseLayer{
+	type Output=u32;
+}
+impl<A:Op<Output=Y>,Y> Op for Choose<A> where ChooseLayer:AI<Y,u32>{
+	type Output=u32;
+}
+impl Op for CrossEntropyLayer{
+	type Output=Vec<f32>;
+}
+impl<A:Op<Output=Y>,Y> Op for CrossEntropy<A> where CrossEntropyLayer:AI<(Y,Y),Vec<f32>>{
+	type Output=Vec<f32>;
+}
+impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for CrossEntropy<A> where CrossEntropyLayer:AI<(Y,T),Z>{
+	fn forward(&self,(input,target):(X,T))->Z{self.layer.forward((self.inner.forward(input),target))}
+	fn forward_mut(&mut self,(input,target):(X,T))->Z{self.layer.forward_mut((self.inner.forward_mut(input),target))}
+}
+
 cat_like!(CatLayer,Cat);
-//cat_like!(MeanLayer,Mean);
 cat_like!(StackLayer,Stack);
-reduce_like!(SumLayer,Sum);
+soft_like!(@aiwrap @declare @decompose @impl ChooseLayer,Choose);
+soft_like!(AbnormalSoftmaxLayer,AbnormalSoftmax);
+soft_like!(ArgmaxLayer,Argmax);
+soft_like!(@declare @decompose @impl CrossEntropyLayer,CrossEntropy);
+soft_like!(LogSoftmaxLayer,LogSoftmax);
+sum_like!(MeanLayer,Mean);
+sum_like!(SumLayer,Sum);
+
+// TODO dim should probably be i32 to match the general sizing of things and allow reverse indexing
 
 #[derive(Clone,Copy,Debug,Default)]
 /// accumulates cumulative
-pub struct AccQ<A>{dim:usize,gamma:f32,inner:A}
-#[derive(Clone,Copy,Debug,Default)]
-/// dimension specifier for all dimensions
-pub struct All;
+pub struct AccQ<A>{dim:i32,gamma:f32,inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// applies a closure to the input
 pub struct Apply<F:Fn(X)->Y,X,Y>{inner:F,phantom:PhantomData<fn(X)->Y>}
@@ -1239,17 +1074,11 @@ pub struct Autoregression<A,X>{ai:A,state:Option<X>}
 /// wrapper for applying ai modules to the same input
 pub struct Branch<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default)]
-/// wrapper for applying cross entropy loss
-pub struct CrossEntropy<A>{inner:A}//TODO dim
-#[derive(Clone,Copy,Debug,Default)]
 /// module for cloning things
 pub struct Duplicate<A>{inner:A,times:usize}
 #[derive(Clone,Copy,Debug,Default)]
 /// ai module for returning the input
 pub struct Identity;
-#[derive(Clone,Copy,Debug,Default)]
-/// log softmax
-pub struct LogSoftmax<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// wrapper for applying mean squared error loss
 pub struct SquaredError<A>{inner:A}
@@ -1257,26 +1086,11 @@ pub struct SquaredError<A>{inner:A}
 /// wraps to apply to every element of a vector
 pub struct Map<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default)]
-/// wrapper for applying mean
-pub struct Mean<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default)]
 /// wrapper for applying ai modules sequentially
 pub struct Sequential<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// fixes the output type of a layer for a particular input type.
 pub struct SetType<A,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
-#[derive(Clone,Copy,Debug,Default)]
-/// chooses from the softmax
-pub struct SoftChoose<A>{dim:usize,inner:A,temperature:f32}//TODO with operations //TODO hard choose
-#[derive(Clone,Copy,Debug,Default)]
-/// wrapper for applying cross entropy loss
-pub struct SoftEntropy<A>{inner:A}//TODO dim
-#[derive(Clone,Copy,Debug,Default)]
-/// wrapper for applying softmax
-pub struct Softmax<A>{inner:A}//TODO dim, temperature
-#[derive(Clone,Copy,Debug,Default)]
-/// truncates each tensor dimension in the list to the minimum so that they match
-pub struct TruncateToMatch<A,D>{alignment:Alignment,dims:D,inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// wraps to apply each function
 pub struct Zip<A>{inner:A}
@@ -1301,11 +1115,9 @@ pub trait Decompose{
 /// composition trait
 pub trait Op{
 	/// wraps with a softmax operation
-	fn abnormal_softmax(self)->AbnormalSoftmax<Self> where Self:Sized,AbnormalSoftmax<Self>:Op{
-		AbnormalSoftmax{inner:self}
-	}
+	fn abnormal_softmax(self,dim:i32)->AbnormalSoftmax<Self> where Self:Sized,AbnormalSoftmax<Self>:Op{AbnormalSoftmax::new(dim,self)}
 	/// wraps with a accq operation
-	fn acc_q(self,dim:usize,gamma:f32)->AccQ<Self> where AccQ<Self>:Op,Self:Sized{
+	fn acc_q(self,dim:i32,gamma:f32)->AccQ<Self> where AccQ<Self>:Op,Self:Sized{
 		AccQ{dim,gamma,inner:self}
 	}
 	/// wraps with a branch operation
@@ -1313,15 +1125,13 @@ pub trait Op{
 		Branch{inner:self}
 	}
 	/// wraps with a cat operation
-	fn cat(self,dim:usize)->Cat<Self> where Cat<Self>:Op,Self:Sized{Cat::new(dim,self)}
+	fn cat(self,dim:i32)->Cat<Self> where Cat<Self>:Op,Self:Sized{Cat::new(dim,self)}
 	/// sequences with another ai operation
 	fn chain<B>(self,b:B)->Sequential<(Self,B)> where Self:Sized,Sequential<(Self,B)>:Op{
 		Sequential{inner:(self,b)}
 	}
-	/// wraps with a mse operation
-	fn cross_entropy(self)->CrossEntropy<Self> where CrossEntropy<Self>:Op,Self:Sized{
-		CrossEntropy{inner:self}
-	}
+	/// wraps with a cross entropy operation
+	fn cross_entropy(self,dim:i32)->CrossEntropy<Self> where CrossEntropy<Self>:Op,Self:Sized{CrossEntropy::new(dim,self)}
 	/// wraps with a duplicate operation
 	fn duplicate(self)->Duplicate<Self> where Duplicate<Self>:Op,Self:Sized{
 		Duplicate{inner:self,times:2}
@@ -1343,15 +1153,11 @@ pub trait Op{
 		Autoregression{ai,state}
 	}
 	/// wraps with a softmax operation
-	fn log_softmax(self)->LogSoftmax<Self> where Self:Sized,LogSoftmax<Self>:Op{
-		LogSoftmax{inner:self}
-	}
+	fn log_softmax(self,dim:i32)->LogSoftmax<Self> where Self:Sized,LogSoftmax<Self>:Op{LogSoftmax::new(dim,self)}
 	/// applies the operation to every output
 	fn map<B>(self,b:B)->Map<Sequential<(Self,B)>> where Map<Sequential<(Self,B)>>:Op,Self:Sized,Sequential<(Self,B)>:Op{self.chain(b).to_each()}
 	/// wraps with a mean operation
-	fn mean(self)->Mean<Self> where Mean<Self>:Op,Self:Sized{
-		Mean{inner:self}
-	}
+	fn mean(self)->Mean<Self> where Mean<Self>:Op,Self:Sized{Mean::new(self)}
 	/// creates an optional operation
 	fn optional(self)->Option<Self> where Self:Sized{Some(self)}
 	/// produces a zip module
@@ -1367,17 +1173,9 @@ pub trait Op{
 		SetType{inner:self,phantom:PhantomData}
 	}
 	/// wraps with a choose operation
-	fn soft_choose(self,dim:usize,temperature:f32)->SoftChoose<Self> where Self:Sized,SoftChoose<Self>:Op{
-		SoftChoose{dim,inner:self,temperature}
-	}
-	/// wraps with a mse operation
-	fn soft_entropy(self)->SoftEntropy<Self> where SoftEntropy<Self>:Op,Self:Sized{
-		SoftEntropy{inner:self}
-	}
+	fn soft_choose(self,dim:i32)->Choose<Self> where Self:Sized,Choose<Self>:Op{Choose::new(dim,self)}
 	/// wraps with a softmax operation
-	fn softmax(self)->Softmax<Self> where Self:Sized,Softmax<Self>:Op{
-		Softmax{inner:self}
-	}
+	fn softmax(self,dim:i32)->Argmax<Self> where Self:Sized,Argmax<Self>:Op{Argmax::new(dim,self)}
 	/// wraps with a mse operation
 	fn squared_error(self)->SquaredError<Self> where SquaredError<Self>:Op,Self:Sized{
 		SquaredError{inner:self}
@@ -1386,10 +1184,8 @@ pub trait Op{
 	fn to_each(self)->Map<Self> where Map<Self>:Op,Self:Sized{
 		Map{inner:self}
 	}
-	/// wraps with a truncate to match operation. alignment=0 for left alignment. will have other alignment settings in the future
-	fn truncate_to_match<D>(self,dims:D)->TruncateToMatch<Self,D> where Self:Sized,TruncateToMatch<Self,D>:Op{
-		TruncateToMatch{alignment:Alignment::Left,dims,inner:self}
-	}
+	/// wraps with a sum operation
+	fn sum(self)->Sum<Self> where Sum<Self>:Op,Self:Sized{Sum::new(self)}
 	/// zips with another ai operation
 	fn zip<B>(self,b:B)->Zip<(Self,B)> where Self:Sized,Zip<(Self,B)>:Op{
 		Zip{inner:(self,b)}
@@ -1402,17 +1198,8 @@ pub trait UnwrapInner<T>{
 	/// unwraps the inner value
 	fn unwrap_inner(self)->T;
 }
-/// tells which dimensions to apply an operation
-pub trait WhichDims:Clone{
-	/// returns true if specifying more dims than the tensor has should be an error
-	fn is_strict(&self)->bool{true}
-	/// iterates over the dims. tensor rank is provided to prevent eternal or excessively long loops due to iteration, but isn't necessarily a limitation on what dims are returned
-	fn which_dims(&self,rank:usize)->Self::Iter<'_>;
-	/// the type of dimension iterator
-	type Iter<'a>:Iterator<Item=usize> where Self:'a;
-}
-use {accessible_inner,branch_tuple,op_tuple,decompose_primitive,decompose_tuple,zip_tuple};
+use {accessible_inner,branch_tuple,cat_like,op_tuple,decompose_primitive,decompose_tuple,soft_like,sum_like,zip_tuple};
 use std::{
-	collections::HashMap,hash::{BuildHasher,Hash},iter::{Copied,FromIterator,Once,self},marker::PhantomData,ops::Range,slice::Iter as SliceIter
+	collections::HashMap,hash::{BuildHasher,Hash},iter::FromIterator,marker::PhantomData,ops::Range
 };
 zip_tuple!((A,B):(W,X)->(Y,Z),(A,B,C):(U,V,W)->(X,Y,Z),(A,B,C,D):(S,T,U,V)->(W,X,Y,Z),(A,B,C,D,E):(Q,R,S,T,U)->(V,W,X,Y,Z),(A,B,C,D,E,F):(O,P,Q,R,S,T)->(U,V,W,X,Y,Z),(A,B,C,D,E,F,G):(M,N,O,P,Q,R,S)->(T,U,V,W,X,Y,Z),(A,B,C,D,E,F,G,H):(K,L,M,N,O,P,Q,R)->(S,T,U,V,W,X,Y,Z));
