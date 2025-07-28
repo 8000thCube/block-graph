@@ -72,7 +72,7 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for CrossEntropyLayer{// TODO f
 			let (ydims,tdims)=(y.dims(),t.dims());
 			if ydims.iter().enumerate().filter_map(|(n,y)|(n!=dim).then_some(y)).eq(tdims.iter()){
 				let logy=if temperature.is_nan(){y.log()}else{log_softmax(y/temperature,dim)};
-				Ok(logy.gather(dim,t.unsqueeze_dim(dim)).mean().neg().squeeze(dim))
+				Ok(logy.gather(dim,t.unsqueeze_dim(dim)).neg().squeeze(dim))
 			}else{
 				Err(format!("incompatible shapes to softmax along dimension {dim}. ydims: {ydims:?} tdims: {tdims:?}"))
 			}
