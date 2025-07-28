@@ -56,6 +56,12 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Vec<f32>> for CrossEntropyLayer{
 		todo!()
 	}
 }
+impl<B:Backend> AI<(Value<B>,Value<B>),LossOutput<B>> for CrossEntropyLayer{
+	fn forward(&self,(output,target):(Value<B>,Value<B>))->LossOutput<B>{
+		let loss=self.forward((output.clone(),target.clone()));
+		LossOutput::new(loss,output,target)
+	}
+}
 impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for CrossEntropyLayer{// TODO float float version, make smoothing and such work on burn specific one
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
 		fn ff<B:Backend,const N:usize>(_dim:i32,_y:Tensor<B,N>,_t:Tensor<B,N>,_temperature:f32)->Result<Tensor<B,N>,String>{
