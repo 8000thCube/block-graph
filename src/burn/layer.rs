@@ -49,6 +49,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::Linear(f)=>AI::forward(f,input),
 			//Layer::MseLoss(f)=>AI::forward(f,input),
 			Layer::Relu(f)=>AI::forward(f,input),
+			Layer::Stack(dim)=>input.stack(*dim as i32),
 			Layer::Tanh(f)=>AI::forward(f,input),
 			_=>todo!()
 		}
