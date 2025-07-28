@@ -47,7 +47,7 @@ impl Hasher for H{
     #[inline]
     fn write_u64(&mut self,n:u64){self.0^=n}
 }
-impl Label{
+impl Label{// TODO better document behavior on whether id is random or 0 initialized
 	/// creates a new random label
 	pub fn new()->Self{
 		Self{id:rand::random(),name:None}
@@ -163,7 +163,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		self.layers.insert(label.into(),layer.into());
 	}
 	/// adds a connection between vertices, returning the connection and layer indices
-	pub fn connect<I:Into<Label>,L:Into<C>,O:Into<Label>>(&mut self,clear:bool,input:I,layer:L,output:O)->(Label,Label){
+	pub fn connect<I:Into<Label>,L:Into<C>,O:Into<Label>>(&mut self,clear:bool,input:I,layer:L,output:O)->(Label,Label){// TODO mor helpful return types with chain opportunities
 		let (connectionlabel,layerlabel)=(Label::new(),Label::new());
 		self.add_connection(clear,connectionlabel.clone(),input,layerlabel.clone(),output);
 		self.add_layer(layerlabel.clone(),layer);
@@ -182,7 +182,32 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		self.layers.extend(graph.layers.into_iter().map(|(l,a)|(l,a.into())));
 		self.order.extend(graph.order);
 	}
-	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a split trait and output splitter might be helpful if output order must be maintained somewhere
+	/// splits the graph according to the predicate(clear, connectionlabel, inputlabel, layer, layerlabel, outputlabel). true will be sent to the returned graph. the resulting graphs will only have the layers they use
+	pub fn split<F:FnMut(bool,&Label,&Label,&C,&Label,&Label)->bool>(&mut self,mut predicate:F)->Self where C:Clone{
+		let (connections,layers,order)=(&mut self.connections,&mut self.layers,&mut self.order);
+
+		let newconnections:LabelMap<_>=connections.extract_if(|connectionlabel,(clear,inputlabel,layerlabel,outputlabel)|if let Some(layer)=layers.get_mut(layerlabel){
+			predicate(*clear>0,connectionlabel,inputlabel,layer,layerlabel,outputlabel)
+		}else{
+			false
+		}).collect();
+
+		let mut oldlayers=mem::take(layers);
+		let newlayers=newconnections.iter().filter_map(|(_connectionlabel,(_clear,_inputlabel,layerlabel,_outputlabel))|if let Some(layer)=oldlayers.get(layerlabel){
+			Some((layerlabel.clone(),layer.clone()))
+		}else{
+			None
+		}).collect();
+		connections.iter().for_each(|(_connectionlabel,(_clear,_inputlabel,layerlabel,_outputlabel))|if let Some(layer)=oldlayers.remove(layerlabel){
+			layers.insert(layerlabel.clone(),layer);
+		});
+
+		let neworder=order.extract_if(..,|label|newconnections.contains_key(label)).collect();
+		order.retain(|label|connections.contains_key(label));
+
+		Self{connections:newconnections,layers:newlayers,order:neworder}
+	}
+	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a output splitter might be helpful if output order must be maintained somewhere
 	pub fn sort(&mut self){
 		let connections=&mut self.connections;
 		let mut dedup=HashSet::with_capacity(connections.len());
@@ -309,5 +334,5 @@ struct H(u64);
 type LabelMap<E>=HashMap<Label,E,H>;
 use crate::ai::{AI,Decompose,Op};
 use std::{
-	collections::{HashMap,HashSet},hash::{BuildHasher,Hasher},iter::{FromIterator,Extend}
+	collections::{HashMap,HashSet},hash::{BuildHasher,Hasher},iter::{FromIterator,Extend},mem
 };
