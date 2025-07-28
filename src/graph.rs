@@ -124,7 +124,11 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let layers=&self.layers;
 
 		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get(layer){
-			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
+			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()};
+			if x.is_none(){
+				dbg!(input);
+			}
+			let x=x.unwrap_or_default();
 			let y=f.forward(x);
 			map.entry(output.clone()).or_default().merge(y);
 		});
@@ -135,7 +139,11 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let layers=&mut self.layers;
 
 		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get_mut(layer){
-			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
+			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()};
+			if x.is_none(){
+				dbg!(input);
+			}
+			let x=x.unwrap_or_default();
 			let y=f.forward_mut(x);
 			map.entry(output.clone()).or_default().merge(y);
 		});
