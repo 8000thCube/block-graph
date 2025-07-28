@@ -135,7 +135,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let layers=&mut self.layers;
 
 		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get_mut(layer){
-			dbg!(input);
+			//dbg!(input);
 			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
 			let y=f.forward_mut(x);
 			map.entry(output.clone()).or_default().merge(y);
@@ -165,13 +165,8 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	}
 	/// adds a connection between vertices, returning the connection and layer indices
 	pub fn connect<I:Into<Label>,L:Into<C>,O:Into<Label>>(&mut self,clear:bool,input:I,layer:L,output:O)->(Label,Label){// TODO more helpful return types with chain opportunities. possibly include clear and labels there
-		let (input,output):(Label,Label)=(input.into(),output.into());
-		let mut h=H(0);
-		input.hash(&mut h);
-		output.hash(&mut h);
-		let ioxor=h.finish();
-
-		let (connectionlabel,layerlabel):(Label,Label)=(ioxor.into(),ioxor.into());
+		let n=self.order.len(); //TODO better way of getting an n
+		let (connectionlabel,layerlabel):(Label,Label)=(n.into(),n.into());
 		self.add_connection(clear,connectionlabel.clone(),input,layerlabel.clone(),output);
 		self.add_layer(layerlabel.clone(),layer);
 		(connectionlabel,layerlabel)
