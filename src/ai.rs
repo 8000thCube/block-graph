@@ -572,10 +572,18 @@ impl<F:Fn(X)->Y,X,Y> AI<X,Y> for Apply<F,X,Y>{
 impl<F:Fn(X)->Y,X,Y> Op for Apply<F,X,Y>{
 	type Output=Y;
 }
-impl<K:Decompose+Eq+Hash,V:Decompose,S:Default+BuildHasher> Decompose for HashMap<K,V,S>{
+impl<K:Decompose+Eq+Hash,V:Decompose,S:Default+BuildHasher> Decompose for HashMap<K,V,S> where K::Decomposition:Ord{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition.into_iter().map(Decompose::compose).collect()}
-	fn decompose(self)->Self::Decomposition{self.into_iter().map(Decompose::decompose).collect()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.iter().map(|(k,v)|(k.decompose_cloned(),v.decompose_cloned())).collect()}
+	fn decompose(self)->Self::Decomposition{
+		let mut v:Vec<_>=self.into_iter().map(Decompose::decompose).collect();
+		v.sort_unstable_by(|(k,_v),(k2,_v2)|k.cmp(k2));
+		v
+	}
+	fn decompose_cloned(&self)->Self::Decomposition{
+		let mut v:Vec<_>=self.iter().map(|(k,v)|(k.decompose_cloned(),v.decompose_cloned())).collect();
+		v.sort_unstable_by(|(k,_v),(k2,_v2)|k.cmp(k2));
+		v
+	}
 	type Decomposition=Vec<(K::Decomposition,V::Decomposition)>;
 }
 impl<X:Into<Y>,Y> AI<X,Y> for Identity{
@@ -1200,6 +1208,6 @@ pub trait UnwrapInner<T>{
 }
 use {accessible_inner,branch_tuple,cat_like,op_tuple,decompose_primitive,decompose_tuple,soft_like,sum_like,zip_tuple};
 use std::{
-	collections::HashMap,hash::{BuildHasher,Hash},iter::FromIterator,marker::PhantomData,ops::Range
+	collections::HashMap,cmp::Ord,hash::{BuildHasher,Hash},iter::FromIterator,marker::PhantomData,ops::Range
 };
 zip_tuple!((A,B):(W,X)->(Y,Z),(A,B,C):(U,V,W)->(X,Y,Z),(A,B,C,D):(S,T,U,V)->(W,X,Y,Z),(A,B,C,D,E):(Q,R,S,T,U)->(V,W,X,Y,Z),(A,B,C,D,E,F):(O,P,Q,R,S,T)->(U,V,W,X,Y,Z),(A,B,C,D,E,F,G):(M,N,O,P,Q,R,S)->(T,U,V,W,X,Y,Z),(A,B,C,D,E,F,G,H):(K,L,M,N,O,P,Q,R)->(S,T,U,V,W,X,Y,Z));
