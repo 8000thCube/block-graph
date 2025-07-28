@@ -165,7 +165,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	}
 	/// adds a connection between vertices, returning the connection and layer indices
 	pub fn connect<I:Into<Label>,L:Into<C>,O:Into<Label>>(&mut self,clear:bool,input:I,layer:L,output:O)->(Label,Label){// TODO more helpful return types with chain opportunities. possibly include clear and labels there
-		let n=self.order.len(); //TODO better way of getting an n
+		let n=self.order.len(); //TODO better way of getting an n. ideally there would be some randomness but with a seed for reproducibility
 		let (connectionlabel,layerlabel):(Label,Label)=(n.into(),n.into());
 		self.add_connection(clear,connectionlabel.clone(),input,layerlabel.clone(),output);
 		self.add_layer(layerlabel.clone(),layer);
