@@ -164,7 +164,13 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	}
 	/// adds a connection between vertices, returning the connection and layer indices
 	pub fn connect<I:Into<Label>,L:Into<C>,O:Into<Label>>(&mut self,clear:bool,input:I,layer:L,output:O)->(Label,Label){// TODO mor helpful return types with chain opportunities
-		let (connectionlabel,layerlabel)=(Label::new(),Label::new());
+		let (input,output):(Label,Label)=(input.into(),output.into());
+		let mut h=H(0);
+		input.hash(&mut h);
+		output.hash(&mut h);
+		let ioxor=h.finish();
+
+		let (connectionlabel,layerlabel):(Label,Label)=(ioxor.into(),ioxor.into());
 		self.add_connection(clear,connectionlabel.clone(),input,layerlabel.clone(),output);
 		self.add_layer(layerlabel.clone(),layer);
 		(connectionlabel,layerlabel)
@@ -334,5 +340,5 @@ struct H(u64);
 type LabelMap<E>=HashMap<Label,E,H>;
 use crate::ai::{AI,Decompose,Op};
 use std::{
-	collections::{HashMap,HashSet},hash::{BuildHasher,Hasher},iter::{FromIterator,Extend},mem
+	collections::{HashMap,HashSet},hash::{BuildHasher,Hasher,Hash},iter::{FromIterator,Extend},mem
 };
