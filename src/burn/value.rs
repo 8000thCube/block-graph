@@ -109,21 +109,6 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Vec<f32>> for SquaredError<()>{
 impl<B:Backend> AI<(Value<B>,Value<B>),f32> for SquaredError<()>{
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->f32{ai::new().fix_type::<Value<B>>().squared_error().mean().forward((output,target))}
 }
-
-/*
-impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for MSE<()>{
-	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
-		fn mse<B:Backend,const N:usize>(y:Tensor<B,N>,t:Tensor<B,N>)->Value<B>{
-			if y.dims()==t.dims(){F1(MseLoss.forward_no_reduction(y,t).mean())}else{"compatible inputs for squared error are tensors of the same shape".into()}
-		}
-
-		match (output.float(),target.float()){(F1(y),F1(t))=>mse(y,t),(F2(y),F2(t))=>mse(y,t),(F3(y),F3(t))=>mse(y,t),(F4(y),F4(t))=>mse(y,t),(F5(y),F5(t))=>mse(y,t),(F6(y),F6(t))=>mse(y,t),(F7(y),F7(t))=>mse(y,t),(F8(y),F8(t))=>mse(y,t),(Value::Incompatible(y),_)=>y.into(),(_,Value::Incompatible(t))=>t.into(),(Value::Multi(y),Value::Multi(t))=>Value::Multi(y.into_iter().zip(t).map(|x|self.forward_typed::<_,Value<B>>(x)).collect()),_=>"compatible inputs for squared error are float tensors of the same shape".into()}
-	}
-}*/
-/*
-impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for MseLoss{
-	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{ai::new().fix_type::<Value<B>>().mse().forward((output,target))}
-}*/
 impl<B:Backend> AI<Value<B>,Tensor<B,1>> for MeanLayer{
 	fn forward(&self,input:Value<B>)->Tensor<B,1>{
 		fn avg<B:Backend,const N:usize>(x:Tensor<B,N>)->Tensor<B,1>{x.mean()}
