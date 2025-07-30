@@ -85,6 +85,14 @@ impl<A:Op<Output=Y>+Wrappable,Y> Op for Classification<A> where ClassificationLa
 impl<A:Op<Output=Y>+Wrappable,Y> Op for Regression<A> where RegressionLayer:AI<Y,RegressionOutput<A::B>>{
 	type Output=RegressionOutput<A::B>;
 }
+impl<A:UnwrapInner> UnwrapInner for Classification<A>{
+	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
+	type Inner=A::Inner;
+}
+impl<A:UnwrapInner> UnwrapInner for Regression<A>{
+	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
+	type Inner=A::Inner;
+}
 impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>> Wrappable for (A,D){
 	type B=B;
 	type With<C:Backend>=(A::With<C>,D::With<C>);
@@ -233,6 +241,10 @@ impl<W:AI<X,Y>+Wrappable,X,Y> AI<X,Y> for Wrapped<W>{
 impl<W:Op+Wrappable> Op for Wrapped<W>{
 	type Output=W::Output;
 }
+impl<W:UnwrapInner+Wrappable> UnwrapInner for Wrapped<W>{
+	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
+	type Inner=W::Inner;
+}
 impl<W:Wrappable> Decompose for Wrapped<W>{
 	fn compose(decomposition:Self::Decomposition)->Self{Self::new(W::compose(decomposition))}
 	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
@@ -281,6 +293,10 @@ impl<W:Wrappable> Wrappable for Duplicate<W>{
 impl<W:Wrappable> Wrappable for Graph<W>{
 	type B=W::B;
 	type With<C:Backend>=Graph<W::With<C>>;
+}
+impl<W:Wrappable> Wrappable for Inner<W>{
+	type B=W::B;
+	type With<C:Backend>=Inner<W::With<C>>;
 }
 impl<W:Wrappable> Wrappable for Mean<W>{
 	type B=W::B;
@@ -349,9 +365,9 @@ mod tests{
 		graph.connect(true,"x",Layer::relu(),"y");
 		graph.connect(true,"y",Layer::linear(false,10,1,1.0),"output");
 
-		let graph=Unvec(graph).squared_error().set_type::<(Value<A>,Value<A>),LossOutput<A>>().regression().wrap();
+		let graph=Unvec(graph).wrap_inner().squared_error().set_type::<(Value<A>,Value<A>),LossOutput<A>>().regression().wrap();
 		let graph=graph.train(&TrainConfig::new().with_checkpoints(false),SgdConfig::new().init(),0.01,train,valid);
-		let graph=graph.valid().into_inner().into_inner().into_inner().into_inner();//TODO this chain of into_inner is annoying
+		let graph=graph.valid().unwrap_inner();
 
 		let inputval=Value::from(Tensor::<B,2>::from_data(TensorData::new([0.0,0.0,0.0,1.0,1.0,0.0,1.0,1.0].to_vec(),[4,2]),&Default::default()));
 		let outputval=graph.forward(inputval);
@@ -459,7 +475,7 @@ use burn::{
 	}
 };
 use crate::{
-	AI,Decompose,Graph,Op,Unvec,builtin::{AccQ,Branch,Cat,Choose,CrossEntropy,Duplicate,Map,Mean,Sequential,SetType,SquaredError,Zip}
+	AI,Decompose,Graph,Inner,Op,UnwrapInner,Unvec,builtin::{AccQ,Branch,Cat,Choose,CrossEntropy,Duplicate,Map,Mean,Sequential,SetType,SquaredError,Zip}
 };
 use rand::random;
 use std::{
