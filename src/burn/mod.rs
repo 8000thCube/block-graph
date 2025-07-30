@@ -1,22 +1,34 @@
+impl Decompose for ClassificationLayer{
+	fn compose(_decomposition:Self::Decomposition)->Self{Self::default()}
+	fn decompose(self){}
+	fn decompose_cloned(&self){}
+	type Decomposition=();
+}
+impl Decompose for RegressionLayer{
+	fn compose(_decomposition:Self::Decomposition)->Self{Self::default()}
+	fn decompose(self){}
+	fn decompose_cloned(&self){}
+	type Decomposition=();
+}
 impl MetricsRenderer for DontRender{
 	fn update_train(&mut self,_state:MetricState){}
 	fn update_valid(&mut self,_state:MetricState){}
 	fn render_train(&mut self,_item:TrainingProgress){}
 	fn render_valid(&mut self,_item:TrainingProgress){}
 }
-impl Op for Classification<()>{
+impl Op for ClassificationLayer{
 	type Output=ClassificationOutput<NdArray>;
 }
-impl Op for Regression<()>{
+impl Op for RegressionLayer{
 	type Output=RegressionOutput<NdArray>;
 }
 impl<A:AI<X,LossOutput<B>>,B:Backend,X> AI<X,ClassificationOutput<B>> for Classification<A>{
-	fn forward(&self,input:X)->ClassificationOutput<B>{self.with_inner(()).forward(self.inner().forward(input))}
-	fn forward_mut(&mut self,input:X)->ClassificationOutput<B>{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
+	fn forward(&self,input:X)->ClassificationOutput<B>{self.layer.forward(self.inner.forward(input))}
+	fn forward_mut(&mut self,input:X)->ClassificationOutput<B>{self.layer.forward(self.inner.forward_mut(input))}
 }
 impl<A:AI<X,LossOutput<B>>,B:Backend,X> AI<X,RegressionOutput<B>> for Regression<A>{
-	fn forward(&self,input:X)->RegressionOutput<B>{self.with_inner(()).forward(self.inner().forward(input))}
-	fn forward_mut(&mut self,input:X)->RegressionOutput<B>{self.with_inner(()).forward(self.inner_mut().forward_mut(input))}
+	fn forward(&self,input:X)->RegressionOutput<B>{self.layer.forward(self.inner.forward(input))}
+	fn forward_mut(&mut self,input:X)->RegressionOutput<B>{self.layer.forward(self.inner.forward_mut(input))}
 }
 impl<A:AutodiffBackend<InnerBackend=B>,B:Backend,W:'static+Wrappable<B=A>,Y:'static+ItemLazy+Send+Sync,Z:'static+ItemLazy+Send+Sync> Wrapped<W> where <Self as AutodiffModule<A>>::InnerModule:ValidStep<(Value<B>,Value<B>),Z>,Self:TrainStep<(Value<A>,Value<A>),Y>,W::Decomposition:AutodiffModule<A>,W::With<B>:Decompose<Decomposition=<W::Decomposition as AutodiffModule<A>>::InnerModule>+Op<Output=Z>,W:Op<Output=Y>,Y::ItemSync:Adaptor<LossInput<NdArray>>,Z::ItemSync:Adaptor<LossInput<NdArray>>{
 	/// trains the model
@@ -53,7 +65,7 @@ impl<A:AutodiffBackend,W:Wrappable<B=A>> AutodiffModule<A> for Wrapped<W> where 
 }
 impl<A:Decompose> Decompose for Classification<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition)}
+		Self{inner:A::compose(decomposition),layer:Default::default()}
 	}
 	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
@@ -61,16 +73,16 @@ impl<A:Decompose> Decompose for Classification<A>{
 }
 impl<A:Decompose> Decompose for Regression<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition)}
+		Self{inner:A::compose(decomposition),layer:Default::default()}
 	}
 	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
-impl<A:Op<Output=Y>+Wrappable,Y> Op for Classification<A> where Classification<()>:AI<Y,ClassificationOutput<A::B>>{
+impl<A:Op<Output=Y>+Wrappable,Y> Op for Classification<A> where ClassificationLayer:AI<Y,ClassificationOutput<A::B>>{
 	type Output=ClassificationOutput<A::B>;
 }
-impl<A:Op<Output=Y>+Wrappable,Y> Op for Regression<A> where Regression<()>:AI<Y,RegressionOutput<A::B>>{
+impl<A:Op<Output=Y>+Wrappable,Y> Op for Regression<A> where RegressionLayer:AI<Y,RegressionOutput<A::B>>{
 	type Output=RegressionOutput<A::B>;
 }
 impl<A:Wrappable<B=B>,B:Backend,D:Wrappable<B=B>> Wrappable for (A,D){
@@ -108,7 +120,7 @@ impl<A:Wrappable<B=B>,B:Backend,X:Wrappable<B=B>,Y:Wrappable<B=B>> Wrappable for
 impl<A> Classification<A>{
 	/// creates from the inner value
 	pub fn from_inner(inner:A)->Self where Classification<A>:Op{
-		Self{inner}
+		Self{inner,layer:Default::default()}
 	}
 	/// references the inner value
 	pub fn inner(&self)->&A{&self.inner}
@@ -122,7 +134,7 @@ impl<A> Classification<A>{
 impl<A> Regression<A>{
 	/// creates from the inner value
 	pub fn from_inner(inner:A)->Self where Regression<A>:Op{
-		Self{inner}
+		Self{inner,layer:Default::default()}
 	}
 	/// references the inner value
 	pub fn inner(&self)->&A{&self.inner}
@@ -166,7 +178,7 @@ impl<B:Backend,W:Wrappable<B=B>> Module<B> for Wrapped<W> where W::Decomposition
 impl<B:Backend,X:Into<Y>,Y> AI<X,Y> for Identity<B>{
 	fn forward(&self,input:X)->Y{input.into()}
 }
-impl<B:Backend> AI<LossOutput<B>,ClassificationOutput<B>> for Classification<()>{
+impl<B:Backend> AI<LossOutput<B>,ClassificationOutput<B>> for ClassificationLayer{
 	fn forward(&self,lossoutput:LossOutput<B>)->ClassificationOutput<B>{//TODO make work for multi
 		let loss=match lossoutput.loss(){Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
 		let output=match lossoutput.output(){Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to classification output")};
@@ -174,7 +186,7 @@ impl<B:Backend> AI<LossOutput<B>,ClassificationOutput<B>> for Classification<()>
 		ClassificationOutput::new(loss,output,target)
 	}
 }
-impl<B:Backend> AI<LossOutput<B>,RegressionOutput<B>> for Regression<()>{
+impl<B:Backend> AI<LossOutput<B>,RegressionOutput<B>> for RegressionLayer{
 	fn forward(&self,lossoutput:LossOutput<B>)->RegressionOutput<B>{
 		let loss=match lossoutput.loss(){Value::F1(x)=>x,Value::F2(x)=>x.mean(),Value::F3(x)=>x.mean(),Value::F4(x)=>x.mean(),Value::F5(x)=>x.mean(),Value::F6(x)=>x.mean(),Value::F7(x)=>x.mean(),Value::F8(x)=>x.mean(),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
 		let output=match lossoutput.output(){Value::F1(x)=>x.unsqueeze(),Value::F2(x)=>x,Value::F3(x)=>x.flatten(0,1),Value::F4(x)=>x.flatten(0,2),Value::F5(x)=>x.flatten(0,3),Value::F6(x)=>x.flatten(0,4),Value::F7(x)=>x.flatten(0,5),Value::F8(x)=>x.flatten(0,6),Value::Incompatible(e)=>panic!("{e}"),_=>panic!("cannot convert non floats to regression output")};
@@ -368,7 +380,10 @@ pub fn new<B:Backend>()->Identity<B>{
 pub struct BatchStacker;
 #[derive(Clone,Copy,Debug,Default)]
 /// wrapper for converting loss to classification output
-pub struct Classification<A>{inner:A}
+pub struct Classification<A>{inner:A,layer:ClassificationLayer}
+#[derive(Clone,Copy,Debug,Default)]
+/// layer for converting loss to classification output
+pub struct ClassificationLayer{seal:PhantomData<()>}
 #[derive(Clone,Copy,Debug,Default)]
 /// metrics renderer implementation that doesn't actually do anything
 pub struct DontRender;
@@ -377,7 +392,10 @@ pub struct DontRender;
 pub struct Identity<B:Backend>{phantom:PhantomData<B>}
 #[derive(Clone,Copy,Debug,Default)]
 /// wrapper for converting loss to regression output
-pub struct Regression<A>{inner:A}
+pub struct Regression<A>{inner:A,layer:RegressionLayer}
+#[derive(Clone,Copy,Debug,Default)]
+/// layer for converting loss to regression output
+pub struct RegressionLayer{seal:PhantomData<()>}
 #[derive(Config,Debug)]
 /// configuration for convenient training through the wrapper
 pub struct TrainConfig{
@@ -441,7 +459,7 @@ use burn::{
 	}
 };
 use crate::{
-	ai::{AI,AccQ,Branch,Cat,Choose,CrossEntropy,Decompose,Duplicate,Map,Mean,Op,Sequential,SetType,SquaredError,Zip},graph::{Graph,Unvec}
+	AI,Decompose,Graph,Op,Unvec,builtin::{AccQ,Branch,Cat,Choose,CrossEntropy,Duplicate,Map,Mean,Sequential,SetType,SquaredError,Zip}
 };
 use rand::random;
 use std::{
