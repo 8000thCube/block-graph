@@ -33,6 +33,16 @@ impl<A:AI<X,X>,X> AI<X,X> for Option<A>{
 		if let Some(a)=self{a.forward_mut(x)}else{x}
 	}
 }
+impl<A:AI<X,Y>,X,Y> AI<X,Y> for Inner<A>{
+	fn forward(&self,input:X)->Y{self.0.forward(input)}
+	fn forward_mut(&mut self,input:X)->Y{self.0.forward_mut(input)}
+}
+impl<A:Decompose> Decompose for Inner<A>{
+	fn compose(decomposition:Self::Decomposition)->Self{Self(A::compose(decomposition))}
+	fn decompose(self)->Self::Decomposition{self.0.decompose()}
+	fn decompose_cloned(&self)->Self::Decomposition{self.0.decompose_cloned()}
+	type Decomposition=A::Decomposition;
+}
 impl<A:Decompose> Decompose for Option<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition.map(A::compose)}
 	fn decompose(self)->Self::Decomposition{self.map(A::decompose)}
@@ -45,11 +55,32 @@ impl<A:Decompose> Decompose for Vec<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.iter().map(A::decompose_cloned).collect()}
 	type Decomposition=Vec<A::Decomposition>;
 }
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Inner<A>{
+	fn into_sequence(self)->Sequential<Vec<M>>{self.0.into_sequence()}
+}
+impl<A:Op> Op for Inner<A>{
+	type Output=A::Output;
+}
+impl<A> From<A> for Inner<A>{
+	fn from(inner:A)->Self{Self(inner)}
+}
+impl<A> Inner<A>{
+	/// references the inner value
+	pub fn inner(&self)->&A{&self.0}
+	/// references the inner value
+	pub fn inner_mut(&mut self)->&mut A{&mut self.0}
+	/// converts into the inner value
+	pub fn into_inner(self)->A{self.0}
+}
 impl<A> Op for [A]{
 	type Output=();
 }
 impl<A> Op for Vec<A>{
 	type Output=();
+}
+impl<A> UnwrapInner for Inner<A>{
+	fn unwrap_inner(self)->Self::Inner{self.0}
+	type Inner=A;
 }
 impl<K:Decompose+Eq+Hash,V:Decompose,S:Default+BuildHasher> Decompose for HashMap<K,V,S> where K::Decomposition:Ord{
 	fn compose(decomposition:Self::Decomposition)->Self{decomposition.into_iter().map(Decompose::compose).collect()}
@@ -100,13 +131,11 @@ macro_rules! op_tuple{
 		type Output=();
 	})*);
 }
-/// implements unwrap inner for primitive types
-macro_rules! unwrap_inner_primitive{
-	($($type:ty),*)=>($(impl UnwrapInner<Self> for $type{
-		fn unwrap_inner(self)->Self{self}
-	})*);
-}
 op_tuple!((A,B),(A,B,C),(A,B,C,D),(A,B,C,D,E),(A,B,C,D,E,F),(A,B,C,D,E,F,G),(A,B,C,D,E,F,G,H));
+#[derive(Clone,Copy,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wraps an inner value so it can be unwrapped with unwrap inner
+pub struct Inner<A>(pub A);
 /// general ai trait
 pub trait AI<X,Y>{
 	/// applies to the input
@@ -182,18 +211,21 @@ pub trait Op{
 	fn to_each(self)->Map<Self> where Map<Self>:Op,Self:Sized{Map::new(self)}
 	/// wraps with a sum operation
 	fn sum(self)->Sum<Self> where Sum<Self>:Op,Self:Sized{Sum::new(self)}
+	/// wraps the inner value so it can be unwrapped with unwrap inner
+	fn wrap_inner(self)->Inner<Self> where Self:Sized{Inner(self)}
 	/// zips with another ai operation
 	fn zip<B>(self,b:B)->Zip<(Self,B)> where Self:Sized,Zip<(Self,B)>:Op{Zip::new((self,b))}
 	/// suggested output type to help with composition coherence. Ideally, Self should implement AI<X,Self::Output> for some X
 	type Output;
 }
 /// trait for unwrapping nested wrapped values
-pub trait UnwrapInner<T>{
+pub trait UnwrapInner{
 	/// unwraps the inner value
-	fn unwrap_inner(self)->T;
+	fn unwrap_inner(self)->Self::Inner;
+	/// the inner type
+	type Inner;
 }
-unwrap_inner_primitive!((),bool,char,f32,f64,i128,i16,i32,i64,i8,isize,u128,u16,u32,u64,u8,usize);
-use {op_tuple,decompose_primitive,decompose_tuple,unwrap_inner_primitive};
+use {op_tuple,decompose_primitive,decompose_tuple};
 use crate::builtin::{AbnormalSoftmax,AccQ,Argmax,Autoregression,Branch,Cat,Choose,CrossEntropy,Duplicate,LogSoftmax,Map,Mean,Sequential,SetType,SquaredError,Sum,Zip};
 use std::{
 	collections::HashMap,cmp::Ord,hash::{BuildHasher,Hash},ops::Range
