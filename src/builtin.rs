@@ -1,4 +1,5 @@
 bicop_like!(AddLayer,Add);
+bicop_like!(MulLayer,Mul);
 bicop_like!(SquaredErrorLayer,SquaredError);
 branch_tuple!((A,B):X->(Y,Z),(A,B,C):W->(X,Y,Z),(A,B,C,D):V->(W,X,Y,Z),(A,B,C,D,E):U->(V,W,X,Y,Z),(A,B,C,D,E,F):T->(U,V,W,X,Y,Z),(A,B,C,D,E,F,G):S->(T,U,V,W,X,Y,Z),(A,B,C,D,E,F,G,H):R->(S,T,U,V,W,X,Y,Z));
 cat_like!(CatLayer,Cat);
@@ -568,6 +569,9 @@ impl<F:Fn(X)->Y,X,Y> Op for Apply<F,X,Y>{
 impl<L:OpsAdd<R,Output=Y>,R,Y> AI<(L,R),Y> for AddLayer{
 	fn forward(&self,(left,right):(L,R))->Y{left+right}
 }
+impl<L:OpsMul<R,Output=Y>,R,Y> AI<(L,R),Y> for MulLayer{
+	fn forward(&self,(left,right):(L,R))->Y{left*right}
+}
 impl<X> AI<Vec<Vec<X>>,Vec<X>> for CatLayer{
 	fn forward(&self,input:Vec<Vec<X>>)->Vec<X>{
 		let dim=self.dim;
@@ -610,6 +614,13 @@ macro_rules! bicop_like{
 			fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 			type Decomposition=A::Decomposition;
 		}
+		impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for $wrap<A> where $layer:Into<M>{
+			fn into_sequence(self)->Sequential<Vec<M>>{self.inner.into_sequence().with_next(self.layer)}
+		}
+		impl<A:UnwrapInner> UnwrapInner for $wrap<A>{
+			fn unwrap_inner(self)->A::Inner{self.into_inner().unwrap_inner()}
+			type Inner=A::Inner;
+		}
 		impl<A:Op<Output=Y>,Y> Op for $wrap<A> where $layer:AI<(Y,Y),Y>{
 			type Output=Y;
 		}
@@ -623,6 +634,9 @@ macro_rules! bicop_like{
 			pub fn with_inner<B>(self,inner:B)->$wrap<B> where $wrap<B>:Op{
 				$wrap{inner,layer:self.layer}
 			}
+		}
+		impl<M:AI<M::Output,M::Output>+Op> IntoSequence<M> for $layer where $layer:Into<M>{
+			fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
 		}
 		impl Decompose for $layer{
 			fn compose(_decomposition:Self::Decomposition)->Self{Self::new()}
@@ -823,6 +837,10 @@ macro_rules! soft_like{
 				self
 			}
 		}
+		impl<A:UnwrapInner> UnwrapInner for $wrap<A>{
+			fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}// TODO more thorough into sequence and unwrap inner impls for everything
+			type Inner=A::Inner;
+		}
 		impl<A> $wrap<A>{
 			pub fn get_dim(&self)->i32{self.layer.dim}
 			/// gets the temperature
@@ -1003,6 +1021,32 @@ pub enum ReductionMode{Component,Dim(usize),Tensor}
 pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
 	Apply{inner:f,phantom:PhantomData}
 }
+
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for AccQ<A> where AccQLayer:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{self.inner.into_sequence().with_next(self.layer)}
+}
+impl<A:UnwrapInner> UnwrapInner for AccQ<A>{
+	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
+	type Inner=A::Inner;
+}
+impl<F:Fn(X)->Y,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M> for Apply<F,X,Y> where Self:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
+}
+impl<M:AI<M::Output,M::Output>+Op> IntoSequence<M> for AccQLayer where AccQLayer:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
+}
+impl<M:AI<M::Output,M::Output>+Op> Sequential<Vec<M>>{
+	/// appends the module to the sequence, then returns the sequence
+	pub fn with_next<A:Into<M>>(mut self,m:A)->Self{
+		self.inner_mut().push(m.into());
+		self
+	}
+}
+impl<A:AI<X,Y>+UnwrapInner,X,Y> UnwrapInner for SetType<A,X,Y>{
+	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
+	type Inner=A::Inner;
+}
+
 #[derive(Clone,Copy,Debug,Default,PartialEq)]
 /// accumulates cumulative
 pub struct AccQ<A>{inner:A,layer:AccQLayer}
