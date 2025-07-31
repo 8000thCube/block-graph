@@ -1,8 +1,9 @@
 fn slice_slice<B:Backend,K:BasicOps<B>+TensorKind<B>,const N:usize>(ranges:&[Range<usize>],tensor:Tensor<B,N,K>)->Tensor<B,N,K>{
 	let mut n=0;
 	let mut acc=||{
+		let a=n;
 		n+=1;
-		n-1
+		a
 	};
 
 	match ranges.len(){0=>tensor,1=>tensor.slice([0;1].map(|_|ranges[acc()].clone())),2=>tensor.slice([0;2].map(|_|ranges[acc()].clone())),3=>tensor.slice([0;3].map(|_|ranges[acc()].clone())),4=>tensor.slice([0;4].map(|_|ranges[acc()].clone())),5=>tensor.slice([0;5].map(|_|ranges[acc()].clone())),6=>tensor.slice([0;6].map(|_|ranges[acc()].clone())),7=>tensor.slice([0;7].map(|_|ranges[acc()].clone())),8=>tensor.slice([0;8].map(|_|ranges[acc()].clone())),_=>panic!("too many ranges for current max 8 dims")}
@@ -177,6 +178,9 @@ impl<B:Backend> AI<Value<B>,Vec<u32>> for ChooseLayer{
 
 		match input.float(){F1(x)=>soft_choose_burn_multi(dim,x,temperature),F2(x)=>soft_choose_burn_multi(dim,x,temperature),F3(x)=>soft_choose_burn_multi(dim,x,temperature),F4(x)=>soft_choose_burn_multi(dim,x,temperature),F5(x)=>soft_choose_burn_multi(dim,x,temperature),F6(x)=>soft_choose_burn_multi(dim,x,temperature),F7(x)=>soft_choose_burn_multi(dim,x,temperature),F8(x)=>soft_choose_burn_multi(dim,x,temperature),Value::Incompatible(e)=>panic!("Could not create vector due to incompatibility: {e}"),Value::Multi(v)=>v.into_iter().flat_map(|x|self.forward_typed::<_,Vec<u32>>(x)).collect(),_=>panic!("internal error")}
 	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for AbsLayer{
+	fn forward(&self,input:Value<B>)->Value<B>{input.abs()}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for Dropout{
 	fn forward(&self,input:Value<B>)->Value<B>{
@@ -365,7 +369,11 @@ impl<B:Backend> Merge for Value<B>{
 		}
 	}
 }
-impl<B:Backend> Value<B>{// TODO more builtin functions // TODO be more decisive about whether multi 1 and single are equivalent //TODO stack errors if possible
+impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO be more decisive about whether multi 1 and single are equivalent
+	/// applies absolute value operation
+	pub fn abs(self)->Self{
+		match self{B1(x)=>B1(x),B2(x)=>B2(x),B3(x)=>B3(x),B4(x)=>B4(x),B5(x)=>B5(x),B6(x)=>B6(x),B7(x)=>B7(x),B8(x)=>B8(x),F1(x)=>F1(x.abs()),F2(x)=>F2(x.abs()),F3(x)=>F3(x.abs()),F4(x)=>F4(x.abs()),F5(x)=>F5(x.abs()),F6(x)=>F6(x.abs()),F7(x)=>F7(x.abs()),F8(x)=>F8(x.abs()),I1(x)=>I1(x.abs()),I2(x)=>I2(x.abs()),I3(x)=>I3(x.abs()),I4(x)=>I4(x.abs()),I5(x)=>I5(x.abs()),I6(x)=>I6(x.abs()),I7(x)=>I7(x.abs()),I8(x)=>I8(x.abs()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(Value::abs).collect()}
+	}
 	/// concatenates the multi tensor along dimension d.
 	pub fn cat(self,d:i32)->Self{
 		if d<0{todo!()}// TODO make this work for - dimensions
@@ -674,7 +682,7 @@ use burn::{
 	}
 };
 use crate::{
-	AI,Decompose,Merge,Op,builtin::{AccQ,Alignment,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,SquaredErrorLayer}
+	AI,Decompose,Merge,Op,builtin::{AbsLayer,AccQ,Alignment,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,SquaredErrorLayer}
 };
 use rand::random;
 use std::{
