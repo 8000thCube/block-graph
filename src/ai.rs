@@ -163,10 +163,10 @@ pub trait IntoSequence<M:AI<M::Output,M::Output>+Op>{
 pub trait Op{
 	/// wraps with a softmax operation
 	fn abnormal_softmax(self,dim:i32)->AbnormalSoftmax<Self> where Self:Sized,AbnormalSoftmax<Self>:Op{AbnormalSoftmax::new(dim,self)}
+	/// wraps with an absolute value operation
+	fn abs(self)->Abs<Self> where Self:Sized,Abs<Self>:Op{Abs::new(self)}
 	/// wraps with a accq operation
 	fn acc_q(self,dim:i32,gamma:f32)->AccQ<Self> where AccQ<Self>:Op,Self:Sized{AccQ::new(dim,gamma,self)}
-	/// wraps with a branch operation
-	fn branch(self)->Branch<Self> where Branch<Self>:Op,Self:Sized{Branch::new(self)}
 	/// wraps with a cat operation
 	fn cat(self,dim:i32)->Cat<Self> where Cat<Self>:Op,Self:Sized{Cat::new(dim,self)}
 	/// sequences with another ai operation
@@ -226,7 +226,7 @@ pub trait UnwrapInner{
 	type Inner;
 }
 use {op_tuple,decompose_primitive,decompose_tuple};
-use crate::builtin::{AbnormalSoftmax,AccQ,Argmax,Autoregression,Branch,Cat,Choose,CrossEntropy,Duplicate,LogSoftmax,Map,Mean,Sequential,SetType,SquaredError,Sum,Zip};
+use crate::builtin::{AbnormalSoftmax,Abs,AccQ,Argmax,Autoregression,Cat,Choose,CrossEntropy,Duplicate,LogSoftmax,Map,Mean,Sequential,SetType,SquaredError,Sum,Zip};
 use std::{
 	collections::HashMap,cmp::Ord,hash::{BuildHasher,Hash},ops::Range
 };
