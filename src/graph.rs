@@ -335,6 +335,7 @@ pub trait Merge{// TODO wrapper to implement in terms of intoiterator and from i
 struct H(u64);
 type LabelMap<E>=HashMap<Label,E,H>;
 use crate::{AI,Decompose,Op};
+use rand::rngs::StdRng;
 use std::{
 	collections::{HashMap,HashSet},hash::{BuildHasher,Hasher,Hash},iter::{FromIterator,Extend},mem
 };
