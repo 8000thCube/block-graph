@@ -266,13 +266,13 @@ impl<W:Wrappable> ModuleDisplayDefault for Wrapped<W> where W::Decomposition:Mod
 	fn content(&self,content:Content)->Option<Content>{self.inner.decompose_cloned().content(content)}
 	fn num_params(&self)->usize{self.inner.decompose_cloned().num_params()}
 }
+impl<W:Wrappable> Wrappable for Abs<W>{
+	type B=W::B;
+	type With<C:Backend>=Abs<W::With<C>>;
+}
 impl<W:Wrappable> Wrappable for AccQ<W>{
 	type B=W::B;
 	type With<C:Backend>=AccQ<W::With<C>>;
-}
-impl<W:Wrappable> Wrappable for Branch<W>{
-	type B=W::B;
-	type With<C:Backend>=Branch<W::With<C>>;
 }
 impl<W:Wrappable> Wrappable for Cat<W>{
 	type B=W::B;
@@ -475,7 +475,7 @@ use burn::{
 	}
 };
 use crate::{
-	AI,Decompose,Graph,Inner,Op,UnwrapInner,Unvec,builtin::{AccQ,Branch,Cat,Choose,CrossEntropy,Duplicate,Map,Mean,Sequential,SetType,SquaredError,Zip}
+	AI,Decompose,Graph,Inner,Op,UnwrapInner,Unvec,builtin::{Abs,AccQ,Cat,Choose,CrossEntropy,Duplicate,Map,Mean,Sequential,SetType,SquaredError,Zip}
 };
 use rand::random;
 use std::{
