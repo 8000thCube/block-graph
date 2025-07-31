@@ -1,7 +1,6 @@
 bicop_like!(AddLayer,Add);
 bicop_like!(MulLayer,Mul);
 bicop_like!(SquaredErrorLayer,SquaredError);
-branch_tuple!((A,B):X->(Y,Z),(A,B,C):W->(X,Y,Z),(A,B,C,D):V->(W,X,Y,Z),(A,B,C,D,E):U->(V,W,X,Y,Z),(A,B,C,D,E,F):T->(U,V,W,X,Y,Z),(A,B,C,D,E,F,G):S->(T,U,V,W,X,Y,Z),(A,B,C,D,E,F,G,H):R->(S,T,U,V,W,X,Y,Z));
 cat_like!(CatLayer,Cat);
 cat_like!(StackLayer,Stack);
 impl AI<(Vec<f32>,Vec<f32>),Vec<f32>> for SquaredErrorLayer{// TODO some kind of namable map iter might make some of these compose better
@@ -95,6 +94,9 @@ impl AI<Vec<f32>,f32> for MeanLayer{
 }
 impl AI<Vec<f32>,f32> for SumLayer{
 	fn forward(&self,input:Vec<f32>)->f32{input.into_iter().sum()}//TODO check dim
+}
+impl AI<f32,f32> for AbsLayer{// TODO trait for this
+	fn forward(&self,input:f32)->f32{input.abs()}
 }
 impl AI<f32,f32> for MeanLayer{
 	fn forward(&self,input:f32)->f32{input}
@@ -275,21 +277,6 @@ impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J
 		input.into_iter().map(|x|a.forward_mut(x)).collect()
 	}
 }
-impl<A:AI<X,Y>,X:Clone,Y> AI<X,Vec<Y>> for Branch<Vec<A>>{
-	fn forward(&self,input:X)->Vec<Y>{
-		let a=self.inner();
-		let mut y:Vec<Y>=a.iter().take(a.len().saturating_sub(1)).map(|a|a.forward(input.clone())).collect();
-		if let Some(a)=a.last(){y.push(a.forward(input))}
-		y
-	}
-	fn forward_mut(&mut self,input:X)->Vec<Y>{
-		let a=self.inner_mut();
-		let l=a.len().saturating_sub(1);
-		let mut y:Vec<Y>=a.iter_mut().take(l).map(|a|a.forward_mut(input.clone())).collect();
-		if let Some(a)=a.last_mut(){y.push(a.forward_mut(input))}
-		y
-	}
-}
 impl<A:AI<X,Y>,X,Y:Clone,const N:usize> AI<X,[Y;N]> for Duplicate<A>{
 	fn forward(&self,input:X)->[Y;N]{
 		let y=self.inner().forward(input);
@@ -407,14 +394,6 @@ impl<A:Decompose> Decompose for AccQ<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.layer.decompose_cloned())}
 	type Decomposition=(A::Decomposition,(i32,f32));
 }
-impl<A:Decompose> Decompose for Branch<A>{
-	fn compose(decomposition:Self::Decomposition)->Self{
-		Self{inner:A::compose(decomposition)}
-	}
-	fn decompose(self)->Self::Decomposition{self.inner.decompose()}
-	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
-	type Decomposition=A::Decomposition;
-}
 impl<A:Decompose> Decompose for Duplicate<A>{
 	fn compose((inner,times):Self::Decomposition)->Self{
 		Self{inner:A::compose(inner),times}
@@ -471,9 +450,6 @@ impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{
 impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQLayer:AI<Y,Y>{
 	type Output=Y;
 }
-impl<A:Op<Output=Y>,Y> Op for Branch<Vec<A>>{
-	type Output=Vec<Y>;
-}
 impl<A:Op<Output=Y>,Y> Op for Choose<A> where ChooseLayer:AI<Y,u32>{
 	type Output=u32;
 }
@@ -509,12 +485,6 @@ impl<A> AccQ<A>{
 	pub fn gamma(&self)->f32{self.layer.gamma}
 	/// replaces the inner value
 	pub fn with_inner<B>(&self,inner:B)->AccQ<B> where AccQ<B>:Op{AccQ::new(self.dim(),self.gamma(),inner)}
-}
-impl<A> Branch<A>{
-	accessible_inner!(inner:A);
-	pub fn new(inner:A)->Self{
-		Self{inner}
-	}
 }
 impl<A> Duplicate<A>{
 	accessible_inner!(inner:A);
@@ -654,25 +624,6 @@ macro_rules! bicop_like{
 		/// wrapper to apply an operation
 		pub struct $wrap<A>{inner:A,layer:$layer}
 	}
-}
-macro_rules! branch_tuple{
-	($(($($type:ident),+):$input:ident->($($output:ident),+)),*)=>($(
-		impl<$($type:AI<$input,$output>,$output),+,$input:Clone> AI<$input,($($output),+)> for Branch<($($type),+)>{
-			#[allow(non_snake_case)]
-			fn forward(&self,input:$input)->($($output),+){
-				let ($($type),+)=self.inner();
-				($($type.forward(input.clone())),+)
-			}
-			#[allow(non_snake_case)]
-			fn forward_mut(&mut self,input:$input)->($($output),+){
-				let ($($type),+)=self.inner_mut();
-				($($type.forward_mut(input.clone())),+)
-			}
-		}
-		impl<$($type:Op<Output=$output>,$output),+> Op for Branch<($($type),+)>{
-			type Output=($($output),+);
-		}
-	)*);
 }
 /// declares layer and wrapper structs and implements accessor functions, decompose and op for reduction operations that have dim and mismatch behavior as configuration fields. ai will still have to be externally implemented for the layer stuct
 macro_rules! cat_like{
@@ -960,6 +911,66 @@ macro_rules! sum_like{
 		pub struct $wrap<A>{inner:A,layer:$layer}
 	}
 }
+/// declares layer and wrapper structs and implements accessor functions, decompose and op for unary componentwise operations. ai will still have to be externally implemented for the layer stuct
+macro_rules! uncop_like{// TODO using op traits with output may better allow type shifting
+	($layer:ident,$wrap:ident)=>{
+		impl $layer{
+			/// creates a new layer
+			pub fn new()->Self{Self::default()}
+		}
+		impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for $wrap<A> where $layer:AI<Y,Z>{
+			fn forward(&self,input:X)->Z{self.layer.forward(self.inner.forward(input))}// TODO swap operation
+			fn forward_mut(&mut self,input:X)->Z{self.layer.forward_mut(self.inner.forward_mut(input))}
+		}
+		impl<A:Decompose> Decompose for $wrap<A>{
+			fn compose(inner:Self::Decomposition)->Self{
+				Self{inner:A::compose(inner),layer:Default::default()}
+			}
+			fn decompose(self)->Self::Decomposition{self.inner.decompose()}
+			fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
+			type Decomposition=A::Decomposition;
+		}
+		impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for $wrap<A> where $layer:Into<M>{
+			fn into_sequence(self)->Sequential<Vec<M>>{self.inner.into_sequence().with_next(self.layer)}
+		}
+		impl<A:UnwrapInner> UnwrapInner for $wrap<A>{
+			fn unwrap_inner(self)->A::Inner{self.into_inner().unwrap_inner()}
+			type Inner=A::Inner;
+		}
+		impl<A:Op<Output=Y>,Y> Op for $wrap<A> where $layer:AI<Y,Y>{
+			type Output=Y;
+		}
+		impl<A> $wrap<A>{
+			accessible_inner!(inner:A);
+			/// creates a new layer
+			pub fn new(inner:A)->Self where Self:Op{
+				Self{inner,layer:$layer::new()}
+			}
+			/// sets the inner module
+			pub fn with_inner<B>(self,inner:B)->$wrap<B> where $wrap<B>:Op{
+				$wrap{inner,layer:self.layer}
+			}
+		}
+		impl<M:AI<M::Output,M::Output>+Op> IntoSequence<M> for $layer where $layer:Into<M>{
+			fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
+		}
+		impl Decompose for $layer{
+			fn compose(_decomposition:Self::Decomposition)->Self{Self::new()}
+			fn decompose(self){}
+			fn decompose_cloned(&self){}
+			type Decomposition=();
+		}
+		impl Op for $layer{
+			type Output=Vec<f32>;
+		}
+		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		/// layer to apply an operation
+		pub struct $layer{seal:PhantomData<()>}
+		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		/// wrapper to apply an operation
+		pub struct $wrap<A>{inner:A,layer:$layer}
+	}
+}
 macro_rules! zip_tuple{
 	($(($($type:ident),+):($($input:ident),+)->($($output:ident),+)),*)=>($(
 		impl<$($type:AI<$input,$output>,$input,$output),+> AI<($($input),+),($($output),+)> for Zip<($($type),+)>{
@@ -1042,6 +1053,9 @@ impl<M:AI<M::Output,M::Output>+Op> Sequential<Vec<M>>{
 		self
 	}
 }
+impl<A:AI<X,Y>+IntoSequence<M>,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M> for SetType<A,X,Y>{
+	fn into_sequence(self)->Sequential<Vec<M>>{self.into_inner().into_sequence()}
+}
 impl<A:AI<X,Y>+UnwrapInner,X,Y> UnwrapInner for SetType<A,X,Y>{
 	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
 	type Inner=A::Inner;
@@ -1059,9 +1073,6 @@ pub struct Apply<F:Fn(X)->Y,X,Y>{inner:F,phantom:PhantomData<fn(X)->Y>}
 #[derive(Clone,Copy,Debug,Default)]
 /// autoregressive inference
 pub struct Autoregression<A,X>{ai:A,state:Option<X>}
-#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
-/// wrapper for applying ai modules to the same input
-pub struct Branch<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default)]
 /// module for cloning things
 pub struct Duplicate<A>{inner:A,times:usize}
@@ -1084,7 +1095,8 @@ soft_like!(@declare @decompose @impl CrossEntropyLayer,CrossEntropy);
 soft_like!(LogSoftmaxLayer,LogSoftmax);
 sum_like!(MeanLayer,Mean);
 sum_like!(SumLayer,Sum);
-use {accessible_inner,bicop_like,branch_tuple,cat_like,soft_like,sum_like,zip_tuple};
+uncop_like!(AbsLayer,Abs);
+use {accessible_inner,bicop_like,cat_like,soft_like,sum_like,zip_tuple};
 use crate::{AI,Decompose,IntoSequence,Op,UnwrapInner};
 use std::{
 	iter::FromIterator,marker::PhantomData,ops::{Add as OpsAdd,Mul as OpsMul}
