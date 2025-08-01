@@ -179,9 +179,6 @@ impl<B:Backend> AI<Value<B>,Vec<u32>> for ChooseLayer{
 		match input.float(){F1(x)=>soft_choose_burn_multi(dim,x,temperature),F2(x)=>soft_choose_burn_multi(dim,x,temperature),F3(x)=>soft_choose_burn_multi(dim,x,temperature),F4(x)=>soft_choose_burn_multi(dim,x,temperature),F5(x)=>soft_choose_burn_multi(dim,x,temperature),F6(x)=>soft_choose_burn_multi(dim,x,temperature),F7(x)=>soft_choose_burn_multi(dim,x,temperature),F8(x)=>soft_choose_burn_multi(dim,x,temperature),Value::Incompatible(e)=>panic!("Could not create vector due to incompatibility: {e}"),Value::Multi(v)=>v.into_iter().flat_map(|x|self.forward_typed::<_,Vec<u32>>(x)).collect(),_=>panic!("internal error")}
 	}
 }
-impl<B:Backend> AI<Value<B>,Value<B>> for AbsLayer{
-	fn forward(&self,input:Value<B>)->Value<B>{input.abs()}
-}
 impl<B:Backend> AI<Value<B>,Value<B>> for Dropout{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
@@ -232,6 +229,32 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Tanh{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
 	}
+}
+impl<B:Backend> Abs for Value<B>{
+	fn abs(self)->Self::Output{
+		match self{B1(x)=>B1(x),B2(x)=>B2(x),B3(x)=>B3(x),B4(x)=>B4(x),B5(x)=>B5(x),B6(x)=>B6(x),B7(x)=>B7(x),B8(x)=>B8(x),F1(x)=>F1(x.abs()),F2(x)=>F2(x.abs()),F3(x)=>F3(x.abs()),F4(x)=>F4(x.abs()),F5(x)=>F5(x.abs()),F6(x)=>F6(x.abs()),F7(x)=>F7(x.abs()),F8(x)=>F8(x.abs()),I1(x)=>I1(x.abs()),I2(x)=>I2(x.abs()),I3(x)=>I3(x.abs()),I4(x)=>I4(x.abs()),I5(x)=>I5(x.abs()),I6(x)=>I6(x.abs()),I7(x)=>I7(x.abs()),I8(x)=>I8(x.abs()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(Value::abs).collect()}
+	}
+	type Output=Value<B>;
+}
+impl<B:Backend> Add<Value<B>> for Value<B>{
+	fn add(self,rhs:Value<B>)->Value<B>{
+		let (lk,rk)=(self.kind(),rhs.kind());
+		let ((l,lk),(r,rk))=(if lk==Kind::Bool{(self.int(),Kind::Int)}else{(self,lk)},if rk==Kind::Bool{(rhs.int(),Kind::Int)}else{(rhs,rk)});
+		let l=if lk==Kind::Int&&rk==Kind::Float{l.float()}else{l};
+		let r=if rk==Kind::Int&&lk==Kind::Float{r.float()}else{r};
+		let l=if lk!=Kind::Multi&&rk==Kind::Multi{l.multi()}else{l};
+		let r=if rk!=Kind::Multi&&lk==Kind::Multi{r.multi()}else{r};
+
+		if lk==Kind::Incompatible{return l}
+		if rk==Kind::Incompatible{return r}
+
+		match (l,r){
+			(F3(x),F3(y))=>F3(x+y),
+			_=>todo!()
+		}
+
+	}
+	type Output=Value<B>;
 }
 impl<B:Backend> AsRef<Self> for Value<B>{
 	fn as_ref(&self)->&Self{self}
@@ -370,10 +393,6 @@ impl<B:Backend> Merge for Value<B>{
 	}
 }
 impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO be more decisive about whether multi 1 and single are equivalent
-	/// applies absolute value operation
-	pub fn abs(self)->Self{
-		match self{B1(x)=>B1(x),B2(x)=>B2(x),B3(x)=>B3(x),B4(x)=>B4(x),B5(x)=>B5(x),B6(x)=>B6(x),B7(x)=>B7(x),B8(x)=>B8(x),F1(x)=>F1(x.abs()),F2(x)=>F2(x.abs()),F3(x)=>F3(x.abs()),F4(x)=>F4(x.abs()),F5(x)=>F5(x.abs()),F6(x)=>F6(x.abs()),F7(x)=>F7(x.abs()),F8(x)=>F8(x.abs()),I1(x)=>I1(x.abs()),I2(x)=>I2(x.abs()),I3(x)=>I3(x.abs()),I4(x)=>I4(x.abs()),I5(x)=>I5(x.abs()),I6(x)=>I6(x.abs()),I7(x)=>I7(x.abs()),I8(x)=>I8(x.abs()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(Value::abs).collect()}
-	}
 	/// concatenates the multi tensor along dimension d.
 	pub fn cat(self,d:i32)->Self{
 		if d<0{todo!()}// TODO make this work for - dimensions
@@ -389,12 +408,16 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 
 		match v.next().unwrap(){B1(x0)=>B1(Tensor::cat(once(B1(x0)).chain(v).map(|x|x.unwrap_b1()).collect(),d)),B2(x0)=>B2(Tensor::cat(once(B2(x0)).chain(v).map(|x|x.unwrap_b2()).collect(),d)),B3(x0)=>B3(Tensor::cat(once(B3(x0)).chain(v).map(|x|x.unwrap_b3()).collect(),d)),B4(x0)=>B4(Tensor::cat(once(B4(x0)).chain(v).map(|x|x.unwrap_b4()).collect(),d)),B5(x0)=>B5(Tensor::cat(once(B5(x0)).chain(v).map(|x|x.unwrap_b5()).collect(),d)),B6(x0)=>B6(Tensor::cat(once(B6(x0)).chain(v).map(|x|x.unwrap_b6()).collect(),d)),B7(x0)=>B7(Tensor::cat(once(B7(x0)).chain(v).map(|x|x.unwrap_b7()).collect(),d)),B8(x0)=>B8(Tensor::cat(once(B8(x0)).chain(v).map(|x|x.unwrap_b8()).collect(),d)),F1(x0)=>F1(Tensor::cat(once(F1(x0)).chain(v).map(|x|x.unwrap_f1()).collect(),d)),F2(x0)=>F2(Tensor::cat(once(F2(x0)).chain(v).map(|x|x.unwrap_f2()).collect(),d)),F3(x0)=>F3(Tensor::cat(once(F3(x0)).chain(v).map(|x|x.unwrap_f3()).collect(),d)),F4(x0)=>F4(Tensor::cat(once(F4(x0)).chain(v).map(|x|x.unwrap_f4()).collect(),d)),F5(x0)=>F5(Tensor::cat(once(F5(x0)).chain(v).map(|x|x.unwrap_f5()).collect(),d)),F6(x0)=>F6(Tensor::cat(once(F6(x0)).chain(v).map(|x|x.unwrap_f6()).collect(),d)),F7(x0)=>F7(Tensor::cat(once(F7(x0)).chain(v).map(|x|x.unwrap_f7()).collect(),d)),F8(x0)=>F8(Tensor::cat(once(F8(x0)).chain(v).map(|x|x.unwrap_f8()).collect(),d)),I1(x0)=>I1(Tensor::cat(once(I1(x0)).chain(v).map(|x|x.unwrap_i1()).collect(),d)),I2(x0)=>I2(Tensor::cat(once(I2(x0)).chain(v).map(|x|x.unwrap_i2()).collect(),d)),I3(x0)=>I3(Tensor::cat(once(I3(x0)).chain(v).map(|x|x.unwrap_i3()).collect(),d)),I4(x0)=>I4(Tensor::cat(once(I4(x0)).chain(v).map(|x|x.unwrap_i4()).collect(),d)),I5(x0)=>I5(Tensor::cat(once(I5(x0)).chain(v).map(|x|x.unwrap_i5()).collect(),d)),I6(x0)=>I6(Tensor::cat(once(I6(x0)).chain(v).map(|x|x.unwrap_i6()).collect(),d)),I7(x0)=>I7(Tensor::cat(once(I7(x0)).chain(v).map(|x|x.unwrap_i7()).collect(),d)),I8(x0)=>I8(Tensor::cat(once(I8(x0)).chain(v).map(|x|x.unwrap_i8()).collect(),d)),Value::Incompatible(_x0)=>panic!("cat internal error"),Value::Multi(_x0)=>panic!("cat internal error")}
 	}
+	/// creates a new empty value
+	pub fn empty()->Self{Self::Multi(Vec::new())}
 	/// casts to a float tensor if not one
 	pub fn float(self)->Value<B>{
 		match self{B1(x)=>F1(x.float()),B2(x)=>F2(x.float()),B3(x)=>F3(x.float()),B4(x)=>F4(x.float()),B5(x)=>F5(x.float()),B6(x)=>F6(x.float()),B7(x)=>F7(x.float()),B8(x)=>F8(x.float()),F1(x)=>F1(x),F2(x)=>F2(x),F3(x)=>F3(x),F4(x)=>F4(x),F5(x)=>F5(x),F6(x)=>F6(x),F7(x)=>F7(x),F8(x)=>F8(x),I1(x)=>F1(x.float()),I2(x)=>F2(x.float()),I3(x)=>F3(x.float()),I4(x)=>F4(x.float()),I5(x)=>F5(x.float()),I6(x)=>F6(x.float()),I7(x)=>F7(x.float()),I8(x)=>F8(x.float()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(Value::float).collect())}
 	}
-	/// creates a new empty value
-	pub fn empty()->Self{Self::Multi(Vec::new())}
+	/// casts to a int tensor if not one
+	pub fn int(self)->Value<B>{
+		match self{B1(x)=>I1(x.int()),B2(x)=>I2(x.int()),B3(x)=>I3(x.int()),B4(x)=>I4(x.int()),B5(x)=>I5(x.int()),B6(x)=>I6(x.int()),B7(x)=>I7(x.int()),B8(x)=>I8(x.int()),F1(x)=>I1(x.int()),F2(x)=>I2(x.int()),F3(x)=>I3(x.int()),F4(x)=>I4(x.int()),F5(x)=>I5(x.int()),F6(x)=>I6(x.int()),F7(x)=>I7(x.int()),F8(x)=>I8(x.int()),I1(x)=>I1(x),I2(x)=>I2(x),I3(x)=>I3(x),I4(x)=>I4(x),I5(x)=>I5(x),I6(x)=>I6(x),I7(x)=>I7(x),I8(x)=>I8(x),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(Value::int).collect())}
+	}
 	/// converts to a flattened vector of floats, ignoring incompatibility errors
 	pub fn into_float_vec(self)->Vec<f32>{
 		fn cat_vec<T>(mut a:Vec<T>,b:Vec<T>)->Vec<T>{
@@ -418,6 +441,37 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 	/// tests if this is a multiple tensor
 	pub fn is_multi(&self)->bool{
 		if let Value::Multi(_x)=self{true}else{false}
+	}
+	/// returns the kind of value
+	pub fn kind(&self)->Kind{
+		match self{
+			B1(_x)=>Kind::Bool,
+			B2(_x)=>Kind::Bool,
+			B3(_x)=>Kind::Bool,
+			B4(_x)=>Kind::Bool,
+			B5(_x)=>Kind::Bool,
+			B6(_x)=>Kind::Bool,
+			B7(_x)=>Kind::Bool,
+			B8(_x)=>Kind::Bool,
+			F1(_x)=>Kind::Float,
+			F2(_x)=>Kind::Float,
+			F3(_x)=>Kind::Float,
+			F4(_x)=>Kind::Float,
+			F5(_x)=>Kind::Float,
+			F6(_x)=>Kind::Float,
+			F7(_x)=>Kind::Float,
+			F8(_x)=>Kind::Float,
+			I1(_x)=>Kind::Int,
+			I2(_x)=>Kind::Int,
+			I3(_x)=>Kind::Int,
+			I4(_x)=>Kind::Int,
+			I5(_x)=>Kind::Int,
+			I6(_x)=>Kind::Int,
+			I7(_x)=>Kind::Int,
+			I8(_x)=>Kind::Int,
+			Value::Incompatible(_v)=>Kind::Incompatible,
+			Value::Multi(_v)=>Kind::Multi
+		}
 	}
 	/// shallow iteration over the contained values
 	pub fn iter(&self)->SliceIter<'_,Self>{
@@ -660,6 +714,9 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 	/// attempts to unwrap the inner multi value
 	pub fn unwrap_multi(self)->Vec<Value<B>>{self.try_multi().unwrap()}
 }
+#[derive(Clone,Copy,Debug,Eq,PartialEq)]
+/// enumerates kinds for values
+pub enum Kind{Bool,Float,Incompatible,Int,Multi}
 #[derive(Clone,Debug)]// TODO eq that doesn't include the payload of incompatible
 /// tensor shapes for Value
 pub enum Shape{Incompatible(String),Multi(usize),Recursive(Vec<Shape>),X1([usize;1]),X2([usize;2]),X3([usize;3]),X4([usize;4]),X5([usize;5]),X6([usize;6]),X7([usize;7]),X8([usize;8])}
@@ -682,9 +739,9 @@ use burn::{
 	}
 };
 use crate::{
-	AI,Decompose,Merge,Op,builtin::{AbsLayer,AccQ,Alignment,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,SquaredErrorLayer}
+	AI,Decompose,Merge,Op,builtin::{AccQ,Alignment,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,SquaredErrorLayer},ops::Abs
 };
 use rand::random;
 use std::{
-	iter::{FromIterator,once},mem,ops::{Bound,RangeBounds,Range},slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
+	iter::{FromIterator,once},mem,ops::{Add,Bound,RangeBounds,Range},slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
 };
