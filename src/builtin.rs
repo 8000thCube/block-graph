@@ -37,7 +37,7 @@ impl AI<(Vec<f32>,u32),f32> for CrossEntropyLayer{
 impl AI<Vec<f32>,Vec<f32>> for AbnormalSoftmaxLayer{
 	fn forward(&self,input:Vec<f32>)->Vec<f32>{
 		let max=input.iter().fold(f32::NEG_INFINITY,|x,&y|if x<y{y}else{x});
-		input.into_iter().map(|x|(x-max).exp()).collect()
+		input.into_iter().map(|x|if x==max{1.0}else{(x-max).exp()}).collect()
 	}
 }
 impl AI<Vec<f32>,Vec<f32>> for AccQLayer{
@@ -69,7 +69,7 @@ impl AI<Vec<f32>,Vec<f32>> for ArgmaxLayer{
 		}
 		let max=input.iter().fold(f32::NEG_INFINITY,|x,&y|if x<y{y}else{x});
 		let mut sum=0.0;
-		let intermediate:Vec<f32>=input.into_iter().map(|x|((x-max)*t).exp()).inspect(|y|sum+=y).collect();
+		let intermediate:Vec<f32>=input.into_iter().map(|x|if x==max{1.0}else{((x-max)*t).exp()}).inspect(|y|sum+=y).collect();
 		let r=sum.recip();
 		let output:Vec<f32>=intermediate.into_iter().map(|y|r*y).collect();
 		output
@@ -95,8 +95,8 @@ impl AI<Vec<f32>,f32> for MeanLayer{
 impl AI<Vec<f32>,f32> for SumLayer{
 	fn forward(&self,input:Vec<f32>)->f32{input.into_iter().sum()}//TODO check dim
 }
-impl AI<f32,f32> for AbsLayer{// TODO trait for this
-	fn forward(&self,input:f32)->f32{input.abs()}
+impl<X:OpsAbs<Output=Y>,Y> AI<X,Y> for AbsLayer{
+	fn forward(&self,input:X)->Y{input.abs()}
 }
 impl AI<f32,f32> for MeanLayer{
 	fn forward(&self,input:f32)->f32{input}
@@ -1097,7 +1097,9 @@ sum_like!(MeanLayer,Mean);
 sum_like!(SumLayer,Sum);
 uncop_like!(AbsLayer,Abs);
 use {accessible_inner,bicop_like,cat_like,soft_like,sum_like,zip_tuple};
-use crate::{AI,Decompose,IntoSequence,Op,UnwrapInner};
+use crate::{
+	AI,Decompose,IntoSequence,Op,UnwrapInner,ops::Abs as OpsAbs
+};
 use std::{
 	iter::FromIterator,marker::PhantomData,ops::{Add as OpsAdd,Mul as OpsMul}
 };
