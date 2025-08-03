@@ -623,7 +623,7 @@ impl<B:Backend> Value<B>{//TODO scalars
 		fn f<B:Backend,K:BasicOps<B>+TensorKind<B>,const D:usize,const N:usize>(x:Tensor<B,D,K>,d:i32)->Tensor<B,N,K>{
 			x.unsqueeze_dim(if d<0{D-((-d) as usize)}else{d as usize})
 		}
-		match self{B1(x)=>B1(f(x,d)),B2(x)=>B1(f(x,d)),B3(x)=>B1(f(x,d)),B4(x)=>B1(f(x,d)),B5(x)=>B1(f(x,d)),B6(x)=>B1(f(x,d)),B7(x)=>B1(f(x,d)),B8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),F1(x)=>F1(f(x,d)),F2(x)=>F1(f(x,d)),F3(x)=>F1(f(x,d)),F4(x)=>F1(f(x,d)),F5(x)=>F1(f(x,d)),F6(x)=>F1(f(x,d)),F7(x)=>F1(f(x,d)),F8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),I1(x)=>I1(f(x,d)),I2(x)=>I1(f(x,d)),I3(x)=>I1(f(x,d)),I4(x)=>I1(f(x,d)),I5(x)=>I1(f(x,d)),I6(x)=>I1(f(x,d)),I7(x)=>I1(f(x,d)),I8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.unsqueeze_dim(d)).collect()}
+		match self{B1(x)=>B2(f(x,d)),B2(x)=>B3(f(x,d)),B3(x)=>B4(f(x,d)),B4(x)=>B5(f(x,d)),B5(x)=>B6(f(x,d)),B6(x)=>B7(f(x,d)),B7(x)=>B8(f(x,d)),B8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),F1(x)=>F2(f(x,d)),F2(x)=>F3(f(x,d)),F3(x)=>F4(f(x,d)),F4(x)=>F5(f(x,d)),F5(x)=>F6(f(x,d)),F6(x)=>F7(f(x,d)),F7(x)=>F8(f(x,d)),F8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),I1(x)=>I2(f(x,d)),I2(x)=>I3(f(x,d)),I3(x)=>I4(f(x,d)),I4(x)=>I5(f(x,d)),I5(x)=>I6(f(x,d)),I6(x)=>I7(f(x,d)),I7(x)=>I8(f(x,d)),I8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.unsqueeze_dim(d)).collect()}
 	}
 	#[track_caller]
 	/// attempts to unwrap the inner b1 value
