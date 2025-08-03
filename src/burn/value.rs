@@ -1,3 +1,8 @@
+bicop_num!(Add,add,add_scalar);
+bicop_num!(Div,div,div_scalar);
+bicop_num!(Mul,mul,mul_scalar);
+bicop_num!(Rem,rem,remainder_scalar);
+bicop_num!(Sub,sub,sub_scalar);
 fn slice_slice<B:Backend,K:BasicOps<B>+TensorKind<B>,const N:usize>(ranges:&[Range<usize>],tensor:Tensor<B,N,K>)->Tensor<B,N,K>{
 	let mut n=0;
 	let mut acc=||{
@@ -34,8 +39,28 @@ impl AsRef<Self> for Shape{//TODO more reref stuff
 	fn as_ref(&self)->&Self{self}
 }
 impl Shape{
+	/// counts the number of components if possible. returns none if incompatible or if a non recursive multi shape of more than 0 tensors
+	pub fn count(&self)->Option<usize>{
+		match self{
+			Shape::Incompatible(_e)=>None,
+			Shape::Multi(n)=>if *n==0{Some(0)}else{None},
+			Shape::Recursive(v)=>{
+				let mut s=0;
+				for v in v{s+=v.count()?}
+				Some(s)
+			},
+			X1(x)=>Some(x.iter().product()),
+			X2(x)=>Some(x.iter().product()),
+			X3(x)=>Some(x.iter().product()),
+			X4(x)=>Some(x.iter().product()),
+			X5(x)=>Some(x.iter().product()),
+			X6(x)=>Some(x.iter().product()),
+			X7(x)=>Some(x.iter().product()),
+			X8(x)=>Some(x.iter().product())
+		}
+	}
 	/// converts to the eight dimensional array type by extending with ones. The original data will be placed according to the alignment. Multi and incompatible types will be all ones
-	pub fn to_x8(self,alignment:Alignment)->[usize;8]{
+	pub fn to_array(self,alignment:Alignment)->[usize;8]{
 		let mut result=[1;8];
 		let slice=match &self{Shape::Incompatible(_e)=>return result,Shape::Multi(_v)=>return result,Shape::Recursive(_r)=>return result,X1(x)=>x.as_slice(),X2(x)=>x.as_slice(),X3(x)=>x.as_slice(),X4(x)=>x.as_slice(),X5(x)=>x.as_slice(),X6(x)=>x.as_slice(),X7(x)=>x.as_slice(),X8(x)=>x.as_slice()};
 		let l=slice.len();
@@ -44,10 +69,7 @@ impl Shape{
 	}
 }
 impl<A:Into<Value<B>>,B:Backend> FromIterator<A> for Value<B>{
-	fn from_iter<I:IntoIterator<Item=A>>(iter:I)->Self{
-		let v:Vec<Value<B>>=iter.into_iter().map(Into::into).collect();
-		if v.len()==1{v.into_iter().next().unwrap()}else{v.into()}
-	}
+	fn from_iter<I:IntoIterator<Item=A>>(iter:I)->Self{Value::Multi(iter.into_iter().map(Into::into).collect())}
 }
 impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for Value<B>{
 	fn from(value:&S)->Self{Self::Incompatible(value.as_ref().to_string())}
@@ -110,21 +132,6 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Vec<f32>> for SquaredErrorLayer{
 impl<B:Backend> AI<(Value<B>,Value<B>),f32> for SquaredErrorLayer{
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->f32{().fix_type::<Value<B>>().squared_error().mean().forward((output,target))}
 }
-
-/*
-impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for MSE<()>{
-	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
-		fn mse<B:Backend,const N:usize>(y:Tensor<B,N>,t:Tensor<B,N>)->Value<B>{
-			if y.dims()==t.dims(){F1(MseLoss.forward_no_reduction(y,t).mean())}else{"compatible inputs for squared error are tensors of the same shape".into()}
-		}
-
-		match (output.float(),target.float()){(F1(y),F1(t))=>mse(y,t),(F2(y),F2(t))=>mse(y,t),(F3(y),F3(t))=>mse(y,t),(F4(y),F4(t))=>mse(y,t),(F5(y),F5(t))=>mse(y,t),(F6(y),F6(t))=>mse(y,t),(F7(y),F7(t))=>mse(y,t),(F8(y),F8(t))=>mse(y,t),(Value::Incompatible(y),_)=>y.into(),(_,Value::Incompatible(t))=>t.into(),(Value::Multi(y),Value::Multi(t))=>Value::Multi(y.into_iter().zip(t).map(|x|self.forward_typed::<_,Value<B>>(x)).collect()),_=>"compatible inputs for squared error are float tensors of the same shape".into()}
-	}
-}*/
-/*
-impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for MseLoss{
-	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{ai::new().fix_type::<Value<B>>().mse().forward((output,target))}
-}*/
 impl<B:Backend> AI<Value<B>,Tensor<B,1>> for MeanLayer{
 	fn forward(&self,input:Value<B>)->Tensor<B,1>{
 		fn avg<B:Backend,const N:usize>(x:Tensor<B,N>)->Tensor<B,1>{x.mean()}
@@ -166,7 +173,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for CatLayer{
 	fn forward(&self,input:Value<B>)->Value<B>{input.cat(self.get_dim())}
 }
 impl<B:Backend> AI<Value<B>,u32> for ChooseLayer{
-	fn forward(&self,input:Value<B>)->u32{//TODO convert multi on this to single//TODO hard choose
+	fn forward(&self,input:Value<B>)->u32{// TODO convert 1 multi on this to single// TODO hard choose
 		let (dim,temperature)=(self.get_dim(),self.get_temperature());
 
 		match input.float(){F1(x)=>soft_choose_burn_1(dim,x,temperature),F2(x)=>soft_choose_burn_1(dim,x,temperature),F3(x)=>soft_choose_burn_1(dim,x,temperature),F4(x)=>soft_choose_burn_1(dim,x,temperature),F5(x)=>soft_choose_burn_1(dim,x,temperature),F6(x)=>soft_choose_burn_1(dim,x,temperature),F7(x)=>soft_choose_burn_1(dim,x,temperature),F8(x)=>soft_choose_burn_1(dim,x,temperature),Value::Incompatible(e)=>panic!("Could not create scalar due to incompatibility: {e}"),Value::Multi(_v)=>panic!("Cannot soft choose one scalar from multiple values"),_=>panic!("internal error")}
@@ -233,26 +240,6 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Tanh{
 impl<B:Backend> Abs for Value<B>{
 	fn abs(self)->Self::Output{
 		match self{B1(x)=>B1(x),B2(x)=>B2(x),B3(x)=>B3(x),B4(x)=>B4(x),B5(x)=>B5(x),B6(x)=>B6(x),B7(x)=>B7(x),B8(x)=>B8(x),F1(x)=>F1(x.abs()),F2(x)=>F2(x.abs()),F3(x)=>F3(x.abs()),F4(x)=>F4(x.abs()),F5(x)=>F5(x.abs()),F6(x)=>F6(x.abs()),F7(x)=>F7(x.abs()),F8(x)=>F8(x.abs()),I1(x)=>I1(x.abs()),I2(x)=>I2(x.abs()),I3(x)=>I3(x.abs()),I4(x)=>I4(x.abs()),I5(x)=>I5(x.abs()),I6(x)=>I6(x.abs()),I7(x)=>I7(x.abs()),I8(x)=>I8(x.abs()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(Value::abs).collect()}
-	}
-	type Output=Value<B>;
-}
-impl<B:Backend> Add<Value<B>> for Value<B>{
-	fn add(self,rhs:Value<B>)->Value<B>{
-		let (lk,rk)=(self.kind(),rhs.kind());
-		let ((l,lk),(r,rk))=(if lk==Kind::Bool{(self.int(),Kind::Int)}else{(self,lk)},if rk==Kind::Bool{(rhs.int(),Kind::Int)}else{(rhs,rk)});
-		let l=if lk==Kind::Int&&rk==Kind::Float{l.float()}else{l};
-		let r=if rk==Kind::Int&&lk==Kind::Float{r.float()}else{r};
-		let l=if lk!=Kind::Multi&&rk==Kind::Multi{l.multi()}else{l};
-		let r=if rk!=Kind::Multi&&lk==Kind::Multi{r.multi()}else{r};
-
-		if lk==Kind::Incompatible{return l}
-		if rk==Kind::Incompatible{return r}
-
-		match (l,r){
-			(F3(x),F3(y))=>F3(x+y),
-			_=>todo!()
-		}
-
 	}
 	type Output=Value<B>;
 }
@@ -392,7 +379,7 @@ impl<B:Backend> Merge for Value<B>{
 		}
 	}
 }
-impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO be more decisive about whether multi 1 and single are equivalent
+impl<B:Backend> Value<B>{//TODO scalars
 	/// concatenates the multi tensor along dimension d.
 	pub fn cat(self,d:i32)->Self{
 		if d<0{todo!()}// TODO make this work for - dimensions
@@ -402,8 +389,8 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 			if d>=r{return format!("rank {r} is too low to cat along dimension {d}").into()}
 		}
 		let v=if let Value::Multi(v)=self{v}else{return self};
-		let (shape,variant)=if let Some(t)=v.iter().filter(|x|!(x.is_incompatible()||x.is_multi())).next(){(t.shape().to_x8(Alignment::Left),mem::discriminant(t))}else{return Value::Multi(v.into_iter().map(|x|x.cat(d as i32)).collect())};
-		if !v.iter().all(|x|mem::discriminant(x)==variant&&x.shape().to_x8(Alignment::Left).iter().enumerate().zip(shape.iter()).all(|((n,s),z)|d==n||s==z)){return "incompatible shapes for concatenation".into()}
+		let (shape,variant)=if let Some(t)=v.iter().filter(|x|!(x.is_incompatible()||x.is_multi())).next(){(t.shape().to_array(Alignment::Left),mem::discriminant(t))}else{return Value::Multi(v.into_iter().map(|x|x.cat(d as i32)).collect())};
+		if !v.iter().all(|x|mem::discriminant(x)==variant&&x.shape().to_array(Alignment::Left).iter().enumerate().zip(shape.iter()).all(|((n,s),z)|d==n||s==z)){return "incompatible shapes for concatenation".into()}
 		let mut v=v.into_iter();
 
 		match v.next().unwrap(){B1(x0)=>B1(Tensor::cat(once(B1(x0)).chain(v).map(|x|x.unwrap_b1()).collect(),d)),B2(x0)=>B2(Tensor::cat(once(B2(x0)).chain(v).map(|x|x.unwrap_b2()).collect(),d)),B3(x0)=>B3(Tensor::cat(once(B3(x0)).chain(v).map(|x|x.unwrap_b3()).collect(),d)),B4(x0)=>B4(Tensor::cat(once(B4(x0)).chain(v).map(|x|x.unwrap_b4()).collect(),d)),B5(x0)=>B5(Tensor::cat(once(B5(x0)).chain(v).map(|x|x.unwrap_b5()).collect(),d)),B6(x0)=>B6(Tensor::cat(once(B6(x0)).chain(v).map(|x|x.unwrap_b6()).collect(),d)),B7(x0)=>B7(Tensor::cat(once(B7(x0)).chain(v).map(|x|x.unwrap_b7()).collect(),d)),B8(x0)=>B8(Tensor::cat(once(B8(x0)).chain(v).map(|x|x.unwrap_b8()).collect(),d)),F1(x0)=>F1(Tensor::cat(once(F1(x0)).chain(v).map(|x|x.unwrap_f1()).collect(),d)),F2(x0)=>F2(Tensor::cat(once(F2(x0)).chain(v).map(|x|x.unwrap_f2()).collect(),d)),F3(x0)=>F3(Tensor::cat(once(F3(x0)).chain(v).map(|x|x.unwrap_f3()).collect(),d)),F4(x0)=>F4(Tensor::cat(once(F4(x0)).chain(v).map(|x|x.unwrap_f4()).collect(),d)),F5(x0)=>F5(Tensor::cat(once(F5(x0)).chain(v).map(|x|x.unwrap_f5()).collect(),d)),F6(x0)=>F6(Tensor::cat(once(F6(x0)).chain(v).map(|x|x.unwrap_f6()).collect(),d)),F7(x0)=>F7(Tensor::cat(once(F7(x0)).chain(v).map(|x|x.unwrap_f7()).collect(),d)),F8(x0)=>F8(Tensor::cat(once(F8(x0)).chain(v).map(|x|x.unwrap_f8()).collect(),d)),I1(x0)=>I1(Tensor::cat(once(I1(x0)).chain(v).map(|x|x.unwrap_i1()).collect(),d)),I2(x0)=>I2(Tensor::cat(once(I2(x0)).chain(v).map(|x|x.unwrap_i2()).collect(),d)),I3(x0)=>I3(Tensor::cat(once(I3(x0)).chain(v).map(|x|x.unwrap_i3()).collect(),d)),I4(x0)=>I4(Tensor::cat(once(I4(x0)).chain(v).map(|x|x.unwrap_i4()).collect(),d)),I5(x0)=>I5(Tensor::cat(once(I5(x0)).chain(v).map(|x|x.unwrap_i5()).collect(),d)),I6(x0)=>I6(Tensor::cat(once(I6(x0)).chain(v).map(|x|x.unwrap_i6()).collect(),d)),I7(x0)=>I7(Tensor::cat(once(I7(x0)).chain(v).map(|x|x.unwrap_i7()).collect(),d)),I8(x0)=>I8(Tensor::cat(once(I8(x0)).chain(v).map(|x|x.unwrap_i8()).collect(),d)),Value::Incompatible(_x0)=>panic!("cat internal error"),Value::Multi(_x0)=>panic!("cat internal error")}
@@ -444,34 +431,7 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 	}
 	/// returns the kind of value
 	pub fn kind(&self)->Kind{
-		match self{
-			B1(_x)=>Kind::Bool,
-			B2(_x)=>Kind::Bool,
-			B3(_x)=>Kind::Bool,
-			B4(_x)=>Kind::Bool,
-			B5(_x)=>Kind::Bool,
-			B6(_x)=>Kind::Bool,
-			B7(_x)=>Kind::Bool,
-			B8(_x)=>Kind::Bool,
-			F1(_x)=>Kind::Float,
-			F2(_x)=>Kind::Float,
-			F3(_x)=>Kind::Float,
-			F4(_x)=>Kind::Float,
-			F5(_x)=>Kind::Float,
-			F6(_x)=>Kind::Float,
-			F7(_x)=>Kind::Float,
-			F8(_x)=>Kind::Float,
-			I1(_x)=>Kind::Int,
-			I2(_x)=>Kind::Int,
-			I3(_x)=>Kind::Int,
-			I4(_x)=>Kind::Int,
-			I5(_x)=>Kind::Int,
-			I6(_x)=>Kind::Int,
-			I7(_x)=>Kind::Int,
-			I8(_x)=>Kind::Int,
-			Value::Incompatible(_v)=>Kind::Incompatible,
-			Value::Multi(_v)=>Kind::Multi
-		}
+		match self{B1(_x)=>Kind::Bool,B2(_x)=>Kind::Bool,B3(_x)=>Kind::Bool,B4(_x)=>Kind::Bool,B5(_x)=>Kind::Bool,B6(_x)=>Kind::Bool,B7(_x)=>Kind::Bool,B8(_x)=>Kind::Bool,F1(_x)=>Kind::Float,F2(_x)=>Kind::Float,F3(_x)=>Kind::Float,F4(_x)=>Kind::Float,F5(_x)=>Kind::Float,F6(_x)=>Kind::Float,F7(_x)=>Kind::Float,F8(_x)=>Kind::Float,I1(_x)=>Kind::Int,I2(_x)=>Kind::Int,I3(_x)=>Kind::Int,I4(_x)=>Kind::Int,I5(_x)=>Kind::Int,I6(_x)=>Kind::Int,I7(_x)=>Kind::Int,I8(_x)=>Kind::Int,Value::Incompatible(_v)=>Kind::Incompatible,Value::Multi(_v)=>Kind::Multi}
 	}
 	/// shallow iteration over the contained values
 	pub fn iter(&self)->SliceIter<'_,Self>{
@@ -488,6 +448,33 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 	/// casts to a multiple tensor if not one
 	pub fn multi(self)->Self{
 		if let Value::Multi(v)=self{v.into()}else{vec![self].into()}
+	}
+	/// promotes the values to make them compatible if possible. bools can become floats or ints, ints can become floats, any can become multi, and lower ranks can be unsqueezed to higher ranks. This is a shallow operation, so tensors inside multi will be unaffected. incompatible with non multi will return the input
+	pub fn promote(self,rhs:Value<B>)->(Value<B>,Value<B>){
+		let (l,r)=self.promote_kind(rhs);
+		l.promote_rank(r)
+	}
+	/// promotes the values to make them match if possible. bools can become floats or ints, ints can become floats, any can become multi. This is a shallow operation, so tensors inside multi will be unaffected. incompatible with non multi will return the input
+	pub fn promote_kind(self,rhs:Value<B>)->(Value<B>,Value<B>){
+		let (lk,rk)=(self.kind(),rhs.kind());
+
+		let (mut l,mut r)=(self,rhs);
+		if lk==rk{()}else if lk==Kind::Multi{r=r.multi()}else if rk==Kind::Multi{l=l.multi()}else if lk==Kind::Float{r=r.float()}else if rk==Kind::Float{l=l.float()}else if lk==Kind::Int{r=r.int()}else if rk==Kind::Int{l=l.int()}else if lk==Kind::Incompatible{return (l,r)}else if rk==Kind::Incompatible{return (l,r)}
+		(l,r)
+	}
+	/// promotes the values to make them match if possible. lower ranks can be unsqueezed to higher ranks. This is a shallow operation, so tensors inside multi will be unaffected. incompatible with non multi will return the input
+	pub fn promote_rank(self,rhs:Value<B>)->(Value<B>,Value<B>){
+		let (mut l,mut r)=(self,rhs);
+		let (mut lr,mut rr)=(l.rank().unwrap(),r.rank().unwrap());
+		while lr<rr{
+			l=l.unsqueeze();
+			lr+=1;
+		}
+		while lr>rr{
+			r=r.unsqueeze();
+			rr+=1;
+		}
+		(l,r)
 	}
 	/// returns the number of axes of the tensor, or none if incompatible or multi
 	pub fn rank(&self)->Option<usize>{
@@ -510,12 +497,12 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 		let shape=self.shape();
 
 		let mut normalizedranges=[0;8].map(|_|0..0);
-		for ((d,n),r) in shape.clone().to_x8(Alignment::Left).into_iter().zip(normalizedranges.iter_mut()).zip(ranges){
+		for ((d,n),r) in shape.clone().to_array(Alignment::Left).into_iter().zip(normalizedranges.iter_mut()).zip(ranges){
 			n.start=match r.start_bound(){Excluded(&x)=>x+1,Included(&x)=>x,Unbounded=>0};
-			n.end=match r.end_bound(){Excluded(&x)=>x,Included(&x)=>x-1,Unbounded=>d};
+			n.end=match r.end_bound(){Excluded(&x)=>x,Included(&x)=>x+1,Unbounded=>d};
 		}
 		if len>rank{return format!("Length of ranges argument must be less than the the value's rank. len: {len} ranges: {normalizedranges:?} rank: {rank} shape: {shape:?}").into()}
-		for (d,n) in shape.clone().to_x8(Alignment::Left).into_iter().zip(normalizedranges.iter()).take(len){
+		for (d,n) in shape.clone().to_array(Alignment::Left).into_iter().zip(normalizedranges.iter()).take(len){
 			if n.start>=n.end{return format!("Empty or reverse ranges are currently not supported. ranges: {normalizedranges:?}").into()}
 			if d<n.end{return format!("Cannot index beyond the end of a dimension. ranges: {normalizedranges:?} shape: {shape:?}").into()}
 		}
@@ -629,11 +616,14 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 	pub fn try_multi(self)->Result<Vec<Value<B>>,Self>{
 		if let Value::Multi(v)=self{Ok(v)}else{Err(self)}
 	}
+	/// unsqueeze
+	pub fn unsqueeze(self)->Self{self.unsqueeze_dim(0)}
 	/// inserts a dimension of size 1 at position d
 	pub fn unsqueeze_dim(self,d:i32)->Self{
-		if d<0{todo!()}
-		let d=d as usize;
-		match self{B1(x)=>B2(x.unsqueeze_dim(d)),B2(x)=>B3(x.unsqueeze_dim(d)),B3(x)=>B4(x.unsqueeze_dim(d)),B4(x)=>B5(x.unsqueeze_dim(d)),B5(x)=>B6(x.unsqueeze_dim(d)),B6(x)=>B7(x.unsqueeze_dim(d)),B7(x)=>B8(x.unsqueeze_dim(d)),B8(_x)=>"currently cannot increase number of tensor dimensions above 8".into(),F1(x)=>F2(x.unsqueeze_dim(d)),F2(x)=>F3(x.unsqueeze_dim(d)),F3(x)=>F4(x.unsqueeze_dim(d)),F4(x)=>F5(x.unsqueeze_dim(d)),F5(x)=>F6(x.unsqueeze_dim(d)),F6(x)=>F7(x.unsqueeze_dim(d)),F7(x)=>F8(x.unsqueeze_dim(d)),F8(_x)=>"currently cannot increase number of tensor dimensions above 8".into(),I1(x)=>I2(x.unsqueeze_dim(d)),I2(x)=>I3(x.unsqueeze_dim(d)),I3(x)=>I4(x.unsqueeze_dim(d)),I4(x)=>I5(x.unsqueeze_dim(d)),I5(x)=>I6(x.unsqueeze_dim(d)),I6(x)=>I7(x.unsqueeze_dim(d)),I7(x)=>I8(x.unsqueeze_dim(d)),I8(_x)=>"currently cannot increase number of tensor dimensions above 8".into(),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|x.unsqueeze_dim(d as i32)).collect())}
+		fn f<B:Backend,K:BasicOps<B>+TensorKind<B>,const D:usize,const N:usize>(x:Tensor<B,D,K>,d:i32)->Tensor<B,N,K>{
+			x.unsqueeze_dim(if d<0{D-((-d) as usize)}else{d as usize})
+		}
+		match self{B1(x)=>B1(f(x,d)),B2(x)=>B1(f(x,d)),B3(x)=>B1(f(x,d)),B4(x)=>B1(f(x,d)),B5(x)=>B1(f(x,d)),B6(x)=>B1(f(x,d)),B7(x)=>B1(f(x,d)),B8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),F1(x)=>F1(f(x,d)),F2(x)=>F1(f(x,d)),F3(x)=>F1(f(x,d)),F4(x)=>F1(f(x,d)),F5(x)=>F1(f(x,d)),F6(x)=>F1(f(x,d)),F7(x)=>F1(f(x,d)),F8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),I1(x)=>I1(f(x,d)),I2(x)=>I1(f(x,d)),I3(x)=>I1(f(x,d)),I4(x)=>I1(f(x,d)),I5(x)=>I1(f(x,d)),I6(x)=>I1(f(x,d)),I7(x)=>I1(f(x,d)),I8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.unsqueeze_dim(d)).collect()}
 	}
 	#[track_caller]
 	/// attempts to unwrap the inner b1 value
@@ -714,6 +704,38 @@ impl<B:Backend> Value<B>{//TODO scalars // TODO more builtin functions // TODO b
 	/// attempts to unwrap the inner multi value
 	pub fn unwrap_multi(self)->Vec<Value<B>>{self.try_multi().unwrap()}
 }
+macro_rules! bicop_num{
+	($trait:ident,$traitfn:ident,$traitscalar:ident)=>(
+		impl<B:Backend,E:Copy+ElementConversion> $trait<E> for &Value<B>{
+			fn $traitfn(self,rhs:E)->Value<B>{self.clone().$traitfn(rhs)}
+			type Output=Value<B>;
+		}
+		impl<B:Backend,E:Copy+ElementConversion> $trait<E> for Value<B>{
+			fn $traitfn(self,rhs:E)->Value<B>{
+				match self{B1(x)=>I1(x.int().$traitscalar(rhs)),B2(x)=>I2(x.int().$traitscalar(rhs)),B3(x)=>I3(x.int().$traitscalar(rhs)),B4(x)=>I4(x.int().$traitscalar(rhs)),B5(x)=>I5(x.int().$traitscalar(rhs)),B6(x)=>I6(x.int().$traitscalar(rhs)),B7(x)=>I7(x.int().$traitscalar(rhs)),B8(x)=>I8(x.int().$traitscalar(rhs)),F1(x)=>F1(x.$traitscalar(rhs)),F2(x)=>F2(x.$traitscalar(rhs)),F3(x)=>F3(x.$traitscalar(rhs)),F4(x)=>F4(x.$traitscalar(rhs)),F5(x)=>F5(x.$traitscalar(rhs)),F6(x)=>F6(x.$traitscalar(rhs)),F7(x)=>F7(x.$traitscalar(rhs)),F8(x)=>F8(x.$traitscalar(rhs)),I1(x)=>I1(x.$traitscalar(rhs)),I2(x)=>I2(x.$traitscalar(rhs)),I3(x)=>I3(x.$traitscalar(rhs)),I4(x)=>I4(x.$traitscalar(rhs)),I5(x)=>I5(x.$traitscalar(rhs)),I6(x)=>I6(x.$traitscalar(rhs)),I7(x)=>I7(x.$traitscalar(rhs)),I8(x)=>I8(x.$traitscalar(rhs)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.$traitfn(rhs)).collect()}
+			}
+			type Output=Value<B>;
+		}
+		impl<B:Backend> $trait<&Value<B>> for &Value<B>{
+			fn $traitfn(self,rhs:&Value<B>)->Value<B>{self.clone().$traitfn(rhs.clone())}
+			type Output=Value<B>;
+		}
+		impl<B:Backend> $trait<&Value<B>> for Value<B>{
+			fn $traitfn(self,rhs:&Value<B>)->Value<B>{self.$traitfn(rhs.clone())}
+			type Output=Value<B>;
+		}
+		impl<B:Backend> $trait<Value<B>> for &Value<B>{
+			fn $traitfn(self,rhs:Value<B>)->Value<B>{self.clone().$traitfn(rhs)}
+			type Output=Value<B>;
+		}
+		impl<B:Backend> $trait<Value<B>> for Value<B>{
+			fn $traitfn(self,rhs:Value<B>)->Value<B>{
+				match self.promote(rhs){(B1(l),B1(r))=>I1(l.int().$traitfn(r.int())),(B2(l),B2(r))=>I2(l.int().$traitfn(r.int())),(B3(l),B3(r))=>I3(l.int().$traitfn(r.int())),(B4(l),B4(r))=>I4(l.int().$traitfn(r.int())),(B5(l),B5(r))=>I5(l.int().$traitfn(r.int())),(B6(l),B6(r))=>I6(l.int().$traitfn(r.int())),(B7(l),B7(r))=>I7(l.int().$traitfn(r.int())),(B8(l),B8(r))=>I8(l.int().$traitfn(r.int())),(F1(l),F1(r))=>F1(l.$traitfn(r)),(F2(l),F2(r))=>F2(l.$traitfn(r)),(F3(l),F3(r))=>F3(l.$traitfn(r)),(F4(l),F4(r))=>F4(l.$traitfn(r)),(F5(l),F5(r))=>F5(l.$traitfn(r)),(F6(l),F6(r))=>F6(l.$traitfn(r)),(F7(l),F7(r))=>F7(l.$traitfn(r)),(F8(l),F8(r))=>F8(l.$traitfn(r)),(I1(l),I1(r))=>I1(l.$traitfn(r)),(I2(l),I2(r))=>I2(l.$traitfn(r)),(I3(l),I3(r))=>I3(l.$traitfn(r)),(I4(l),I4(r))=>I4(l.$traitfn(r)),(I5(l),I5(r))=>I5(l.$traitfn(r)),(I6(l),I6(r))=>I6(l.$traitfn(r)),(I7(l),I7(r))=>I7(l.$traitfn(r)),(I8(l),I8(r))=>I8(l.$traitfn(r)),(Value::Multi(l),Value::Multi(r))=>l.into_iter().zip(r).map(|(l,r)|l.$traitfn(r)).collect(),(Value::Incompatible(e),_)=>e.into(),(_,Value::Incompatible(e))=>e.into(),_=>panic!("couldn't promote types for $traitfn")}
+			}
+			type Output=Value<B>;
+		}
+	);
+}
 #[derive(Clone,Copy,Debug,Eq,PartialEq)]
 /// enumerates kinds for values
 pub enum Kind{Bool,Float,Incompatible,Int,Multi}
@@ -726,6 +748,7 @@ pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,
 #[derive(Clone,Debug)]
 /// general loss output for being converted into other loss outputs
 pub struct LossOutput<B:Backend>{loss:Value<B>,output:Value<B>,target:Value<B>}
+use bicop_num;
 use Bound::{Excluded,Included,Unbounded};
 use Shape::{X1,X2,X3,X4,X5,X6,X7,X8};
 use Value::{B1,B2,B3,B4,B5,B6,B7,B8,F1,F2,F3,F4,F5,F6,F7,F8,I1,I2,I3,I4,I5,I6,I7,I8};
@@ -735,7 +758,7 @@ use burn::{
 		Dropout,Embedding,LayerNorm,Linear,Relu,Tanh,loss::{CrossEntropyLoss,MseLoss}
 	},
 	tensor::{
-		BasicOps,TensorKind,activation::{log_softmax,softmax},cast::ToElement
+		BasicOps,ElementConversion,TensorKind,activation::{log_softmax,softmax},cast::ToElement
 	}
 };
 use crate::{
@@ -743,5 +766,5 @@ use crate::{
 };
 use rand::random;
 use std::{
-	iter::{FromIterator,once},mem,ops::{Add,Bound,RangeBounds,Range},slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
+	iter::{FromIterator,once},mem,ops::{Add,Bound,Div,Mul,RangeBounds,Range,Rem,Sub},slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
 };
