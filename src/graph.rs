@@ -208,7 +208,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	pub fn split<F:FnMut(bool,&Label,&Label,&C,&Label,&Label)->bool>(&mut self,mut predicate:F)->Self where C:Clone{
 		let (connections,layers,order)=(&mut self.connections,&mut self.layers,&mut self.order);
 
-		let newconnections:LabelMap<_>=connections.extract_if(|connectionlabel,(clear,inputlabel,layerlabel,outputlabel)|if let Some(layer)=layers.get_mut(layerlabel){
+		let newconnections:HashMap<_,_,H>=connections.extract_if(|connectionlabel,(clear,inputlabel,layerlabel,outputlabel)|if let Some(layer)=layers.get_mut(layerlabel){
 			predicate(*clear>0,connectionlabel,inputlabel,layer,layerlabel,outputlabel)
 		}else{
 			false
@@ -265,7 +265,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		order.reverse();
 	}
 }
-impl<C:Decompose> Decompose for Graph<C>{
+impl<C:Decompose> Decompose for Graph<C>{// TODO ideally this would preserve unconnected layers too
 	fn compose((connections,layers):Self::Decomposition)->Self{
 		let mut order=Vec::with_capacity(connections.len());
 		let connections=connections.into_iter().map(|decomposed|{
@@ -365,7 +365,7 @@ mod tests{
 }
 #[derive(Clone,Debug,Eq,PartialEq)]
 /// graph like ai operation structure
-pub struct Graph<C>{connections:LabelMap<(u64,Label,Label,Label)>,layers:LabelMap<C>,order:Vec<Label>}
+pub struct Graph<C>{connections:HashMap<Label,(u64,Label,Label,Label),H>,layers:HashMap<Label,C,H>,order:Vec<Label>}
 #[derive(Clone,Debug,Eq,Hash,PartialEq)]
 /// label for graph connections or layers or nodes. format is id: name where id is a hex number or simply id if there is no name. name without a number will be parse as a name with a 0 id
 pub struct Label{id:u64,name:Option<Arc<str>>}
@@ -379,7 +379,6 @@ pub trait Merge{// TODO wrapper to implement in terms of intoiterator and from i
 }
 #[derive(Clone,Copy,Debug,Default)]
 struct H(u64);
-type LabelMap<E>=HashMap<Label,E,H>;
 use crate::{AI,Decompose,Op};
 use std::{
 	collections::{HashMap,HashSet},fmt::{Display,Formatter,UpperHex,Result as FmtResult},hash::{BuildHasher,Hasher,Hash},iter::{FromIterator,Extend},mem,str::FromStr,sync::Arc
