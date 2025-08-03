@@ -4,16 +4,23 @@ impl BuildHasher for H{
 	type Hasher=H;
 }
 impl Decompose for Label{
-	fn compose((id,name):Self::Decomposition)->Self{
-		Self{id,name}
-	}
-	fn decompose(self)->Self::Decomposition{(self.id,self.name)}
+	fn compose(label:Self::Decomposition)->Self{label.into()}
+	fn decompose(self)->Self::Decomposition{self.to_string()}
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone().decompose()}
-	type Decomposition=(u64,Option<String>);
+	type Decomposition=String;
 }
 impl Default for Label{
 	fn default()->Self{
 		Self{id:rand::random(),name:None}
+	}
+}
+impl Display for Label{
+	fn fmt(&self,f:&mut Formatter<'_>)->FmtResult{
+		if self.id!=0{UpperHex::fmt(&self.id,f)?}
+		if let Some(text)=&self.name{
+			write!(f,"{}{text}",if self.id==0{""}else{": "})?;
+		}
+		Ok(())
 	}
 }
 impl From<Option<String>> for Label{
@@ -22,9 +29,7 @@ impl From<Option<String>> for Label{
 	}
 }
 impl From<String> for Label{
-	fn from(value:String)->Self{
-		Self{id:0,name:Some(value)}
-	}
+	fn from(value:String)->Self{Self::from_str(&value).unwrap()}
 }
 impl From<u64> for Label{
 	fn from(value:u64)->Self{
@@ -32,9 +37,19 @@ impl From<u64> for Label{
 	}
 }
 impl From<usize> for Label{
-	fn from(value:usize)->Self{
-		Self{id:value as u64,name:None}
+	fn from(value:usize)->Self{Self::from(value as u64)}
+}
+impl FromStr for Label{
+	fn from_str(s:&str)->Result<Self,Self::Err>{
+		let parsewithid:Option<Self>=(||{
+			let idstop=s.find(": ").unwrap_or(s.len());
+			let id=u64::from_str_radix(&s[..idstop],16).ok()?;
+			let name=(idstop<s.len()).then(||Arc::from(&s[idstop+2..]));
+			Some(Self{id,name})
+		})();
+		Ok(if let Some(l)=parsewithid{l}else{Self::from(0_u64).with_name(s)})
 	}
+	type Err=();
 }
 impl Hasher for H{
 	#[inline]
@@ -47,13 +62,8 @@ impl Hasher for H{
     #[inline]
     fn write_u64(&mut self,n:u64){self.0^=n}
 }
-impl Label{// TODO better document behavior on whether id is random or 0 initialized
-	/// creates from the graph seed
-	pub fn from_seed(seed:&mut u128)->Self{
-		update_seed(seed);
-		(*seed as u64).into()
-	}
-	/// creates a new random label
+impl Label{
+	/// creates a new label
 	pub fn new()->Self{
 		Self{id:rand::random(),name:None}
 	}
@@ -63,8 +73,14 @@ impl Label{// TODO better document behavior on whether id is random or 0 initial
 		self
 	}
 	/// names the label
-	pub fn with_name<I:Into<Option<String>>>(mut self,name:I)->Self{
-		self.name=name.into();
+	pub fn with_name<S:AsRef<str>>(mut self,name:S)->Self{
+		let name=name.as_ref();
+		self.name=if name.len()==0{None}else{Some(name.into())};
+		self
+	}
+	/// sets the label id
+	pub fn with_random_id(mut self)->Self{
+		self.id=rand::random();
 		self
 	}
 }
@@ -154,7 +170,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for Graph<C>{
 impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	/// creates a new empty graph
 	pub fn new()->Self{
-		Self{connections:HashMap::with_hasher(H(0)),layers:HashMap::with_hasher(H(0)),order:Vec::new(),randomstate:rand::random()}
+		Self{connections:HashMap::with_hasher(H(0)),layers:HashMap::with_hasher(H(0)),order:Vec::new()}
 	}
 	/// adds a connection between two vertices reusing a layer
 	pub fn add_connection<X:Into<Label>,I:Into<Label>,L:Into<Label>,O:Into<Label>>(&mut self,clear:bool,connection:X,input:I,layer:L,output:O){
@@ -168,10 +184,9 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	pub fn add_layer<X:Into<C>,L:Into<Label>>(&mut self,label:L,layer:X){
 		self.layers.insert(label.into(),layer.into());
 	}
-	/// adds a connection between vertices, returning the connection and layer indices
+	/// adds a connection between vertices, returning the connection and layer indices//TODO with clear or somethign because clear is only going to be needed if someone knows better than the sort
 	pub fn connect<I:Into<Label>,L:Into<C>,O:Into<Label>>(&mut self,clear:bool,input:I,layer:L,output:O)->(Label,Label){// TODO more helpful return types with chain opportunities. possibly include clear and labels there
-		let connectionlabel=Label::from_seed(&mut self.randomstate);
-		let layerlabel=connectionlabel.clone();
+		let (connectionlabel,layerlabel)=(Label::new(),Label::new());
 		self.add_connection(clear,connectionlabel.clone(),input,layerlabel.clone(),output);
 		self.add_layer(layerlabel.clone(),layer);
 		(connectionlabel,layerlabel)
@@ -192,7 +207,6 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	/// splits the graph according to the predicate(clear, connectionlabel, inputlabel, layer, layerlabel, outputlabel). true will be sent to the returned graph. the resulting graphs will only have the layers they use
 	pub fn split<F:FnMut(bool,&Label,&Label,&C,&Label,&Label)->bool>(&mut self,mut predicate:F)->Self where C:Clone{
 		let (connections,layers,order)=(&mut self.connections,&mut self.layers,&mut self.order);
-		let newrandomstate=self.randomstate+9999;
 
 		let newconnections:LabelMap<_>=connections.extract_if(|connectionlabel,(clear,inputlabel,layerlabel,outputlabel)|if let Some(layer)=layers.get_mut(layerlabel){
 			predicate(*clear>0,connectionlabel,inputlabel,layer,layerlabel,outputlabel)
@@ -213,7 +227,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let neworder=order.extract_if(..,|label|newconnections.contains_key(label)).collect();
 		order.retain(|label|connections.contains_key(label));
 
-		Self{connections:newconnections,layers:newlayers,order:neworder,randomstate:newrandomstate}
+		Self{connections:newconnections,layers:newlayers,order:neworder}
 	}
 	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a output splitter might be helpful if output order must be maintained somewhere
 	pub fn sort(&mut self){
@@ -250,20 +264,40 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		order.iter().for_each(|label|if let Some((clear,input,_layer,_output))=connections.get_mut(label){*clear=set_bit(*clear,1,nodes.insert(input.clone(),(Vec::new(),0)).is_none())});
 		order.reverse();
 	}
-	/// sets the random state
-	pub fn with_seed(mut self,seed:u128)->Self{
-		self.randomstate=seed;
-		self
-	}
 }
 impl<C:Decompose> Decompose for Graph<C>{
-	fn compose((connections,layers,order,s1,s2):Self::Decomposition)->Self{
-		let randomstate=s1 as u128|(s2 as u128)<<64;
-		Self{connections:Decompose::compose(connections),layers:Decompose::compose(layers),order:Decompose::compose(order),randomstate}
+	fn compose((connections,layers):Self::Decomposition)->Self{
+		let mut order=Vec::with_capacity(connections.len());
+		let connections=connections.into_iter().map(|decomposed|{
+			let (label,(clear,input,layer,output)):(Label,(u64,Label,Label,Label))=Decompose::compose(decomposed);
+			order.push(label.clone());
+			(label,(clear,input,layer,output))
+		}).collect();
+		let layers=layers.into_iter().map(Decompose::compose).collect();
+		Self{connections,layers,order}
 	}
-	fn decompose(self)->Self::Decomposition{(self.connections.decompose(),self.layers.decompose(),self.order.decompose(),self.randomstate as u64,(self.randomstate>>64) as u64)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.connections.decompose_cloned(),self.layers.decompose_cloned(),self.order.decompose_cloned(),self.randomstate as u64,(self.randomstate>>64) as u64)}
-	type Decomposition=(Vec<((u64,Option<String>),(u64,(u64,Option<String>),(u64,Option<String>),(u64,Option<String>)))>,Vec<((u64,Option<String>),C::Decomposition)>,Vec<(u64,Option<String>)>,u64,u64);
+	fn decompose(self)->Self::Decomposition{
+		let (mut connections,mut layers,order)=(self.connections,self.layers,self.order);
+
+		let (mut decomposedconnections,mut decomposedlayers)=(Vec::new(),Vec::new());
+		order.iter().filter_map(|label|connections.remove_entry(label)).for_each(|(label,(clear,input,layer,output))|{
+			decomposedlayers.extend(layers.remove_entry(&layer).map(|(label,layer)|(label.decompose(),layer.decompose())));
+			decomposedconnections.push((label.decompose(),(clear,input.decompose(),layer.decompose(),output.decompose())));
+		});
+		(decomposedconnections,decomposedlayers)
+	}
+	fn decompose_cloned(&self)->Self::Decomposition{
+		let (connections,layers,order)=(&self.connections,&self.layers,&self.order);
+		let mut layersfound=HashSet::new();
+
+		let (mut decomposedconnections,mut decomposedlayers)=(Vec::new(),Vec::new());
+		order.iter().filter_map(|label|connections.get_key_value(label)).for_each(|(label,(clear,input,layer,output))|{
+			if layersfound.insert(layer.clone()){decomposedlayers.extend(layers.get_key_value(layer).map(|(label,layer)|(label.decompose_cloned(),layer.decompose_cloned())))}
+			decomposedconnections.push((label.decompose_cloned(),(*clear,input.decompose_cloned(),layer.decompose_cloned(),output.decompose_cloned())));
+		});
+		(decomposedconnections,decomposedlayers)
+	}
+	type Decomposition=(Vec<(String,(u64,String,String,String))>,Vec<(String,C::Decomposition)>);
 }
 impl<C:Op> Op for Graph<C>{
 	type Output=Vec<C::Output>;
@@ -277,7 +311,7 @@ impl<E> Merge for Vec<E>{
 	fn merge(&mut self,other:Self){self.extend(other)}
 }
 impl<S:?Sized+AsRef<str>> From<&S> for Label{
-	fn from(value:&S)->Self{value.as_ref().to_string().into()}
+	fn from(value:&S)->Self{Self::from_str(value.as_ref()).unwrap()}
 }
 #[cfg(test)]
 mod tests{
@@ -329,30 +363,12 @@ mod tests{
 	use rand::seq::SliceRandom;
 	use super::*;
 }
-/*/// prng float on >=-1 and <1
-pub fn rfloat(seed:&mut u128)->f32{
-	update_seed(seed);
-	*seed as i32 as f32*2.0_f32.powi(-31)
-}
-/// returns a primitive rng state based on the time. usefult for having basic rng while being able to decompose into primitive types
-pub fn time_seed()->u128{// TODO maybe move to builtin. maybe wrap in a struct with implementing rng with pub state
-	let mut seed=SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos();
-	update_seed(&mut seed);
-	update_seed(&mut seed);
-	update_seed(&mut seed);
-	seed
-}/// basic prng state updating. usefult for having basic rng while being able to decompose into primitive types
-pub*/ fn update_seed(seed:&mut u128){
-	*seed^=*seed<<15;
-	*seed^=*seed>>4;
-	*seed^=*seed<<21;
-}
 #[derive(Clone,Debug,Eq,PartialEq)]
-/// graph like ai operation structure. The connections run in the order they are connected
-pub struct Graph<C>{connections:LabelMap<(u64,Label,Label,Label)>,layers:LabelMap<C>,order:Vec<Label>,randomstate:u128}
+/// graph like ai operation structure
+pub struct Graph<C>{connections:LabelMap<(u64,Label,Label,Label)>,layers:LabelMap<C>,order:Vec<Label>}
 #[derive(Clone,Debug,Eq,Hash,PartialEq)]
-/// label for graph connections or layers or nodes
-pub struct Label{id:u64,name:Option<String>}
+/// label for graph connections or layers or nodes. format is id: name where id is a hex number or simply id if there is no name. name without a number will be parse as a name with a 0 id
+pub struct Label{id:u64,name:Option<Arc<str>>}
 #[derive(Clone,Copy,Debug,Default)]
 /// wraps the graph so it can take singular io
 pub struct Unvec<A>(pub A);
@@ -366,5 +382,5 @@ struct H(u64);
 type LabelMap<E>=HashMap<Label,E,H>;
 use crate::{AI,Decompose,Op};
 use std::{
-	collections::{HashMap,HashSet},hash::{BuildHasher,Hasher,Hash},iter::{FromIterator,Extend},mem
+	collections::{HashMap,HashSet},fmt::{Display,Formatter,UpperHex,Result as FmtResult},hash::{BuildHasher,Hasher,Hash},iter::{FromIterator,Extend},mem,str::FromStr,sync::Arc
 };
