@@ -447,6 +447,61 @@ impl<A:Op<Output=X>,B:AI<Y,Z>+Op<Output=Y>,C:AI<Y,Z>+Op<Output=Z>,X,Y,Z> Op for 
 impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{
 	type Output=Z;
 }
+
+
+impl<A,B,C,D,E,F,G,H> Sequential<(A,B,C,D,E,F,G,H)>{
+	/// applies fix type to the inner tupled values
+	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>,SetType<E,X,X>,SetType<F,X,X>,SetType<G,X,X>,SetType<H,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>,E:AI<X,X>,F:AI<X,X>,G:AI<X,X>,H:AI<X,X>{
+		let (a,b,c,d,e,f,g,h)=self.into_inner();
+		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d),SetType::new(e),SetType::new(f),SetType::new(g),SetType::new(h)))
+	}
+}
+impl<A,B,C,D,E,F,G> Sequential<(A,B,C,D,E,F,G)>{
+	/// applies fix type to the inner tupled values
+	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>,SetType<E,X,X>,SetType<F,X,X>,SetType<G,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>,E:AI<X,X>,F:AI<X,X>,G:AI<X,X>{
+		let (a,b,c,d,e,f,g)=self.into_inner();
+		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d),SetType::new(e),SetType::new(f),SetType::new(g)))
+	}
+}
+impl<A,B,C,D,E,F> Sequential<(A,B,C,D,E,F)>{
+	/// applies fix type to the inner tupled values
+	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>,SetType<E,X,X>,SetType<F,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>,E:AI<X,X>,F:AI<X,X>{
+		let (a,b,c,d,e,f)=self.into_inner();
+		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d),SetType::new(e),SetType::new(f)))
+	}
+}
+impl<A,B,C,D,E> Sequential<(A,B,C,D,E)>{
+	/// applies fix type to the inner tupled values
+	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>,SetType<E,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>,E:AI<X,X>{
+		let (a,b,c,d,e)=self.into_inner();
+		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d),SetType::new(e)))
+	}
+}
+impl<A,B,C,D> Sequential<(A,B,C,D)>{
+	/// applies fix type to the inner tupled values
+	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>{
+		let (a,b,c,d)=self.into_inner();
+		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d)))
+	}
+}
+impl<A,B,C> Sequential<(A,B,C)>{
+	/// applies fix type to the inner tupled values
+	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>{
+		let (a,b,c)=self.into_inner();
+		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c)))
+	}
+}
+impl<A,B> Sequential<(A,B)>{
+	/// applies fix type to the inner tupled values
+	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>)> where A:AI<X,X>,B:AI<X,X>{
+		let (a,b)=self.into_inner();
+		Sequential::new((SetType::new(a),SetType::new(b)))
+	}
+}
+
+impl AI<(),u32> for ChooseLayer{
+	fn forward(&self,_input:())->u32{0}
+}
 impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQLayer:AI<Y,Y>{
 	type Output=Y;
 }
@@ -566,7 +621,7 @@ macro_rules! accessible_inner{
 	);
 }
 /// declares layer and wrapper structs and implements accessor functions, decompose and op for binary componentwise operations. ai will still have to be externally implemented for the layer stuct
-macro_rules! bicop_like{
+macro_rules! bicop_like{// TODO separate parts of this like in one of the other likes and make squared error specifically have vec output
 	($layer:ident,$wrap:ident)=>{
 		impl $layer{
 			/// creates a new layer
@@ -1032,7 +1087,6 @@ pub enum ReductionMode{Component,Dim(usize),Tensor}
 pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
 	Apply{inner:f,phantom:PhantomData}
 }
-
 impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for AccQ<A> where AccQLayer:Into<M>{
 	fn into_sequence(self)->Sequential<Vec<M>>{self.inner.into_sequence().with_next(self.layer)}
 }
@@ -1053,11 +1107,38 @@ impl<M:AI<M::Output,M::Output>+Op> Sequential<Vec<M>>{
 		self
 	}
 }
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Sequential<Vec<A>>{//TODO into sequence for tuple
+	fn into_sequence(self)->Sequential<Vec<M>>{
+		Sequential{inner:self.into_inner().into_iter().flat_map(|a|a.into_sequence().into_inner()).collect()}
+	}
+}
 impl<A:AI<X,Y>+IntoSequence<M>,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M> for SetType<A,X,Y>{
 	fn into_sequence(self)->Sequential<Vec<M>>{self.into_inner().into_sequence()}
 }
 impl<A:AI<X,Y>+UnwrapInner,X,Y> UnwrapInner for SetType<A,X,Y>{
 	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
+	type Inner=A::Inner;
+}
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Duplicate<A> where Duplicate<M>:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{
+		let mut s=self.inner.into_sequence();
+		if let Some(l)=s.inner_mut().pop(){
+			s.inner_mut().push(Duplicate{inner:l,times:self.times}.into())
+		}
+		s
+	}
+}
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Map<A> where Map<M>:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{
+		Sequential::new(self.inner.into_sequence().into_inner().into_iter().map(|inner|Map{inner}.into()).collect())
+	}
+}
+impl<A:UnwrapInner> UnwrapInner for Duplicate<A>{
+	fn unwrap_inner(self)->Self::Inner{self.inner.unwrap_inner()}
+	type Inner=A::Inner;
+}
+impl<A:UnwrapInner> UnwrapInner for Map<A>{
+	fn unwrap_inner(self)->Self::Inner{self.inner.unwrap_inner()}
 	type Inner=A::Inner;
 }
 
@@ -1086,7 +1167,7 @@ pub struct Sequential<A>{inner:A}
 /// fixes the output type of a layer for a particular input type.
 pub struct SetType<A,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
 #[derive(Clone,Copy,Debug,Default)]
-/// wraps to apply each function// TODO ops layers
+/// wraps to apply each function
 pub struct Zip<A>{inner:A}
 soft_like!(@aiwrap @declare @decompose @impl ChooseLayer,Choose);
 soft_like!(AbnormalSoftmaxLayer,AbnormalSoftmax);
