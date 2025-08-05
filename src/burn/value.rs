@@ -101,7 +101,7 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for CrossEntropyLayer{// TODO m
 		fn fi<B:Backend,const N:usize,const K:usize>(dim:i32,y:Tensor<B,N>,t:Tensor<B,K,Int>,temperature:f32)->Result<Tensor<B,K>,String>{
 			let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
 			let (ydims,tdims)=(y.dims(),t.dims());
-			if ydims.iter().enumerate().filter_map(|(n,y)|(n==dim).then_some(y)).eq(tdims.into_iter()){
+			if ydims.iter().enumerate().filter_map(|(n,y)|(n==dim).then_some(y)).eq(tdims.iter()){
 				let logy=if temperature.is_nan(){y.log()}else{log_softmax(y/temperature,dim)};
 				Ok(logy.gather(dim,t.unsqueeze_dim(dim)).neg().squeeze(dim))
 			}else{
