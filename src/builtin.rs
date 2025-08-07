@@ -95,9 +95,6 @@ impl AI<Vec<f32>,f32> for MeanLayer{
 impl AI<Vec<f32>,f32> for SumLayer{
 	fn forward(&self,input:Vec<f32>)->f32{input.into_iter().sum()}//TODO check dim
 }
-impl<X:OpsAbs<Output=Y>,Y> AI<X,Y> for AbsLayer{
-	fn forward(&self,input:X)->Y{input.abs()}
-}
 impl AI<f32,f32> for MeanLayer{
 	fn forward(&self,input:f32)->f32{input}
 }
@@ -163,6 +160,16 @@ impl Op for ChooseLayer{
 }
 impl Op for CrossEntropyLayer{
 	type Output=Vec<f32>;
+}
+impl<M:AI<M::Output,M::Output>+Op> IntoSequence<M> for AccQLayer where AccQLayer:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
+}
+impl<M:AI<M::Output,M::Output>+Op> Sequential<Vec<M>>{
+	/// appends the module to the sequence, then returns the sequence
+	pub fn with_next<A:Into<M>>(mut self,m:A)->Self{
+		self.inner_mut().push(m.into());
+		self
+	}
 }
 impl<A:AI<R,S>+Op<Output=S>,B:AI<S,T>+Op<Output=T>,C:AI<T,U>+Op<Output=U>,D:AI<U,V>+Op<Output=V>,E:AI<V,W>+Op<Output=W>,F:AI<W,X>+Op<Output=X>,G:AI<X,Y>+Op<Output=Y>,H:AI<Y,Z>,R,S,T,U,V,W,X,Y,Z> AI<R,Z> for Sequential<(A,B,C,D,E,F,G,H)>{
 	fn forward(&self,input:R)->Z{
@@ -276,6 +283,10 @@ impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J
 		let a=self.inner_mut();
 		input.into_iter().map(|x|a.forward_mut(x)).collect()
 	}
+}
+impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for CrossEntropy<A> where CrossEntropyLayer:AI<(Y,T),Z>{
+	fn forward(&self,(input,target):(X,T))->Z{self.layer.forward((self.inner.forward(input),target))}
+	fn forward_mut(&mut self,(input,target):(X,T))->Z{self.layer.forward_mut((self.inner.forward_mut(input),target))}
 }
 impl<A:AI<X,Y>,X,Y:Clone,const N:usize> AI<X,[Y;N]> for Duplicate<A>{
 	fn forward(&self,input:X)->[Y;N]{
@@ -426,6 +437,23 @@ impl<A:Decompose> Decompose for Zip<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for AccQ<A> where AccQLayer:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{self.inner.into_sequence().with_next(self.layer)}
+}
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Duplicate<A> where Duplicate<M>:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{
+		let mut s=self.inner.into_sequence();
+		if let Some(l)=s.inner_mut().pop(){
+			s.inner_mut().push(Duplicate{inner:l,times:self.times}.into())
+		}
+		s
+	}
+}
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Map<A> where Map<M>:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{
+		Sequential::new(self.inner.into_sequence().into_inner().into_iter().map(|inner|Map{inner}.into()).collect())
+	}
+}
 impl<A:Op<Output=S>,B:AI<S,T>+Op<Output=T>,C:AI<T,U>+Op<Output=U>,D:AI<U,V>+Op<Output=V>,E:AI<V,W>+Op<Output=W>,F:AI<W,X>+Op<Output=X>,G:AI<Y,Z>+Op<Output=Y>,H:AI<Y,Z>+Op<Output=Z>,S,T,U,V,W,X,Y,Z> Op for Sequential<(A,B,C,D,E,F,G,H)>{
 	type Output=Z;
 }
@@ -447,61 +475,6 @@ impl<A:Op<Output=X>,B:AI<Y,Z>+Op<Output=Y>,C:AI<Y,Z>+Op<Output=Z>,X,Y,Z> Op for 
 impl<A:Op<Output=Y>,B:AI<Y,Z>+Op<Output=Z>,Y,Z> Op for Sequential<(A,B)>{
 	type Output=Z;
 }
-
-
-impl<A,B,C,D,E,F,G,H> Sequential<(A,B,C,D,E,F,G,H)>{
-	/// applies fix type to the inner tupled values
-	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>,SetType<E,X,X>,SetType<F,X,X>,SetType<G,X,X>,SetType<H,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>,E:AI<X,X>,F:AI<X,X>,G:AI<X,X>,H:AI<X,X>{
-		let (a,b,c,d,e,f,g,h)=self.into_inner();
-		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d),SetType::new(e),SetType::new(f),SetType::new(g),SetType::new(h)))
-	}
-}
-impl<A,B,C,D,E,F,G> Sequential<(A,B,C,D,E,F,G)>{
-	/// applies fix type to the inner tupled values
-	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>,SetType<E,X,X>,SetType<F,X,X>,SetType<G,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>,E:AI<X,X>,F:AI<X,X>,G:AI<X,X>{
-		let (a,b,c,d,e,f,g)=self.into_inner();
-		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d),SetType::new(e),SetType::new(f),SetType::new(g)))
-	}
-}
-impl<A,B,C,D,E,F> Sequential<(A,B,C,D,E,F)>{
-	/// applies fix type to the inner tupled values
-	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>,SetType<E,X,X>,SetType<F,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>,E:AI<X,X>,F:AI<X,X>{
-		let (a,b,c,d,e,f)=self.into_inner();
-		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d),SetType::new(e),SetType::new(f)))
-	}
-}
-impl<A,B,C,D,E> Sequential<(A,B,C,D,E)>{
-	/// applies fix type to the inner tupled values
-	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>,SetType<E,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>,E:AI<X,X>{
-		let (a,b,c,d,e)=self.into_inner();
-		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d),SetType::new(e)))
-	}
-}
-impl<A,B,C,D> Sequential<(A,B,C,D)>{
-	/// applies fix type to the inner tupled values
-	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>,SetType<D,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>,D:AI<X,X>{
-		let (a,b,c,d)=self.into_inner();
-		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c),SetType::new(d)))
-	}
-}
-impl<A,B,C> Sequential<(A,B,C)>{
-	/// applies fix type to the inner tupled values
-	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>,SetType<C,X,X>)> where A:AI<X,X>,B:AI<X,X>,C:AI<X,X>{
-		let (a,b,c)=self.into_inner();
-		Sequential::new((SetType::new(a),SetType::new(b),SetType::new(c)))
-	}
-}
-impl<A,B> Sequential<(A,B)>{
-	/// applies fix type to the inner tupled values
-	pub fn fix_inner_type<X>(self)->Sequential<(SetType<A,X,X>,SetType<B,X,X>)> where A:AI<X,X>,B:AI<X,X>{
-		let (a,b)=self.into_inner();
-		Sequential::new((SetType::new(a),SetType::new(b)))
-	}
-}
-
-impl AI<(),u32> for ChooseLayer{
-	fn forward(&self,_input:())->u32{0}
-}
 impl<A:Op<Output=Y>,Y> Op for AccQ<A> where AccQLayer:AI<Y,Y>{
 	type Output=Y;
 }
@@ -517,9 +490,17 @@ impl<A:Op<Output=Y>,Y> Op for Duplicate<A>{
 impl<A:Op<Output=Y>,Y> Op for Map<A>{
 	type Output=Vec<Y>;
 }
-impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for CrossEntropy<A> where CrossEntropyLayer:AI<(Y,T),Z>{
-	fn forward(&self,(input,target):(X,T))->Z{self.layer.forward((self.inner.forward(input),target))}
-	fn forward_mut(&mut self,(input,target):(X,T))->Z{self.layer.forward_mut((self.inner.forward_mut(input),target))}
+impl<A:UnwrapInner> UnwrapInner for AccQ<A>{
+	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
+	type Inner=A::Inner;
+}
+impl<A:UnwrapInner> UnwrapInner for Duplicate<A>{
+	fn unwrap_inner(self)->Self::Inner{self.inner.unwrap_inner()}
+	type Inner=A::Inner;
+}
+impl<A:UnwrapInner> UnwrapInner for Map<A>{
+	fn unwrap_inner(self)->Self::Inner{self.inner.unwrap_inner()}
+	type Inner=A::Inner;
 }
 impl<A,X> Autoregression<A,X>{
 	accessible_inner!(ai:A);
@@ -528,18 +509,28 @@ impl<A,X> Autoregression<A,X>{
 		Self{ai,state}
 	}
 }
+impl AccQLayer{
+	/// creates from the inner value
+	pub fn new(dim:i32,gamma:f32)->Self{
+		AccQLayer{dim,gamma}
+	}
+	/// gets the dimension
+	pub fn get_dim(&self)->i32{self.dim}
+	/// gets the gamma
+	pub fn get_gamma(&self)->f32{self.gamma}
+}
 impl<A> AccQ<A>{
 	accessible_inner!(inner:A);
 	/// gets the dimension
-	pub fn dim(&self)->i32{self.layer.dim}
+	pub fn get_dim(&self)->i32{self.layer.dim}
 	/// creates from the inner value
 	pub fn new(dim:i32,gamma:f32,inner:A)->Self{
-		AccQ{inner,layer:AccQLayer{dim,gamma}}
+		AccQ{inner,layer:AccQLayer::new(dim,gamma)}
 	}
 	/// gets the gamma
-	pub fn gamma(&self)->f32{self.layer.gamma}
+	pub fn get_gamma(&self)->f32{self.layer.gamma}
 	/// replaces the inner value
-	pub fn with_inner<B>(&self,inner:B)->AccQ<B> where AccQ<B>:Op{AccQ::new(self.dim(),self.gamma(),inner)}
+	pub fn with_inner<B>(&self,inner:B)->AccQ<B> where AccQ<B>:Op{AccQ::new(self.get_dim(),self.get_gamma(),inner)}
 }
 impl<A> Duplicate<A>{
 	accessible_inner!(inner:A);
@@ -585,6 +576,9 @@ impl<E> AI<Vec<Vec<E>>,Vec<E>> for StackLayer{// TODO squeeze unsqueeze so we ca
 impl<E> AI<Vec<Vec<E>>,Vec<Vec<E>>> for StackLayer{
 	fn forward(&self,_input:Vec<Vec<E>>)->Vec<Vec<E>>{todo!()}
 }
+impl<F:Fn(X)->Y,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M> for Apply<F,X,Y> where Self:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
+}
 impl<F:Fn(X)->Y,X,Y> AI<X,Y> for Apply<F,X,Y>{
 	fn forward(&self,input:X)->Y{(&self.inner)(input)}
 }
@@ -596,6 +590,9 @@ impl<L:OpsAdd<R,Output=Y>,R,Y> AI<(L,R),Y> for AddLayer{
 }
 impl<L:OpsMul<R,Output=Y>,R,Y> AI<(L,R),Y> for MulLayer{
 	fn forward(&self,(left,right):(L,R))->Y{left*right}
+}
+impl<X:OpsAbs<Output=Y>,Y> AI<X,Y> for AbsLayer{
+	fn forward(&self,input:X)->Y{input.abs()}
 }
 impl<X> AI<Vec<Vec<X>>,Vec<X>> for CatLayer{
 	fn forward(&self,input:Vec<Vec<X>>)->Vec<X>{
@@ -1087,26 +1084,6 @@ pub enum ReductionMode{Component,Dim(usize),Tensor}
 pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
 	Apply{inner:f,phantom:PhantomData}
 }
-impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for AccQ<A> where AccQLayer:Into<M>{
-	fn into_sequence(self)->Sequential<Vec<M>>{self.inner.into_sequence().with_next(self.layer)}
-}
-impl<A:UnwrapInner> UnwrapInner for AccQ<A>{
-	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
-	type Inner=A::Inner;
-}
-impl<F:Fn(X)->Y,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M> for Apply<F,X,Y> where Self:Into<M>{
-	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
-}
-impl<M:AI<M::Output,M::Output>+Op> IntoSequence<M> for AccQLayer where AccQLayer:Into<M>{
-	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
-}
-impl<M:AI<M::Output,M::Output>+Op> Sequential<Vec<M>>{
-	/// appends the module to the sequence, then returns the sequence
-	pub fn with_next<A:Into<M>>(mut self,m:A)->Self{
-		self.inner_mut().push(m.into());
-		self
-	}
-}
 impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Sequential<Vec<A>>{//TODO into sequence for tuple
 	fn into_sequence(self)->Sequential<Vec<M>>{
 		Sequential{inner:self.into_inner().into_iter().flat_map(|a|a.into_sequence().into_inner()).collect()}
@@ -1117,28 +1094,6 @@ impl<A:AI<X,Y>+IntoSequence<M>,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M>
 }
 impl<A:AI<X,Y>+UnwrapInner,X,Y> UnwrapInner for SetType<A,X,Y>{
 	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
-	type Inner=A::Inner;
-}
-impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Duplicate<A> where Duplicate<M>:Into<M>{
-	fn into_sequence(self)->Sequential<Vec<M>>{
-		let mut s=self.inner.into_sequence();
-		if let Some(l)=s.inner_mut().pop(){
-			s.inner_mut().push(Duplicate{inner:l,times:self.times}.into())
-		}
-		s
-	}
-}
-impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Map<A> where Map<M>:Into<M>{
-	fn into_sequence(self)->Sequential<Vec<M>>{
-		Sequential::new(self.inner.into_sequence().into_inner().into_iter().map(|inner|Map{inner}.into()).collect())
-	}
-}
-impl<A:UnwrapInner> UnwrapInner for Duplicate<A>{
-	fn unwrap_inner(self)->Self::Inner{self.inner.unwrap_inner()}
-	type Inner=A::Inner;
-}
-impl<A:UnwrapInner> UnwrapInner for Map<A>{
-	fn unwrap_inner(self)->Self::Inner{self.inner.unwrap_inner()}
 	type Inner=A::Inner;
 }
 
