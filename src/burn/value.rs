@@ -1,4 +1,4 @@
-bicop_num!(Add,add,add_scalar);// TODO from vec would be convenient
+bicop_num!(Add,add,add_scalar);// TODO from vec would be convenient// TODO make things properly serialized instead of whatever nonsense burn is doing
 bicop_num!(Div,div,div_scalar);
 bicop_num!(Mul,mul,mul_scalar);
 bicop_num!(Rem,rem,remainder_scalar);
@@ -96,8 +96,26 @@ impl Shape{
 		result
 	}
 }
+impl<A:AutodiffBackend> AutodiffModule<A> for Value<A>{
+	fn valid(&self)->Self::InnerModule{
+		match self{B1(x)=>B1(x.valid()),B2(x)=>B2(x.valid()),B3(x)=>B3(x.valid()),B4(x)=>B4(x.valid()),B5(x)=>B5(x.valid()),B6(x)=>B6(x.valid()),B7(x)=>B7(x.valid()),B8(x)=>B8(x.valid()),F1(x)=>F1(x.valid()),F2(x)=>F2(x.valid()),F3(x)=>F3(x.valid()),F4(x)=>F4(x.valid()),F5(x)=>F5(x.valid()),F6(x)=>F6(x.valid()),F7(x)=>F7(x.valid()),F8(x)=>F8(x.valid()),I1(x)=>I1(x.valid()),I2(x)=>I2(x.valid()),I3(x)=>I3(x.valid()),I4(x)=>I4(x.valid()),I5(x)=>I5(x.valid()),I6(x)=>I6(x.valid()),I7(x)=>I7(x.valid()),I8(x)=>I8(x.valid()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.iter().map(|x|x.valid()).collect()}
+	}
+	type InnerModule=Value<A::InnerBackend>;
+}
 impl<A:Into<Value<B>>,B:Backend> FromIterator<A> for Value<B>{
 	fn from_iter<I:IntoIterator<Item=A>>(iter:I)->Self{Value::Multi(iter.into_iter().map(Into::into).collect())}
+}
+impl<B:Backend,K:'static+TensorKind<B>,const N:usize> From<Tensor<B,N,K>> for Value<B>{
+	fn from(value:Tensor<B,N,K>)->Self{
+		let kind=TypeId::of::<K>();
+		let kind=if kind==TypeId::of::<Bool>(){Kind::Bool}else if kind==TypeId::of::<Float>(){Kind::Float}else if kind==TypeId::of::<Int>(){Kind::Int}else{return "only bool, float, and int tensors with dimensions 1-8 are currently supported".into()};
+
+		let v=unsafe{
+			match (N,kind){(1,Kind::Bool)=>B1(mem::transmute_copy(&value)),(2,Kind::Bool)=>B2(mem::transmute_copy(&value)),(3,Kind::Bool)=>B3(mem::transmute_copy(&value)),(4,Kind::Bool)=>B4(mem::transmute_copy(&value)),(5,Kind::Bool)=>B5(mem::transmute_copy(&value)),(6,Kind::Bool)=>B6(mem::transmute_copy(&value)),(7,Kind::Bool)=>B7(mem::transmute_copy(&value)),(8,Kind::Bool)=>B8(mem::transmute_copy(&value)),(1,Kind::Float)=>F1(mem::transmute_copy(&value)),(2,Kind::Float)=>F2(mem::transmute_copy(&value)),(3,Kind::Float)=>F3(mem::transmute_copy(&value)),(4,Kind::Float)=>F4(mem::transmute_copy(&value)),(5,Kind::Float)=>F5(mem::transmute_copy(&value)),(6,Kind::Float)=>F6(mem::transmute_copy(&value)),(7,Kind::Float)=>F7(mem::transmute_copy(&value)),(8,Kind::Float)=>F8(mem::transmute_copy(&value)),(1,Kind::Int)=>I1(mem::transmute_copy(&value)),(2,Kind::Int)=>I2(mem::transmute_copy(&value)),(3,Kind::Int)=>I3(mem::transmute_copy(&value)),(4,Kind::Int)=>I4(mem::transmute_copy(&value)),(5,Kind::Int)=>I5(mem::transmute_copy(&value)),(6,Kind::Int)=>I6(mem::transmute_copy(&value)),(7,Kind::Int)=>I7(mem::transmute_copy(&value)),(8,Kind::Int)=>I8(mem::transmute_copy(&value)),_=>return "only bool, float, and int tensors with dimensions 1-8 are currently supported".into()}
+		};
+		mem::forget(value);
+		v
+	}
 }
 impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for Value<B>{
 	fn from(value:&S)->Self{Self::Incompatible(value.as_ref().to_string())}
@@ -257,7 +275,7 @@ impl<B:Backend> AI<Value<B>,f32> for MeanLayer{
 		y.into_scalar().to_f32()
 	}
 }
-impl<B:Backend> AI<Value<B>,Value<B>> for AccQ<()>{
+impl<B:Backend> AI<Value<B>,Value<B>> for AccQLayer{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		fn acc_q<B:Backend,const N:usize>(dim:i32,gamma:f32,i:Tensor<B,N>)->Tensor<B,N>{
 			let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
@@ -268,7 +286,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for AccQ<()>{
 			});
 			Tensor::cat(q,dim)
 		}
-		let (dim,gamma)=(self.dim(),self.gamma());
+		let (dim,gamma)=(self.get_dim(),self.get_gamma());
 
 		match input.float(){F1(x)=>F1(acc_q(dim,gamma,x)),F2(x)=>F2(acc_q(dim,gamma,x)),F3(x)=>F3(acc_q(dim,gamma,x)),F4(x)=>F4(acc_q(dim,gamma,x)),F5(x)=>F5(acc_q(dim,gamma,x)),F6(x)=>F6(acc_q(dim,gamma,x)),F7(x)=>F7(acc_q(dim,gamma,x)),F8(x)=>F8(acc_q(dim,gamma,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect()),_=>panic!("unexpected non float value")}
 	}
@@ -372,6 +390,49 @@ impl<B:Backend> AI<Value<B>,Value<B>> for ChooseLayer{
 			_=>panic!("internal error")}
 	}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for RotaryEncoding<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{AI::forward(self,(input,0)).0}
+}
+impl<B:Backend> AI<(Value<B>,usize),(Value<B>,usize)> for RotaryEncoding<B>{
+	fn forward(&self,(input,offset):(Value<B>,usize))->(Value<B>,usize){
+		fn apply<B:Backend,const D:usize>(a:&RotaryEncoding<B>,input:Tensor<B,D>,offset:usize)->Value<B>{
+			assert!(D>=2);
+			const MAX_KERNEL:usize=65535;		// the library form of this operation frequently exceeds the max kernel group dimension of 2^16-1
+			let device=input.device();
+			let freq=&a.freq_complex;
+			let shape=input.shape();
+
+			let (context,key)=(shape.dims[D-2],shape.dims[D-1]);
+			let [distance,head,_2]=freq.dims();
+
+			if context>distance{return "context length must not exceed rotary distance".into()}
+			if key%head!=0{return "input dimension must be a multiple of head".into()}
+			let count=shape.num_elements();
+			let big=count/(context*key);
+			let heads=key/head;
+			let group=count/head;				// apparently this was determined empirically from error messages
+			let input=input.reshape([big,context,heads,head]).swap_dims(1,2).reshape([big*heads,context,head/2,2]);
+			let sign=Tensor::<B,2>::from_floats([[1.0,0.0,0.0,1.0],[0.0,-1.0,1.0,0.0]],&device).unsqueeze();
+
+			let chunks=input.chunk(group.div_ceil(MAX_KERNEL),0).into_iter().map(|x|{
+				let smaller=x.dims()[0];
+				let x=x.matmul(sign.clone()).reshape([smaller,context,head,2])*freq.clone().slice([offset..context+offset]).unsqueeze();
+				x.sum_dim(3)
+			}).collect();
+			Tensor::cat(chunks,0).reshape([big,heads,context,head]).swap_dims(1,2).reshape::<D,_>(shape).into()
+		}
+
+		(match input.float(){
+			F1(x)=>apply(self,x.unsqueeze::<2>(),offset).squeeze(),
+			F2(x)=>apply(self,x,offset),
+			F3(x)=>apply(self,x,offset),
+			F4(x)=>apply(self,x,offset),
+			F5(x)=>apply(self,x,offset),
+			F6(x)=>apply(self,x,offset),
+			F7(x)=>apply(self,x,offset),
+			F8(x)=>apply(self,x,offset),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|AI::forward(self,(x,offset)).0).collect(),_=>panic!("internal error")},offset)
+	}
+}
 impl<B:Backend> AI<Value<B>,Value<B>> for Tanh{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
@@ -401,80 +462,31 @@ impl<B:Backend> Decompose for Value<B>{
 impl<B:Backend> Default for Value<B>{
 	fn default()->Self{Self::Multi(Vec::new())}
 }
+impl<B:Backend> Display for Value<B>{
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->FmtResult{write!(f,"todo")}
+}
+impl<B:Backend> ModuleDisplay for Value<B>{
+	fn custom_content(&self,_content:Content)->Option<Content>{
+		//todo!()
+		None
+	}
+	fn custom_settings(&self)->Option<DisplaySettings>{
+		//todo!()
+		None
+	}
+	fn format(&self,_passed_settings:DisplaySettings)->String{
+		"todo".into()
+	}
+}
+impl<B:Backend> ModuleDisplayDefault for Value<B>{
+	fn content(&self,_content:Content)->Option<Content>{
+		//todo!()
+		None
+	}
+	fn num_params(&self)->usize{Module::num_params(self)}
+}
 impl<B:Backend> From<String> for Value<B>{
 	fn from(value:String)->Self{Self::Incompatible(value)}
-}
-impl<B:Backend> From<Tensor<B,1,Bool>> for Value<B>{
-	fn from(value:Tensor<B,1,Bool>)->Self{Self::B1(value)}
-}
-impl<B:Backend> From<Tensor<B,2,Bool>> for Value<B>{
-	fn from(value:Tensor<B,2,Bool>)->Self{Self::B2(value)}
-}
-impl<B:Backend> From<Tensor<B,3,Bool>> for Value<B>{
-	fn from(value:Tensor<B,3,Bool>)->Self{Self::B3(value)}
-}
-impl<B:Backend> From<Tensor<B,4,Bool>> for Value<B>{
-	fn from(value:Tensor<B,4,Bool>)->Self{Self::B4(value)}
-}
-impl<B:Backend> From<Tensor<B,5,Bool>> for Value<B>{
-	fn from(value:Tensor<B,5,Bool>)->Self{Self::B5(value)}
-}
-impl<B:Backend> From<Tensor<B,6,Bool>> for Value<B>{
-	fn from(value:Tensor<B,6,Bool>)->Self{Self::B6(value)}
-}
-impl<B:Backend> From<Tensor<B,7,Bool>> for Value<B>{
-	fn from(value:Tensor<B,7,Bool>)->Self{Self::B7(value)}
-}
-impl<B:Backend> From<Tensor<B,8,Bool>> for Value<B>{
-	fn from(value:Tensor<B,8,Bool>)->Self{Self::B8(value)}
-}
-impl<B:Backend> From<Tensor<B,1,Float>> for Value<B>{
-	fn from(value:Tensor<B,1,Float>)->Self{Self::F1(value)}
-}
-impl<B:Backend> From<Tensor<B,2,Float>> for Value<B>{
-	fn from(value:Tensor<B,2,Float>)->Self{Self::F2(value)}
-}
-impl<B:Backend> From<Tensor<B,3,Float>> for Value<B>{
-	fn from(value:Tensor<B,3,Float>)->Self{Self::F3(value)}
-}
-impl<B:Backend> From<Tensor<B,4,Float>> for Value<B>{
-	fn from(value:Tensor<B,4,Float>)->Self{Self::F4(value)}
-}
-impl<B:Backend> From<Tensor<B,5,Float>> for Value<B>{
-	fn from(value:Tensor<B,5,Float>)->Self{Self::F5(value)}
-}
-impl<B:Backend> From<Tensor<B,6,Float>> for Value<B>{
-	fn from(value:Tensor<B,6,Float>)->Self{Self::F6(value)}
-}
-impl<B:Backend> From<Tensor<B,7,Float>> for Value<B>{
-	fn from(value:Tensor<B,7,Float>)->Self{Self::F7(value)}
-}
-impl<B:Backend> From<Tensor<B,8,Float>> for Value<B>{
-	fn from(value:Tensor<B,8,Float>)->Self{Self::F8(value)}
-}
-impl<B:Backend> From<Tensor<B,1,Int>> for Value<B>{
-	fn from(value:Tensor<B,1,Int>)->Self{Self::I1(value)}
-}
-impl<B:Backend> From<Tensor<B,2,Int>> for Value<B>{
-	fn from(value:Tensor<B,2,Int>)->Self{Self::I2(value)}
-}
-impl<B:Backend> From<Tensor<B,3,Int>> for Value<B>{
-	fn from(value:Tensor<B,3,Int>)->Self{Self::I3(value)}
-}
-impl<B:Backend> From<Tensor<B,4,Int>> for Value<B>{
-	fn from(value:Tensor<B,4,Int>)->Self{Self::I4(value)}
-}
-impl<B:Backend> From<Tensor<B,5,Int>> for Value<B>{
-	fn from(value:Tensor<B,5,Int>)->Self{Self::I5(value)}
-}
-impl<B:Backend> From<Tensor<B,6,Int>> for Value<B>{
-	fn from(value:Tensor<B,6,Int>)->Self{Self::I6(value)}
-}
-impl<B:Backend> From<Tensor<B,7,Int>> for Value<B>{
-	fn from(value:Tensor<B,7,Int>)->Self{Self::I7(value)}
-}
-impl<B:Backend> From<Tensor<B,8,Int>> for Value<B>{
-	fn from(value:Tensor<B,8,Int>)->Self{Self::I8(value)}
 }
 impl<B:Backend> From<Vec<Value<B>>> for Value<B>{
 	fn from(value:Vec<Value<B>>)->Self{Self::Multi(value)}
@@ -518,6 +530,37 @@ impl<B:Backend> Merge for Value<B>{
 			(u,v)=>*self=vec![u,v].into()
 		}
 	}
+}
+impl<B:Backend> Module<B> for Value<B>{
+	fn collect_devices(&self,devices:Vec<<B as Backend>::Device>)->Vec<<B as Backend>::Device>{
+		match self{B1(x)=>x.collect_devices(devices),B2(x)=>x.collect_devices(devices),B3(x)=>x.collect_devices(devices),B4(x)=>x.collect_devices(devices),B5(x)=>x.collect_devices(devices),B6(x)=>x.collect_devices(devices),B7(x)=>x.collect_devices(devices),B8(x)=>x.collect_devices(devices),F1(x)=>x.collect_devices(devices),F2(x)=>x.collect_devices(devices),F3(x)=>x.collect_devices(devices),F4(x)=>x.collect_devices(devices),F5(x)=>x.collect_devices(devices),F6(x)=>x.collect_devices(devices),F7(x)=>x.collect_devices(devices),F8(x)=>x.collect_devices(devices),I1(x)=>x.collect_devices(devices),I2(x)=>x.collect_devices(devices),I3(x)=>x.collect_devices(devices),I4(x)=>x.collect_devices(devices),I5(x)=>x.collect_devices(devices),I6(x)=>x.collect_devices(devices),I7(x)=>x.collect_devices(devices),I8(x)=>x.collect_devices(devices),Value::Incompatible(_e)=>devices,Value::Multi(v)=>v.iter().fold(devices,|devices,x|x.collect_devices(devices))}
+	}
+	fn devices(&self)->Vec<<B as Backend>::Device>{self.collect_devices(Vec::new())}
+	fn fork(self,device:&<B as Backend>::Device)->Self{
+		match self{B1(x)=>B1(x.fork(device)),B2(x)=>B2(x.fork(device)),B3(x)=>B3(x.fork(device)),B4(x)=>B4(x.fork(device)),B5(x)=>B5(x.fork(device)),B6(x)=>B6(x.fork(device)),B7(x)=>B7(x.fork(device)),B8(x)=>B8(x.fork(device)),F1(x)=>F1(x.fork(device)),F2(x)=>F2(x.fork(device)),F3(x)=>F3(x.fork(device)),F4(x)=>F4(x.fork(device)),F5(x)=>F5(x.fork(device)),F6(x)=>F6(x.fork(device)),F7(x)=>F7(x.fork(device)),F8(x)=>F8(x.fork(device)),I1(x)=>I1(x.fork(device)),I2(x)=>I2(x.fork(device)),I3(x)=>I3(x.fork(device)),I4(x)=>I4(x.fork(device)),I5(x)=>I5(x.fork(device)),I6(x)=>I6(x.fork(device)),I7(x)=>I7(x.fork(device)),I8(x)=>I8(x.fork(device)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.fork(device)).collect()}
+	}
+	fn into_record(self)->Self::Record{ConstantRecord}
+	fn load_file<F:FileRecorder<B>,P:Into<PathBuf>>(self,_filepath:P,_recorder:&F,_device:&<B as Backend>::Device)->Result<Self,RecorderError>{Ok(self)}
+	fn load_record(self,_record:Self::Record)->Self{self}
+	fn map<Mapper:ModuleMapper<B>>(self,mapper:&mut Mapper)->Self{
+		match self{B1(x)=>B1(x.map(mapper)),B2(x)=>B2(x.map(mapper)),B3(x)=>B3(x.map(mapper)),B4(x)=>B4(x.map(mapper)),B5(x)=>B5(x.map(mapper)),B6(x)=>B6(x.map(mapper)),B7(x)=>B7(x.map(mapper)),B8(x)=>B8(x.map(mapper)),F1(x)=>F1(x.map(mapper)),F2(x)=>F2(x.map(mapper)),F3(x)=>F3(x.map(mapper)),F4(x)=>F4(x.map(mapper)),F5(x)=>F5(x.map(mapper)),F6(x)=>F6(x.map(mapper)),F7(x)=>F7(x.map(mapper)),F8(x)=>F8(x.map(mapper)),I1(x)=>I1(x.map(mapper)),I2(x)=>I2(x.map(mapper)),I3(x)=>I3(x.map(mapper)),I4(x)=>I4(x.map(mapper)),I5(x)=>I5(x.map(mapper)),I6(x)=>I6(x.map(mapper)),I7(x)=>I7(x.map(mapper)),I8(x)=>I8(x.map(mapper)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.map(mapper)).collect()}
+	}
+	fn num_params(&self)->usize{
+		match self{B1(x)=>Module::num_params(x),B2(x)=>Module::num_params(x),B3(x)=>Module::num_params(x),B4(x)=>Module::num_params(x),B5(x)=>Module::num_params(x),B6(x)=>Module::num_params(x),B7(x)=>Module::num_params(x),B8(x)=>Module::num_params(x),F1(x)=>Module::num_params(x),F2(x)=>Module::num_params(x),F3(x)=>Module::num_params(x),F4(x)=>Module::num_params(x),F5(x)=>Module::num_params(x),F6(x)=>Module::num_params(x),F7(x)=>Module::num_params(x),F8(x)=>Module::num_params(x),I1(x)=>Module::num_params(x),I2(x)=>Module::num_params(x),I3(x)=>Module::num_params(x),I4(x)=>Module::num_params(x),I5(x)=>Module::num_params(x),I6(x)=>Module::num_params(x),I7(x)=>Module::num_params(x),I8(x)=>Module::num_params(x),Value::Incompatible(_e)=>0,Value::Multi(v)=>v.into_iter().map(|x|Module::num_params(x)).sum()}
+	}
+	fn quantize_weights(self,quantizer:&mut Quantizer)->Self{
+		match self{B1(x)=>B1(x.quantize_weights(quantizer)),B2(x)=>B2(x.quantize_weights(quantizer)),B3(x)=>B3(x.quantize_weights(quantizer)),B4(x)=>B4(x.quantize_weights(quantizer)),B5(x)=>B5(x.quantize_weights(quantizer)),B6(x)=>B6(x.quantize_weights(quantizer)),B7(x)=>B7(x.quantize_weights(quantizer)),B8(x)=>B8(x.quantize_weights(quantizer)),F1(x)=>F1(x.quantize_weights(quantizer)),F2(x)=>F2(x.quantize_weights(quantizer)),F3(x)=>F3(x.quantize_weights(quantizer)),F4(x)=>F4(x.quantize_weights(quantizer)),F5(x)=>F5(x.quantize_weights(quantizer)),F6(x)=>F6(x.quantize_weights(quantizer)),F7(x)=>F7(x.quantize_weights(quantizer)),F8(x)=>F8(x.quantize_weights(quantizer)),I1(x)=>I1(x.quantize_weights(quantizer)),I2(x)=>I2(x.quantize_weights(quantizer)),I3(x)=>I3(x.quantize_weights(quantizer)),I4(x)=>I4(x.quantize_weights(quantizer)),I5(x)=>I5(x.quantize_weights(quantizer)),I6(x)=>I6(x.quantize_weights(quantizer)),I7(x)=>I7(x.quantize_weights(quantizer)),I8(x)=>I8(x.quantize_weights(quantizer)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.quantize_weights(quantizer)).collect()}
+	}
+	fn save_file<F:FileRecorder<B>,P:Into<PathBuf>>(self,_filepath:P,_recorder:&F)->Result<(),RecorderError>{
+		Ok(())
+	}
+	fn to_device(self,device:&<B as Backend>::Device)->Self{
+		match self{B1(x)=>B1(x.to_device(device)),B2(x)=>B2(x.to_device(device)),B3(x)=>B3(x.to_device(device)),B4(x)=>B4(x.to_device(device)),B5(x)=>B5(x.to_device(device)),B6(x)=>B6(x.to_device(device)),B7(x)=>B7(x.to_device(device)),B8(x)=>B8(x.to_device(device)),F1(x)=>F1(x.to_device(device)),F2(x)=>F2(x.to_device(device)),F3(x)=>F3(x.to_device(device)),F4(x)=>F4(x.to_device(device)),F5(x)=>F5(x.to_device(device)),F6(x)=>F6(x.to_device(device)),F7(x)=>F7(x.to_device(device)),F8(x)=>F8(x.to_device(device)),I1(x)=>I1(x.to_device(device)),I2(x)=>I2(x.to_device(device)),I3(x)=>I3(x.to_device(device)),I4(x)=>I4(x.to_device(device)),I5(x)=>I5(x.to_device(device)),I6(x)=>I6(x.to_device(device)),I7(x)=>I7(x.to_device(device)),I8(x)=>I8(x.to_device(device)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.to_device(device)).collect()}
+	}
+	fn visit<Visitor:ModuleVisitor<B>>(&self,visitor:&mut Visitor){
+		match self{B1(x)=>x.visit(visitor),B2(x)=>x.visit(visitor),B3(x)=>x.visit(visitor),B4(x)=>x.visit(visitor),B5(x)=>x.visit(visitor),B6(x)=>x.visit(visitor),B7(x)=>x.visit(visitor),B8(x)=>x.visit(visitor),F1(x)=>x.visit(visitor),F2(x)=>x.visit(visitor),F3(x)=>x.visit(visitor),F4(x)=>x.visit(visitor),F5(x)=>x.visit(visitor),F6(x)=>x.visit(visitor),F7(x)=>x.visit(visitor),F8(x)=>x.visit(visitor),I1(x)=>x.visit(visitor),I2(x)=>x.visit(visitor),I3(x)=>x.visit(visitor),I4(x)=>x.visit(visitor),I5(x)=>x.visit(visitor),I6(x)=>x.visit(visitor),I7(x)=>x.visit(visitor),I8(x)=>x.visit(visitor),Value::Incompatible(_e)=>(),Value::Multi(v)=>v.iter().for_each(|x|x.visit(visitor))}
+	}
+	type Record=ConstantRecord;
 }
 impl<B:Backend> Value<B>{//TODO scalars
 	/// concatenates the multi tensor along dimension d
@@ -776,7 +819,7 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn try_multi(self)->Result<Vec<Value<B>>,Self>{
 		if let Value::Multi(v)=self{Ok(v)}else{Err(self)}
 	}
-	/// unsqueeze
+	/// unsqueeze 0
 	pub fn unsqueeze(self)->Self{self.unsqueeze_dim(0)}
 	/// inserts a dimension of size 1 at position d
 	pub fn unsqueeze_dim(self,d:i32)->Self{
@@ -784,6 +827,18 @@ impl<B:Backend> Value<B>{//TODO scalars
 			x.unsqueeze_dim(if d<0{D-((-d) as usize)}else{d as usize})
 		}
 		match self{B1(x)=>B2(f(x,d)),B2(x)=>B3(f(x,d)),B3(x)=>B4(f(x,d)),B4(x)=>B5(f(x,d)),B5(x)=>B6(f(x,d)),B6(x)=>B7(f(x,d)),B7(x)=>B8(f(x,d)),B8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),F1(x)=>F2(f(x,d)),F2(x)=>F3(f(x,d)),F3(x)=>F4(f(x,d)),F4(x)=>F5(f(x,d)),F5(x)=>F6(f(x,d)),F6(x)=>F7(f(x,d)),F7(x)=>F8(f(x,d)),F8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),I1(x)=>I2(f(x,d)),I2(x)=>I3(f(x,d)),I3(x)=>I4(f(x,d)),I4(x)=>I5(f(x,d)),I5(x)=>I6(f(x,d)),I6(x)=>I7(f(x,d)),I7(x)=>I8(f(x,d)),I8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.unsqueeze_dim(d)).collect()}
+	}
+	/// squeeze 0
+	pub fn squeeze(self)->Self{self.squeeze_dim(0)}
+	/// removes a dimension of size 1 at position d. incompatible if dimension at position d is not 1
+	pub fn squeeze_dim(self,d:i32)->Self{
+		fn f<B:Backend,K:BasicOps<B>+TensorKind<B>,const D:usize,const N:usize>(x:Tensor<B,D,K>,d:i32)->Result<Tensor<B,N,K>,String>{
+			let d=if d<0{D-((-d) as usize)}else{d as usize};
+			let xdim=x.dims()[d];
+
+			if xdim==1{Ok(x.squeeze(d))}else{Err(format!("cannot squeeze a dim of size not equal to 1. dim {d} was {xdim}"))}
+		}
+		match match self{B1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),B2(x)=>f(x,d).map(B1),B3(x)=>f(x,d).map(B2),B4(x)=>f(x,d).map(B3),B5(x)=>f(x,d).map(B4),B6(x)=>f(x,d).map(B5),B7(x)=>f(x,d).map(B6),B8(x)=>f(x,d).map(B7),F1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),F2(x)=>f(x,d).map(F1),F3(x)=>f(x,d).map(F2),F4(x)=>f(x,d).map(F3),F5(x)=>f(x,d).map(F4),F6(x)=>f(x,d).map(F5),F7(x)=>f(x,d).map(F6),F8(x)=>f(x,d).map(F7),I1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),I2(x)=>f(x,d).map(I1),I3(x)=>f(x,d).map(I2),I4(x)=>f(x,d).map(I3),I5(x)=>f(x,d).map(I4),I6(x)=>f(x,d).map(I5),I7(x)=>f(x,d).map(I6),I8(x)=>f(x,d).map(I7),Value::Incompatible(e)=>Err(e),Value::Multi(v)=>Ok(v.into_iter().map(|x|x.squeeze_dim(d)).collect())}{Err(e)=>e.into(),Ok(x)=>x}
 	}
 	#[track_caller]
 	/// attempts to unwrap the inner b1 value
@@ -896,13 +951,13 @@ macro_rules! bicop_num{
 		}
 	);
 }
-#[derive(Clone,Copy,Debug,Eq,PartialEq)]
+#[derive(Clone,Copy,Debug,Eq,PartialEq,Deserialize,Serialize)]
 /// enumerates kinds for values
 pub enum Kind{Bool,Float,Incompatible,Int,Multi}
-#[derive(Clone,Debug)]// TODO eq that doesn't include the payload of incompatible
+#[derive(Clone,Debug,Deserialize,Serialize)]// TODO eq that doesn't include the payload of incompatible
 /// tensor shapes for Value
 pub enum Shape{Incompatible(String),Multi(usize),Recursive(Vec<Shape>),X1([usize;1]),X2([usize;2]),X3([usize;3]),X4([usize;4]),X5([usize;5]),X6([usize;6]),X7([usize;7]),X8([usize;8])}
-#[derive(Clone,Debug)]//TODO implement module for this
+#[derive(Clone,Debug)]//TODO implement serde for this
 /// enumerates burn tensors up to 8 dimensions, along with a variant to represent operation compatibility errors, and a variant for multiple tensors. An empty multi variant can be used to represent a lack of data. Once a the depth of a multi variant is enough for an operation to take full effect, further nesting should result in the same as applying separately
 pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
 #[derive(Clone,Debug)]
@@ -913,18 +968,21 @@ use Bound::{Excluded,Included,Unbounded};
 use Shape::{X1,X2,X3,X4,X5,X6,X7,X8};
 use Value::{B1,B2,B3,B4,B5,B6,B7,B8,F1,F2,F3,F4,F5,F6,F7,F8,I1,I2,I3,I4,I5,I6,I7,I8};
 use burn::{
-	prelude::{Backend,Bool,Float,Int,Tensor,TensorData},
+	module::{AutodiffModule,ConstantRecord,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
 	nn::{
-		Dropout,Embedding,LayerNorm,Linear,Relu,Tanh,loss::{CrossEntropyLoss,MseLoss}
+		Dropout,Embedding,LayerNorm,Linear,Relu,RotaryEncoding,Tanh,loss::{CrossEntropyLoss,MseLoss}
 	},
+	prelude::{Backend,Bool,Float,Int,Module,Tensor,TensorData},
+	record::{FileRecorder,RecorderError},
 	tensor::{
-		BasicOps,ElementConversion,TensorKind,activation::{log_softmax,softmax},cast::ToElement
+		BasicOps,ElementConversion,TensorKind,activation::{log_softmax,softmax},backend::AutodiffBackend,cast::ToElement
 	}
 };
 use crate::{
-	AI,Decompose,Merge,Op,builtin::{AccQ,Alignment,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer},ops::Abs
+	AI,Decompose,Merge,Op,builtin::{AccQLayer,Alignment,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer},ops::Abs
 };
 use rand::random;
+use serde::{Deserialize,Serialize};
 use std::{
-	iter::{FromIterator,once},mem,ops::{Add,Bound,Div,Mul,RangeBounds,Range,Rem,Sub},slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
+	any::TypeId,fmt::{Display,Result as FmtResult},iter::{FromIterator,once},mem,ops::{Add,Bound,Div,Mul,RangeBounds,Range,Rem,Sub},path::PathBuf,slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
 };
