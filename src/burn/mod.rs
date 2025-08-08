@@ -457,7 +457,8 @@ pub trait Wrappable:Clone+Debug+Decompose+Send{
 	type With<C:Backend>:Wrappable<B=C,With<C>=Self::With<C>>+Wrappable<B=C,With<Self::B>=Self>;
 }
 pub use burn as lib;
-pub use layer::{Config,Layer};
+pub use layer::{AttentionMask,Config,Layer};
+//pub use layer::{Attention,AttentionMask,CacheKV,Config,Layer,KQV};
 pub use value::{LossOutput,Shape,Value};
 use burn::{
 	backend::NdArray,
