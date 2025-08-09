@@ -291,6 +291,17 @@ impl<B:Backend> AI<Value<B>,Value<B>> for AccQLayer{
 		match input.float(){F1(x)=>F1(acc_q(dim,gamma,x)),F2(x)=>F2(acc_q(dim,gamma,x)),F3(x)=>F3(acc_q(dim,gamma,x)),F4(x)=>F4(acc_q(dim,gamma,x)),F5(x)=>F5(acc_q(dim,gamma,x)),F6(x)=>F6(acc_q(dim,gamma,x)),F7(x)=>F7(acc_q(dim,gamma,x)),F8(x)=>F8(acc_q(dim,gamma,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect()),_=>panic!("unexpected non float value")}
 	}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for ArgmaxLayer{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		fn f<B:Backend,const N:usize>(dim:i32,temperature:f32,x:Tensor<B,N>)->Tensor<B,N>{
+			let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
+			softmax(x/temperature,dim)
+		}
+		let (dim,temperature)=(self.get_dim(),self.get_temperature());
+
+		match input.float(){F1(x)=>F1(f(dim,temperature,x)),F2(x)=>F2(f(dim,temperature,x)),F3(x)=>F3(f(dim,temperature,x)),F4(x)=>F4(f(dim,temperature,x)),F5(x)=>F5(f(dim,temperature,x)),F6(x)=>F6(f(dim,temperature,x)),F7(x)=>F7(f(dim,temperature,x)),F8(x)=>F8(f(dim,temperature,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>x.into_iter().map(|x|self.forward(x)).collect(),_=>panic!("unexpected non float value")}
+	}
+}
 impl<B:Backend> AI<Value<B>,Value<B>> for CatLayer{
 	fn forward(&self,input:Value<B>)->Value<B>{input.cat(self.get_dim())}
 }
@@ -967,7 +978,8 @@ pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,
 #[derive(Clone,Debug)]
 /// general loss output for being converted into other loss outputs
 pub struct LossOutput<B:Backend>{loss:Value<B>,output:Value<B>,target:Value<B>}
-use bicop_num;use Bound::{Excluded,Included,Unbounded};
+use bicop_num;
+use Bound::{Excluded,Included,Unbounded};
 use Shape::{X1,X2,X3,X4,X5,X6,X7,X8};
 use Value::{B1,B2,B3,B4,B5,B6,B7,B8,F1,F2,F3,F4,F5,F6,F7,F8,I1,I2,I3,I4,I5,I6,I7,I8};
 use burn::{
@@ -982,7 +994,7 @@ use burn::{
 	}
 };
 use crate::{
-	AI,Decompose,Merge,Op,builtin::{AccQLayer,Alignment,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer},ops::Abs
+	AI,Decompose,Merge,Op,builtin::{AccQLayer,Alignment,ArgmaxLayer,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer},ops::Abs
 };
 use rand::random;
 use serde::{Deserialize,Serialize};
