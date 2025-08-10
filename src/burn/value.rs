@@ -117,6 +117,20 @@ impl<B:Backend,K:'static+TensorKind<B>,const N:usize> From<Tensor<B,N,K>> for Va
 		v
 	}
 }
+impl<B:Backend,K:'static+TensorKind<B>,const N:usize> TryFrom<Value<B>> for Tensor<B,N,K>{
+	fn try_from(value:Value<B>)->Result<Self,Self::Error>{
+		let kind=TypeId::of::<K>();
+		let kind=if kind==TypeId::of::<Bool>(){Kind::Bool}else if kind==TypeId::of::<Float>(){Kind::Float}else if kind==TypeId::of::<Int>(){Kind::Int}else{return Err(value)};
+
+		if Some(N)!=value.rank()||kind!=value.kind(){return Err(value)}
+		let r=unsafe{
+			match &value{B1(x)=>mem::transmute_copy(x),B2(x)=>mem::transmute_copy(x),B3(x)=>mem::transmute_copy(x),B4(x)=>mem::transmute_copy(x),B5(x)=>mem::transmute_copy(x),B6(x)=>mem::transmute_copy(x),B7(x)=>mem::transmute_copy(x),B8(x)=>mem::transmute_copy(x),F1(x)=>mem::transmute_copy(x),F2(x)=>mem::transmute_copy(x),F3(x)=>mem::transmute_copy(x),F4(x)=>mem::transmute_copy(x),F5(x)=>mem::transmute_copy(x),F6(x)=>mem::transmute_copy(x),F7(x)=>mem::transmute_copy(x),F8(x)=>mem::transmute_copy(x),I1(x)=>mem::transmute_copy(x),I2(x)=>mem::transmute_copy(x),I3(x)=>mem::transmute_copy(x),I4(x)=>mem::transmute_copy(x),I5(x)=>mem::transmute_copy(x),I6(x)=>mem::transmute_copy(x),I7(x)=>mem::transmute_copy(x),I8(x)=>mem::transmute_copy(x),_=>panic!("internal error")}
+		};
+		mem::forget(value);
+		Ok(r)
+	}
+	type Error=Value<B>;
+}
 impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for Value<B>{
 	fn from(value:&S)->Self{Self::Incompatible(value.as_ref().to_string())}
 }
@@ -184,7 +198,7 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for CrossEntropyLayer{// TODO m
 }
 impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for CrossEntropyLoss<B>{
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
-		let mut op=().fix_type::<Value<B>>().cross_entropy(-1);
+		let mut op=().fix_type::<Value<B>>().cross_entropy(1.0);
 		if !self.logits{op.set_temperature(f32::NAN)}
 		op.forward((output,target))
 	}
@@ -234,7 +248,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for CrossEntropyLayer{
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for CrossEntropyLoss<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
-		let mut op=CrossEntropyLayer::new(-1);
+		let mut op=CrossEntropyLayer::new(1.0);
 		if !self.logits{op.set_temperature(f32::NAN)}
 		op.forward(input)
 	}
@@ -291,7 +305,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for AccQLayer{
 		match input.float(){F1(x)=>F1(acc_q(dim,gamma,x)),F2(x)=>F2(acc_q(dim,gamma,x)),F3(x)=>F3(acc_q(dim,gamma,x)),F4(x)=>F4(acc_q(dim,gamma,x)),F5(x)=>F5(acc_q(dim,gamma,x)),F6(x)=>F6(acc_q(dim,gamma,x)),F7(x)=>F7(acc_q(dim,gamma,x)),F8(x)=>F8(acc_q(dim,gamma,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect()),_=>panic!("unexpected non float value")}
 	}
 }
-impl<B:Backend> AI<Value<B>,Value<B>> for ArgmaxLayer{
+impl<B:Backend> AI<Value<B>,Value<B>> for SoftmaxLayer{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		fn f<B:Backend,const N:usize>(dim:i32,temperature:f32,x:Tensor<B,N>)->Tensor<B,N>{
 			let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
@@ -574,6 +588,10 @@ impl<B:Backend> Module<B> for Value<B>{
 	type Record=ConstantRecord;
 }
 impl<B:Backend> Value<B>{//TODO scalars
+	/// casts to a bool tensor if not one
+	pub fn bool(self)->Value<B>{
+		match self{B1(x)=>B1(x),B2(x)=>B2(x),B3(x)=>B3(x),B4(x)=>B4(x),B5(x)=>B5(x),B6(x)=>B6(x),B7(x)=>B7(x),B8(x)=>B8(x),F1(x)=>B1(x.bool()),F2(x)=>B2(x.bool()),F3(x)=>B3(x.bool()),F4(x)=>B4(x.bool()),F5(x)=>B5(x.bool()),F6(x)=>B6(x.bool()),F7(x)=>B7(x.bool()),F8(x)=>B8(x.bool()),I1(x)=>B1(x.bool()),I2(x)=>B2(x.bool()),I3(x)=>B3(x.bool()),I4(x)=>B4(x.bool()),I5(x)=>B5(x.bool()),I6(x)=>B6(x.bool()),I7(x)=>B7(x.bool()),I8(x)=>B8(x.bool()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(Value::bool).collect())}
+	}
 	/// concatenates the multi tensor along dimension d
 	pub fn cat(self,d:i32)->Self{
 		fn f<B:Backend,I:Iterator<Item=Tensor<B,N,K>>,K:BasicOps<B>+TensorKind<B>,const N:usize>(d:i32,x0:Tensor<B,N,K>,tensors:I)->Value<B> where Tensor<B,N,K>:Into<Value<B>>{
@@ -659,6 +677,16 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn len_recursive(&self)->usize{
 		if let Value::Multi(v)=self{v.iter().map(Value::len_recursive).sum()}else{1}
 	}
+	/// gather
+	pub fn gather(self,dim:i32,indices:Value<B>)->Self{
+		fn b<B:Backend,const N:usize>(d:i32,data:Tensor<B,N,Bool>,indices:Tensor<B,N,Int>)->Value<B>{f(d,data.int(),indices).bool()}
+		fn f<B:Backend,K:'static+BasicOps<B>+Numeric<B>+TensorKind<B>,const N:usize>(d:i32,data:Tensor<B,N,K>,indices:Tensor<B,N,Int>)->Value<B>{
+			let d=if d<0{N-((-d) as usize)}else{d as usize};
+			if d>=N{format!("dim {d} must be less than rank {N}").into()}else{data.gather(d,indices).into()}
+		}
+
+		match (self,indices){(B1(x),I1(i))=>b(dim,x,i),(B2(x),I2(i))=>b(dim,x,i),(B3(x),I3(i))=>b(dim,x,i),(B4(x),I4(i))=>b(dim,x,i),(B5(x),I5(i))=>b(dim,x,i),(B6(x),I6(i))=>b(dim,x,i),(B7(x),I7(i))=>b(dim,x,i),(B8(x),I8(i))=>b(dim,x,i),(F1(x),I1(i))=>f(dim,x,i),(F2(x),I2(i))=>f(dim,x,i),(F3(x),I3(i))=>f(dim,x,i),(F4(x),I4(i))=>f(dim,x,i),(F5(x),I5(i))=>f(dim,x,i),(F6(x),I6(i))=>f(dim,x,i),(F7(x),I7(i))=>f(dim,x,i),(F8(x),I8(i))=>f(dim,x,i),(I1(x),I1(i))=>f(dim,x,i),(I2(x),I2(i))=>f(dim,x,i),(I3(x),I3(i))=>f(dim,x,i),(I4(x),I4(i))=>f(dim,x,i),(I5(x),I5(i))=>f(dim,x,i),(I6(x),I6(i))=>f(dim,x,i),(I7(x),I7(i))=>f(dim,x,i),(I8(x),I8(i))=>f(dim,x,i),(Value::Incompatible(e),_)=>e.into(),(_,Value::Incompatible(e))=>e.into(),(Value::Multi(u),Value::Multi(v))=>u.into_iter().zip(v).map(|(u,v)|u.gather(dim,v)).collect(),_=>"gather is only available for tensors of matching dimensions with int indices".into()}
+	}
 	/// casts to a multiple tensor if not one
 	pub fn multi(self)->Self{
 		if let Value::Multi(v)=self{v.into()}else{vec![self].into()}
@@ -702,6 +730,27 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn shape_recursive(&self)->Shape{
 		if let Value::Multi(x)=self{Shape::Recursive(x.iter().map(Value::shape_recursive).collect())}else{self.shape()}
 	}
+	/// shifts the components right n places, maintaining the current dimensions, filling the left spot with v cast to the appropriate type
+	pub fn shift(self,d:i32,n:i32,v:f32)->Self{
+		fn b<B:Backend,const N:usize>(d:i32,n:i32,v:f32,x:Tensor<B,N,Bool>)->Value<B>{f(d,n,if v==0.0{0.0}else{1.0},x.int()).bool()}
+		fn f<B:Backend,K:'static+BasicOps<B>+Numeric<B>+TensorKind<B>,const N:usize>(d:i32,n:i32,v:f32,x:Tensor<B,N,K>)->Value<B>{
+			let device=x.device();
+			let d=if d<0{N-((-d) as usize)}else{d as usize};
+			let mut paddims=x.dims();
+			let mut slicedims=paddims.map(|n|0..n);
+
+			paddims[d]=n.abs() as usize;
+			slicedims[d]=if n<0{(-n) as usize..slicedims[d].end}else{0..slicedims[d].end-n as usize};
+			if slicedims[d].len()==0{return x.full_like(v).into()}
+			let pad:Tensor<B,N,K>=Tensor::full(paddims,v,&device);
+			let slice=x.slice(slicedims);
+
+			Tensor::cat(if n<0{vec![slice,pad]}else{vec![pad,slice]},d).into()
+		}
+		if n==0{return self}
+
+		match self{B1(x)=>b(d,n,v,x),B2(x)=>b(d,n,v,x),B3(x)=>b(d,n,v,x),B4(x)=>b(d,n,v,x),B5(x)=>b(d,n,v,x),B6(x)=>b(d,n,v,x),B7(x)=>b(d,n,v,x),B8(x)=>b(d,n,v,x),F1(x)=>f(d,n,v,x),F2(x)=>f(d,n,v,x),F3(x)=>f(d,n,v,x),F4(x)=>f(d,n,v,x),F5(x)=>f(d,n,v,x),F6(x)=>f(d,n,v,x),F7(x)=>f(d,n,v,x),F8(x)=>f(d,n,v,x),I1(x)=>f(d,n,v,x),I2(x)=>f(d,n,v,x),I3(x)=>f(d,n,v,x),I4(x)=>f(d,n,v,x),I5(x)=>f(d,n,v,x),I6(x)=>f(d,n,v,x),I7(x)=>f(d,n,v,x),I8(x)=>f(d,n,v,x),Value::Incompatible(e)=>e.into(),Value::Multi(x)=>x.into_iter().map(|x|x.shift(d,n,v)).collect()}
+	}
 	/// returns a value containing the elements selected from the given ranges. If this is a multi tensor the slice will be applied to each sub tensor
 	pub fn slice<A:AsRef<[R]>,R:RangeBounds<usize>>(self,ranges:A)->Self{
 		let ranges=ranges.as_ref();
@@ -724,104 +773,8 @@ impl<B:Backend> Value<B>{//TODO scalars
 
 		match self{B1(x)=>B1(slice_slice(ranges,x)),B2(x)=>B2(slice_slice(ranges,x)),B3(x)=>B3(slice_slice(ranges,x)),B4(x)=>B4(slice_slice(ranges,x)),B5(x)=>B5(slice_slice(ranges,x)),B6(x)=>B6(slice_slice(ranges,x)),B7(x)=>B7(slice_slice(ranges,x)),B8(x)=>B8(slice_slice(ranges,x)),F1(x)=>F1(slice_slice(ranges,x)),F2(x)=>F2(slice_slice(ranges,x)),F3(x)=>F3(slice_slice(ranges,x)),F4(x)=>F4(slice_slice(ranges,x)),F5(x)=>F5(slice_slice(ranges,x)),F6(x)=>F6(slice_slice(ranges,x)),F7(x)=>F7(slice_slice(ranges,x)),F8(x)=>F8(slice_slice(ranges,x)),I1(x)=>I1(slice_slice(ranges,x)),I2(x)=>I2(slice_slice(ranges,x)),I3(x)=>I3(slice_slice(ranges,x)),I4(x)=>I4(slice_slice(ranges,x)),I5(x)=>I5(slice_slice(ranges,x)),I6(x)=>I6(slice_slice(ranges,x)),I7(x)=>I7(slice_slice(ranges,x)),I8(x)=>I8(slice_slice(ranges,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|x.slice(ranges)).collect())}
 	}
-	/// stacks the multi tensor, inserting a dimension at d. for singular tensors this has an unsqueezing effect
+	/// stacks the multi tensor, inserting a dimension at d, or N+d+1 if d is negative. for singular tensors this has an unsqueezing effect
 	pub fn stack(self,d:i32)->Self{self.unsqueeze_dim(d).cat(d)}
-	/// attempts to unwrap the inner B1 value
-	pub fn try_b1(self)->Result<Tensor<B,1,Bool>,Self>{
-		if let B1(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner B2 value
-	pub fn try_b2(self)->Result<Tensor<B,2,Bool>,Self>{//TODO try from
-		if let B2(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner B3 value
-	pub fn try_b3(self)->Result<Tensor<B,3,Bool>,Self>{
-		if let B3(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner B4 value
-	pub fn try_b4(self)->Result<Tensor<B,4,Bool>,Self>{
-		if let B4(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner B5 value
-	pub fn try_b5(self)->Result<Tensor<B,5,Bool>,Self>{
-		if let B5(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner B6 value
-	pub fn try_b6(self)->Result<Tensor<B,6,Bool>,Self>{
-		if let B6(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner B7 value
-	pub fn try_b7(self)->Result<Tensor<B,7,Bool>,Self>{
-		if let B7(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner B8 value
-	pub fn try_b8(self)->Result<Tensor<B,8,Bool>,Self>{
-		if let B8(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner F1 value
-	pub fn try_f1(self)->Result<Tensor<B,1,Float>,Self>{
-		if let Value::F1(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner F2 value
-	pub fn try_f2(self)->Result<Tensor<B,2,Float>,Self>{
-		if let Value::F2(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner F3 value
-	pub fn try_f3(self)->Result<Tensor<B,3,Float>,Self>{
-		if let Value::F3(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner F4 value
-	pub fn try_f4(self)->Result<Tensor<B,4,Float>,Self>{
-		if let Value::F4(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner F5 value
-	pub fn try_f5(self)->Result<Tensor<B,5,Float>,Self>{
-		if let Value::F5(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner F6 value
-	pub fn try_f6(self)->Result<Tensor<B,6,Float>,Self>{
-		if let Value::F6(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner F7 value
-	pub fn try_f7(self)->Result<Tensor<B,7,Float>,Self>{
-		if let Value::F7(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner F8 value
-	pub fn try_f8(self)->Result<Tensor<B,8,Float>,Self>{
-		if let Value::F8(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner I1 value
-	pub fn try_i1(self)->Result<Tensor<B,1,Int>,Self>{
-		if let Value::I1(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner I2 value
-	pub fn try_i2(self)->Result<Tensor<B,2,Int>,Self>{
-		if let Value::I2(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner I3 value
-	pub fn try_i3(self)->Result<Tensor<B,3,Int>,Self>{
-		if let Value::I3(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner I4 value
-	pub fn try_i4(self)->Result<Tensor<B,4,Int>,Self>{
-		if let Value::I4(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner I5 value
-	pub fn try_i5(self)->Result<Tensor<B,5,Int>,Self>{
-		if let Value::I5(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner I6 value
-	pub fn try_i6(self)->Result<Tensor<B,6,Int>,Self>{
-		if let Value::I6(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner I7 value
-	pub fn try_i7(self)->Result<Tensor<B,7,Int>,Self>{
-		if let Value::I7(x)=self{Ok(x)}else{Err(self)}
-	}
-	/// attempts to unwrap the inner I8 value
-	pub fn try_i8(self)->Result<Tensor<B,8,Int>,Self>{
-		if let Value::I8(x)=self{Ok(x)}else{Err(self)}
-	}
 	/// attempts to unwrap the inner incompatible value
 	pub fn try_incompatible(self)->Result<String,Self>{
 		if let Value::Incompatible(x)=self{Ok(x)}else{Err(self)}
@@ -832,10 +785,14 @@ impl<B:Backend> Value<B>{//TODO scalars
 	}
 	/// unsqueeze 0
 	pub fn unsqueeze(self)->Self{self.unsqueeze_dim(0)}
-	/// inserts a dimension of size 1 at position d
+	/// inserts a dimension of size 1 at position d, or N+d+1 if d is negative
 	pub fn unsqueeze_dim(self,d:i32)->Self{
 		fn f<B:Backend,K:BasicOps<B>+TensorKind<B>,const D:usize,const N:usize>(x:Tensor<B,D,K>,d:i32)->Tensor<B,N,K>{
-			x.unsqueeze_dim(if d<0{D-((-d) as usize)}else{d as usize})
+			x.unsqueeze_dim(if d<0{D-((-d) as usize)+1}else{d as usize})
+		}
+		if let Some(r)=self.rank(){
+			let e=if d<0{r-((-d) as usize)+1}else{d as usize};
+			if e>r{return format!("dim {e} must be less than or equal to rank {r}").into()}
 		}
 		match self{B1(x)=>B2(f(x,d)),B2(x)=>B3(f(x,d)),B3(x)=>B4(f(x,d)),B4(x)=>B5(f(x,d)),B5(x)=>B6(f(x,d)),B6(x)=>B7(f(x,d)),B7(x)=>B8(f(x,d)),B8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),F1(x)=>F2(f(x,d)),F2(x)=>F3(f(x,d)),F3(x)=>F4(f(x,d)),F4(x)=>F5(f(x,d)),F5(x)=>F6(f(x,d)),F6(x)=>F7(f(x,d)),F7(x)=>F8(f(x,d)),F8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),I1(x)=>I2(f(x,d)),I2(x)=>I3(f(x,d)),I3(x)=>I4(f(x,d)),I4(x)=>I5(f(x,d)),I5(x)=>I6(f(x,d)),I6(x)=>I7(f(x,d)),I7(x)=>I8(f(x,d)),I8(_x)=>"currently can't increase number of tensor dimensions above 8".into(),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.unsqueeze_dim(d)).collect()}
 	}
@@ -845,84 +802,14 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn squeeze_dim(self,d:i32)->Self{
 		fn f<B:Backend,K:BasicOps<B>+TensorKind<B>,const D:usize,const N:usize>(x:Tensor<B,D,K>,d:i32)->Result<Tensor<B,N,K>,String>{
 			let d=if d<0{D-((-d) as usize)}else{d as usize};
+
+			if d>=D{return Err(format!("dim {d} must be less than {D}"))}
 			let xdim=x.dims()[d];
 
 			if xdim==1{Ok(x.squeeze(d))}else{Err(format!("cannot squeeze a dim of size not equal to 1. dim {d} was {xdim}"))}
 		}
 		match match self{B1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),B2(x)=>f(x,d).map(B1),B3(x)=>f(x,d).map(B2),B4(x)=>f(x,d).map(B3),B5(x)=>f(x,d).map(B4),B6(x)=>f(x,d).map(B5),B7(x)=>f(x,d).map(B6),B8(x)=>f(x,d).map(B7),F1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),F2(x)=>f(x,d).map(F1),F3(x)=>f(x,d).map(F2),F4(x)=>f(x,d).map(F3),F5(x)=>f(x,d).map(F4),F6(x)=>f(x,d).map(F5),F7(x)=>f(x,d).map(F6),F8(x)=>f(x,d).map(F7),I1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),I2(x)=>f(x,d).map(I1),I3(x)=>f(x,d).map(I2),I4(x)=>f(x,d).map(I3),I5(x)=>f(x,d).map(I4),I6(x)=>f(x,d).map(I5),I7(x)=>f(x,d).map(I6),I8(x)=>f(x,d).map(I7),Value::Incompatible(e)=>Err(e),Value::Multi(v)=>Ok(v.into_iter().map(|x|x.squeeze_dim(d)).collect())}{Err(e)=>e.into(),Ok(x)=>x}
 	}
-	#[track_caller]
-	/// attempts to unwrap the inner b1 value
-	pub fn unwrap_b1(self)->Tensor<B,1,Bool>{self.try_b1().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner b2 value
-	pub fn unwrap_b2(self)->Tensor<B,2,Bool>{self.try_b2().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner b3 value
-	pub fn unwrap_b3(self)->Tensor<B,3,Bool>{self.try_b3().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner b4 value
-	pub fn unwrap_b4(self)->Tensor<B,4,Bool>{self.try_b4().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner b5 value
-	pub fn unwrap_b5(self)->Tensor<B,5,Bool>{self.try_b5().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner b6 value
-	pub fn unwrap_b6(self)->Tensor<B,6,Bool>{self.try_b6().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner b7 value
-	pub fn unwrap_b7(self)->Tensor<B,7,Bool>{self.try_b7().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner b8 value
-	pub fn unwrap_b8(self)->Tensor<B,8,Bool>{self.try_b8().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner f1 value
-	pub fn unwrap_f1(self)->Tensor<B,1>{self.try_f1().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner f2 value
-	pub fn unwrap_f2(self)->Tensor<B,2>{self.try_f2().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner f3 value
-	pub fn unwrap_f3(self)->Tensor<B,3>{self.try_f3().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner f4 value
-	pub fn unwrap_f4(self)->Tensor<B,4>{self.try_f4().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner f5 value
-	pub fn unwrap_f5(self)->Tensor<B,5>{self.try_f5().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner f6 value
-	pub fn unwrap_f6(self)->Tensor<B,6>{self.try_f6().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner f7 value
-	pub fn unwrap_f7(self)->Tensor<B,7>{self.try_f7().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner f8 value
-	pub fn unwrap_f8(self)->Tensor<B,8>{self.try_f8().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner i1 value
-	pub fn unwrap_i1(self)->Tensor<B,1,Int>{self.try_i1().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner i2 value
-	pub fn unwrap_i2(self)->Tensor<B,2,Int>{self.try_i2().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner i3 value
-	pub fn unwrap_i3(self)->Tensor<B,3,Int>{self.try_i3().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner i4 value
-	pub fn unwrap_i4(self)->Tensor<B,4,Int>{self.try_i4().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner i5 value
-	pub fn unwrap_i5(self)->Tensor<B,5,Int>{self.try_i5().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner i6 value
-	pub fn unwrap_i6(self)->Tensor<B,6,Int>{self.try_i6().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner i7 value
-	pub fn unwrap_i7(self)->Tensor<B,7,Int>{self.try_i7().unwrap()}
-	#[track_caller]
-	/// attempts to unwrap the inner i8 value
-	pub fn unwrap_i8(self)->Tensor<B,8,Int>{self.try_i8().unwrap()}
 	#[track_caller]
 	/// attempts to unwrap the inner incompatible value
 	pub fn unwrap_incompatible(self)->String{self.try_incompatible().unwrap()}
@@ -933,6 +820,30 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn zeros_like(&self)->Value<B>{// TODO this could be more efficient for bool
 		match self{B1(x)=>B1(x.clone().int().zeros_like().bool()),B2(x)=>B2(x.clone().int().zeros_like().bool()),B3(x)=>B3(x.clone().int().zeros_like().bool()),B4(x)=>B4(x.clone().int().zeros_like().bool()),B5(x)=>B5(x.clone().int().zeros_like().bool()),B6(x)=>B6(x.clone().int().zeros_like().bool()),B7(x)=>B7(x.clone().int().zeros_like().bool()),B8(x)=>B8(x.clone().int().zeros_like().bool()),F1(x)=>F1(x.zeros_like()),F2(x)=>F2(x.zeros_like()),F3(x)=>F3(x.zeros_like()),F4(x)=>F4(x.zeros_like()),F5(x)=>F5(x.zeros_like()),F6(x)=>F6(x.zeros_like()),F7(x)=>F7(x.zeros_like()),F8(x)=>F8(x.zeros_like()),I1(x)=>I1(x.zeros_like()),I2(x)=>I2(x.zeros_like()),I3(x)=>I3(x.zeros_like()),I4(x)=>I4(x.zeros_like()),I5(x)=>I5(x.zeros_like()),I6(x)=>I6(x.zeros_like()),I7(x)=>I7(x.zeros_like()),I8(x)=>I8(x.zeros_like()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.iter().map(Value::zeros_like).collect()}
 	}
+	try_unwrap!(Tensor<B,1,Bool>,try_b1,unwrap_b1);
+	try_unwrap!(Tensor<B,2,Bool>,try_b2,unwrap_b2);
+	try_unwrap!(Tensor<B,3,Bool>,try_b3,unwrap_b3);
+	try_unwrap!(Tensor<B,4,Bool>,try_b4,unwrap_b4);
+	try_unwrap!(Tensor<B,5,Bool>,try_b5,unwrap_b5);
+	try_unwrap!(Tensor<B,6,Bool>,try_b6,unwrap_b6);
+	try_unwrap!(Tensor<B,7,Bool>,try_b7,unwrap_b7);
+	try_unwrap!(Tensor<B,8,Bool>,try_b8,unwrap_b8);
+	try_unwrap!(Tensor<B,1,Float>,try_f1,unwrap_f1);
+	try_unwrap!(Tensor<B,2,Float>,try_f2,unwrap_f2);
+	try_unwrap!(Tensor<B,3,Float>,try_f3,unwrap_f3);
+	try_unwrap!(Tensor<B,4,Float>,try_f4,unwrap_f4);
+	try_unwrap!(Tensor<B,5,Float>,try_f5,unwrap_f5);
+	try_unwrap!(Tensor<B,6,Float>,try_f6,unwrap_f6);
+	try_unwrap!(Tensor<B,7,Float>,try_f7,unwrap_f7);
+	try_unwrap!(Tensor<B,8,Float>,try_f8,unwrap_f8);
+	try_unwrap!(Tensor<B,1,Int>,try_i1,unwrap_i1);
+	try_unwrap!(Tensor<B,2,Int>,try_i2,unwrap_i2);
+	try_unwrap!(Tensor<B,3,Int>,try_i3,unwrap_i3);
+	try_unwrap!(Tensor<B,4,Int>,try_i4,unwrap_i4);
+	try_unwrap!(Tensor<B,5,Int>,try_i5,unwrap_i5);
+	try_unwrap!(Tensor<B,6,Int>,try_i6,unwrap_i6);
+	try_unwrap!(Tensor<B,7,Int>,try_i7,unwrap_i7);
+	try_unwrap!(Tensor<B,8,Int>,try_i8,unwrap_i8);
 }
 macro_rules! bicop_num{
 	($trait:ident,$traitfn:ident,$traitscalar:ident)=>(
@@ -966,6 +877,15 @@ macro_rules! bicop_num{
 		}
 	);
 }
+macro_rules! try_unwrap{
+	($tensor:ty,$try_unwrap:ident,$unwrap:ident)=>{
+		/// attempts to unwrap the inner value
+		pub fn $try_unwrap(self)->Result<$tensor,Self>{self.try_into()}
+		#[track_caller]
+		/// attempts to unwrap the inner value
+		pub fn $unwrap(self)->$tensor{self.try_into().unwrap()}
+	}
+}
 #[derive(Clone,Copy,Debug,Eq,PartialEq,Deserialize,Serialize)]
 /// enumerates kinds for values
 pub enum Kind{Bool,Float,Incompatible,Int,Multi}
@@ -978,7 +898,7 @@ pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,
 #[derive(Clone,Debug)]
 /// general loss output for being converted into other loss outputs
 pub struct LossOutput<B:Backend>{loss:Value<B>,output:Value<B>,target:Value<B>}
-use bicop_num;
+use {bicop_num,try_unwrap};
 use Bound::{Excluded,Included,Unbounded};
 use Shape::{X1,X2,X3,X4,X5,X6,X7,X8};
 use Value::{B1,B2,B3,B4,B5,B6,B7,B8,F1,F2,F3,F4,F5,F6,F7,F8,I1,I2,I3,I4,I5,I6,I7,I8};
@@ -990,11 +910,11 @@ use burn::{
 	prelude::{Backend,Bool,Float,Int,Module,Tensor,TensorData},
 	record::{FileRecorder,RecorderError},
 	tensor::{
-		BasicOps,ElementConversion,TensorKind,activation::{log_softmax,softmax},backend::AutodiffBackend,cast::ToElement
+		BasicOps,ElementConversion,Numeric,TensorKind,activation::{log_softmax,softmax},backend::AutodiffBackend,cast::ToElement
 	}
 };
 use crate::{
-	AI,Decompose,Merge,Op,builtin::{AccQLayer,Alignment,ArgmaxLayer,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer},ops::Abs
+	AI,Decompose,Merge,Op,builtin::{AccQLayer,Alignment,SoftmaxLayer,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer},ops::Abs
 };
 use rand::random;
 use serde::{Deserialize,Serialize};
