@@ -162,7 +162,7 @@ pub trait IntoSequence<M:AI<M::Output,M::Output>+Op>{
 /// composition trait
 pub trait Op{
 	/// wraps with a softmax operation
-	fn abnormal_softmax(self,dim:i32)->AbnormalSoftmax<Self> where Self:Sized,AbnormalSoftmax<Self>:Op{AbnormalSoftmax::new(dim,self)}
+	fn abnormal_softmax(self,temperature:f32)->AbnormalSoftmax<Self> where Self:Sized,AbnormalSoftmax<Self>:Op{AbnormalSoftmax::new(self,temperature)}
 	/// wraps with an absolute value operation
 	fn abs(self)->Abs<Self> where Self:Sized,Abs<Self>:Op{Abs::new(self)}
 	/// wraps with a accq operation
@@ -171,8 +171,8 @@ pub trait Op{
 	fn cat(self,dim:i32)->Cat<Self> where Cat<Self>:Op,Self:Sized{Cat::new(dim,self)}
 	/// sequences with another ai operation
 	fn chain<B>(self,b:B)->Sequential<(Self,B)> where Self:Sized,Sequential<(Self,B)>:Op{Sequential::new((self,b))}
-	/// wraps with a cross entropy operation
-	fn cross_entropy(self,dim:i32)->CrossEntropy<Self> where CrossEntropy<Self>:Op,Self:Sized{CrossEntropy::new(dim,self)}
+	/// wraps with a cross entropy operation. If temperature is a number it will be used to apply softmax to the logits before computing entropy with the target. if the input will already be a probability distribution instead of logits, put NaN temperature
+	fn cross_entropy(self,temperature:f32)->CrossEntropy<Self> where CrossEntropy<Self>:Op,Self:Sized{CrossEntropy::new(self,temperature)}
 	/// wraps with a duplicate operation
 	fn duplicate(self)->Duplicate<Self> where Duplicate<Self>:Op,Self:Sized{Duplicate::new(self)}
 	/// set type but with the same input and output
@@ -188,7 +188,7 @@ pub trait Op{
 	/// creates an autoregressive inference
 	fn infer_autoregressive<X,Y>(self,input:X)->Autoregression<Self,Y> where Self:AI<X,Y>+AI<Y,Y>+Sized,Y:Clone{Autoregression::new(self,input)}
 	/// wraps with a softmax operation
-	fn log_softmax(self,dim:i32)->LogSoftmax<Self> where Self:Sized,LogSoftmax<Self>:Op{LogSoftmax::new(dim,self)}
+	fn log_softmax(self,temperature:f32)->LogSoftmax<Self> where Self:Sized,LogSoftmax<Self>:Op{LogSoftmax::new(self,temperature)}
 	/// applies the operation to every output
 	fn map<B>(self,b:B)->Map<Sequential<(Self,B)>> where Map<Sequential<(Self,B)>>:Op,Self:Sized,Sequential<(Self,B)>:Op{self.chain(b).to_each()}
 	/// wraps with a mean operation
@@ -202,9 +202,9 @@ pub trait Op{
 	/// sets the input output types
 	fn set_type<W,Z>(self)->SetType<Self,W,Z> where Self:AI<W,Z>+Sized{SetType::new(self)}
 	/// wraps with a choose operation
-	fn soft_choose(self,dim:i32)->Choose<Self> where Self:Sized,Choose<Self>:Op{Choose::new(dim,self)}
+	fn soft_choose(self,temperature:f32)->Choose<Self> where Self:Sized,Choose<Self>:Op{Choose::new(self,temperature)}
 	/// wraps with a softmax operation
-	fn softmax(self,dim:i32)->Argmax<Self> where Self:Sized,Argmax<Self>:Op{Argmax::new(dim,self)}
+	fn softmax(self,temperature:f32)->Softmax<Self> where Self:Sized,Softmax<Self>:Op{Softmax::new(self,temperature)}
 	/// wraps with a mse operation
 	fn squared_error(self)->SquaredError<Self> where SquaredError<Self>:Op,Self:Sized{SquaredError::new(self)}
 	/// wraps with a map operation
@@ -226,7 +226,7 @@ pub trait UnwrapInner{
 	type Inner;
 }
 use {op_tuple,decompose_primitive,decompose_tuple};
-use crate::builtin::{AbnormalSoftmax,Abs,AccQ,Argmax,Autoregression,Cat,Choose,CrossEntropy,Duplicate,LogSoftmax,Map,Mean,Sequential,SetType,SquaredError,Sum,Zip};
+use crate::builtin::{AbnormalSoftmax,Abs,AccQ,Autoregression,Cat,Choose,CrossEntropy,Duplicate,LogSoftmax,Map,Mean,Sequential,SetType,Softmax,SquaredError,Sum,Zip};
 use std::{
 	collections::HashMap,cmp::Ord,hash::{BuildHasher,Hash},ops::Range
 };
