@@ -7,7 +7,7 @@ impl Config{
 	}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Tanh=>Layer::Tanh(Tanh::new())}
+		match self{Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
@@ -25,7 +25,7 @@ impl Config{
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
 	pub fn w_scale(mut self,r:f32)->Self{
-		match &mut self{Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Tanh=>()}
+		match &mut self{Config::Cat(_c)=>(),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
 		self
 	}
 }
@@ -34,6 +34,9 @@ impl Decompose for Config{
 	fn decompose(self)->Self::Decomposition{self}
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
+}
+impl From<CatLayer> for Config{
+	fn from(value:CatLayer)->Self{Config::Cat(value)}
 }
 impl From<CrossEntropyLossConfig> for Config{
 	fn from(value:CrossEntropyLossConfig)->Self{Config::CrossEntropy(value)}
@@ -59,13 +62,20 @@ impl From<Relu> for Config{
 impl From<RotaryEncodingConfig> for Config{
 	fn from(value:RotaryEncodingConfig)->Self{Config::Rotary(value)}
 }
+impl From<SumLayer> for Config{
+	fn from(value:SumLayer)->Self{Config::Sum(value)}
+}
 impl From<Tanh> for Config{
 	fn from(_value:Tanh)->Self{Config::Tanh}
+}
+impl<B:Backend,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Layer<B> where Layer<B>:Into<M>{
+	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match self{
 			//Layer::Bias(f)=>todo!(),
+			Layer::Cat(f)=>f.forward(input),
 			Layer::CrossEntropy(f)=>AI::forward(f,input),
 			Layer::Dropout(f)=>AI::forward(f,input),
 			Layer::Embedding(f)=>AI::forward(f,input),
@@ -75,6 +85,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::Relu(f)=>AI::forward(f,input),
 			Layer::Rotary(f)=>AI::forward(f,input),
 			Layer::Stack(dim)=>input.stack(*dim as i32),
+			Layer::Sum(f)=>f.forward(input),
 			Layer::Tanh(f)=>AI::forward(f,input),
 		}
 	}
@@ -84,6 +95,9 @@ impl<B:Backend> Decompose for Layer<B>{
 	fn decompose(self)->Self::Decomposition{self}
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
+}
+impl<B:Backend> From<CatLayer> for Layer<B>{
+	fn from(value:CatLayer)->Self{Layer::Cat(Ignored(value))}
 }
 impl<B:Backend> From<CrossEntropyLoss<B>> for Layer<B>{
 	fn from(value:CrossEntropyLoss<B>)->Self{Layer::CrossEntropy(value)}
@@ -108,6 +122,9 @@ impl<B:Backend> From<Relu> for Layer<B>{
 }
 impl<B:Backend> From<RotaryEncoding<B>> for Layer<B>{
 	fn from(value:RotaryEncoding<B>)->Self{Layer::Rotary(value)}
+}
+impl<B:Backend> From<SumLayer> for Layer<B>{
+	fn from(value:SumLayer)->Self{Layer::Sum(Ignored(value))}
 }
 impl<B:Backend> From<Tanh> for Layer<B>{
 	fn from(value:Tanh)->Self{Layer::Tanh(value)}
@@ -143,10 +160,10 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Tanh}
+pub enum Config{Cat(CatLayer),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
 #[derive(Debug,Module)]//TODO more layers//TODO kqv, rotary, attention, bias
 /// enumerates some burn layers
-pub enum Layer<B:Backend>{CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Tanh(Tanh)}
+pub enum Layer<B:Backend>{Cat(Ignored<CatLayer>),CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Sum(Ignored<SumLayer>),Tanh(Tanh)}
 /// scales the initializer
 pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
 	let r=r as f64;// apparently
@@ -253,12 +270,12 @@ impl<B:Backend> AI<Value<B>,Value<B>> for KQV<B>{
 }*/
 
 use burn::{
-	//module::{Ignored,Param},
+	module::Ignored,
 	nn::{
 		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
 	},
 	prelude::*
 };
 use crate::{
-	ai::{AI,Decompose,Op},burn::Value
+	ai::{AI,Decompose,IntoSequence,Op},builtin::{CatLayer,Sequential,SumLayer},burn::Value
 };

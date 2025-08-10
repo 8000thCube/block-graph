@@ -105,6 +105,11 @@ impl<A:AutodiffBackend> AutodiffModule<A> for Value<A>{
 impl<A:Into<Value<B>>,B:Backend> FromIterator<A> for Value<B>{
 	fn from_iter<I:IntoIterator<Item=A>>(iter:I)->Self{Value::Multi(iter.into_iter().map(Into::into).collect())}
 }
+impl<B:Backend,K:'static+TensorKind<B>,const N:usize> From<Result<Tensor<B,N,K>,String>> for Value<B>{
+	fn from(value:Result<Tensor<B,N,K>,String>)->Self{
+		match value{Err(e)=>e.into(),Ok(t)=>t.into()}
+	}
+}
 impl<B:Backend,K:'static+TensorKind<B>,const N:usize> From<Tensor<B,N,K>> for Value<B>{
 	fn from(value:Tensor<B,N,K>)->Self{
 		let kind=TypeId::of::<K>();
@@ -232,6 +237,15 @@ impl<B:Backend> AI<Value<B>,Tensor<B,1>> for MeanLayer{
 		match input.float(){F1(x)=>avg(x),F2(x)=>avg(x),F3(x)=>avg(x),F4(x)=>avg(x),F5(x)=>avg(x),F6(x)=>avg(x),F7(x)=>avg(x),F8(x)=>avg(x),Value::Incompatible(e)=>panic!("Could not reduce to a scalar due to incompatibility: {e}"),Value::Multi(v)=>v.into_iter().map(|x|self.forward(x)).reduce(|x:Tensor<B,1>,y:Tensor<B,1>|x+y).unwrap()/l as f32,_=>panic!("internal error")}
 	}
 }
+impl<B:Backend> AI<Value<B>,Tensor<B,1>> for SumLayer{
+	fn forward(&self,input:Value<B>)->Tensor<B,1>{
+		fn sum<B:Backend,const N:usize>(x:Tensor<B,N>)->Tensor<B,1>{x.sum()}
+		let l=input.len();
+
+		if l==0{return Tensor::from_data(TensorData::new(vec![f32::NAN],[1]),&Default::default())}
+		match input.float(){F1(x)=>sum(x),F2(x)=>sum(x),F3(x)=>sum(x),F4(x)=>sum(x),F5(x)=>sum(x),F6(x)=>sum(x),F7(x)=>sum(x),F8(x)=>sum(x),Value::Incompatible(e)=>panic!("Could not reduce to a scalar due to incompatibility: {e}"),Value::Multi(v)=>v.into_iter().map(|x|self.forward(x)).reduce(|x:Tensor<B,1>,y:Tensor<B,1>|x+y).unwrap(),_=>panic!("internal error")}
+	}
+}
 impl<B:Backend> AI<Value<B>,Value<B>> for CrossEntropyLayer{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match input{
@@ -255,13 +269,21 @@ impl<B:Backend> AI<Value<B>,Value<B>> for CrossEntropyLoss<B>{
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for MeanLayer{
 	fn forward(&self,input:Value<B>)->Value<B>{
-		fn avg<B:Backend,const N:usize,const K:usize>(d:usize,x:Tensor<B,N>)->Tensor<B,K>{x.mean_dim(d).squeeze(d)}
+		fn avg<B:Backend,const N:usize,const K:usize>(d:i32,x:Tensor<B,N>)->Tensor<B,K>{
+			let d=if d<0{N-((-d) as usize)}else{d as usize};
+			x.mean_dim(d).squeeze(d)
+		}
 		let l=input.len();
 
 		if l==0{return input}
 		match self.get_reduction_mode(){
 			ReductionMode::Component=>F1(self.forward(input)),
-			ReductionMode::Dim(d)=>match input.float(){F1(x)=>F1(x.mean()),F2(x)=>F1(avg(d,x)),F3(x)=>F2(avg(d,x)),F4(x)=>F3(avg(d,x)),F5(x)=>F4(avg(d,x)),F6(x)=>F5(avg(d,x)),F7(x)=>F6(avg(d,x)),F8(x)=>F7(avg(d,x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|self.forward(x)).reduce(|x:Value<B>,y:Value<B>|x+y).unwrap()/l as f32,_=>panic!("internal error")}
+			ReductionMode::Dim(d)=>{
+				if let Some(r)=input.rank(){
+					if d>=r as i32||d<(-(r as i32)){return format!("rank {r} is too low to cat along dimension {d}").into()}
+				}
+				match input.float(){F1(x)=>F1(x.mean()),F2(x)=>F1(avg(d,x)),F3(x)=>F2(avg(d,x)),F4(x)=>F3(avg(d,x)),F5(x)=>F4(avg(d,x)),F6(x)=>F5(avg(d,x)),F7(x)=>F6(avg(d,x)),F8(x)=>F7(avg(d,x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|self.forward(x)).reduce(|x:Value<B>,y:Value<B>|x+y).unwrap()/l as f32,_=>panic!("internal error")}
+			},
 			ReductionMode::Tensor=>match input.float(){Value::Multi(v)=>v.into_iter().reduce(|x,y|x+y).unwrap()/l as f32,x=>x}
 		}
 	}
@@ -283,7 +305,34 @@ impl<B:Backend> AI<Value<B>,Value<B>> for SquaredErrorLayer{
 		}
 	}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for SumLayer{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		fn sum<B:Backend,const N:usize,const K:usize>(d:i32,x:Tensor<B,N>)->Tensor<B,K>{
+			let d=if d<0{N-((-d) as usize)}else{d as usize};
+			x.mean_dim(d).squeeze(d)
+		}
+		let l=input.len();
+
+		if l==0{return input}
+		match self.get_reduction_mode(){
+			ReductionMode::Component=>F1(self.forward(input)),
+			ReductionMode::Dim(d)=>{
+				if let Some(r)=input.rank(){
+					if d>=r as i32||d<(-(r as i32)){return format!("rank {r} is too low to cat along dimension {d}").into()}
+				}
+				match input.float(){F1(x)=>F1(x.sum()),F2(x)=>F1(sum(d,x)),F3(x)=>F2(sum(d,x)),F4(x)=>F3(sum(d,x)),F5(x)=>F4(sum(d,x)),F6(x)=>F5(sum(d,x)),F7(x)=>F6(sum(d,x)),F8(x)=>F7(sum(d,x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|self.forward(x)).reduce(|x:Value<B>,y:Value<B>|x+y).unwrap(),_=>panic!("internal error")}
+			},
+			ReductionMode::Tensor=>match input.float(){Value::Multi(v)=>v.into_iter().reduce(|x,y|x+y).unwrap(),x=>x}
+		}
+	}
+}
 impl<B:Backend> AI<Value<B>,f32> for MeanLayer{
+	fn forward(&self,input:Value<B>)->f32{
+		let y:Tensor<B,1>=self.forward(input);
+		y.into_scalar().to_f32()
+	}
+}
+impl<B:Backend> AI<Value<B>,f32> for SumLayer{
 	fn forward(&self,input:Value<B>)->f32{
 		let y:Tensor<B,1>=self.forward(input);
 		y.into_scalar().to_f32()
@@ -447,15 +496,7 @@ impl<B:Backend> AI<(Value<B>,usize),(Value<B>,usize)> for RotaryEncoding<B>{
 			Tensor::cat(chunks,0).reshape([big,heads,context,head]).swap_dims(1,2).reshape::<D,_>(shape).into()
 		}
 
-		(match input.float(){
-			F1(x)=>apply(self,x.unsqueeze::<2>(),offset).squeeze(),
-			F2(x)=>apply(self,x,offset),
-			F3(x)=>apply(self,x,offset),
-			F4(x)=>apply(self,x,offset),
-			F5(x)=>apply(self,x,offset),
-			F6(x)=>apply(self,x,offset),
-			F7(x)=>apply(self,x,offset),
-			F8(x)=>apply(self,x,offset),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|AI::forward(self,(x,offset)).0).collect(),_=>panic!("internal error")},offset)
+		(match input.float(){F1(x)=>apply(self,x.unsqueeze::<2>(),offset).squeeze(),F2(x)=>apply(self,x,offset),F3(x)=>apply(self,x,offset),F4(x)=>apply(self,x,offset),F5(x)=>apply(self,x,offset),F6(x)=>apply(self,x,offset),F7(x)=>apply(self,x,offset),F8(x)=>apply(self,x,offset),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|AI::forward(self,(x,offset)).0).collect(),_=>panic!("internal error")},offset)
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for Tanh{
@@ -740,7 +781,7 @@ impl<B:Backend> Value<B>{//TODO scalars
 			let mut slicedims=paddims.map(|n|0..n);
 
 			paddims[d]=n.abs() as usize;
-			slicedims[d]=if n<0{(-n) as usize..slicedims[d].end}else{0..slicedims[d].end-n as usize};
+			slicedims[d]=if n<0{(-n) as usize..slicedims[d].end}else{0..slicedims[d].end.saturating_sub(n as usize)};
 			if slicedims[d].len()==0{return x.full_like(v).into()}
 			let pad:Tensor<B,N,K>=Tensor::full(paddims,v,&device);
 			let slice=x.slice(slicedims);
@@ -914,7 +955,7 @@ use burn::{
 	}
 };
 use crate::{
-	AI,Decompose,Merge,Op,builtin::{AccQLayer,Alignment,SoftmaxLayer,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer},ops::Abs
+	AI,Decompose,Merge,Op,builtin::{AccQLayer,Alignment,SoftmaxLayer,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer,SumLayer},ops::Abs
 };
 use rand::random;
 use serde::{Deserialize,Serialize};
