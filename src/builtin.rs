@@ -121,7 +121,7 @@ impl Decompose for Alignment{
 	}
 	type Decomposition=usize;
 }
-impl Decompose for OnMismatch{
+impl Decompose for OnMismatch{// TODO with explicit u64 decomposition this could fit a f32 in the pad
 	fn compose(decomposition:Self::Decomposition)->Self{
 		match decomposition%10{0=>Self::Error,1=>Self::Pad(Alignment::compose(decomposition/10)),2=>Self::Truncate(Alignment::compose(decomposition/10)),_=>panic!("unknown mismatch number")}
 	}
@@ -132,16 +132,14 @@ impl Decompose for OnMismatch{
 	type Decomposition=usize;
 }
 impl Decompose for ReductionMode{
-	fn compose(decomposition:usize)->Self{
-		const C:usize=usize::MAX-1;
-		const T:usize=usize::MAX;
-		match decomposition{C=>Self::Component,T=>Self::Tensor,x=>Self::Dim(x)}
+	fn compose(decomposition:u64)->Self{
+		match decomposition>>32{0=>Self::Component,1=>Self::Dim(decomposition as i32),2=>Self::Tensor,_=>panic!("unknown reduction mode number")}
 	}
 	fn decompose(self)->Self::Decomposition{
-		match self{Self::Component=>usize::MAX-1,Self::Dim(x)=>x,Self::Tensor=>usize::MAX}
+		match self{Self::Component=>0,Self::Dim(x)=>(1_u64<<32)|(x as u32 as u64),Self::Tensor=>2<<32}
 	}
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone().decompose()}
-	type Decomposition=usize;
+	type Decomposition=u64;
 }
 impl Default for Alignment{
 	fn default()->Self{Self::Left}
@@ -669,10 +667,10 @@ macro_rules! bicop_like{// TODO separate parts of this like in one of the other 
 		impl Op for $layer{
 			type Output=Vec<f32>;
 		}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		#[derive(Clone,Copy,Debug,Default,Deserialize,Eq,Hash,PartialEq,Serialize)]
 		/// layer to apply an operation
 		pub struct $layer{seal:PhantomData<()>}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		#[derive(Clone,Copy,Debug,Default,Deserialize,Eq,Hash,PartialEq,Serialize)]
 		/// wrapper to apply an operation
 		pub struct $wrap<A>{inner:A,layer:$layer}
 	}
@@ -686,10 +684,10 @@ macro_rules! cat_like{
 		}
 	};
 	(@declare $layer:ident,$wrap:ident)=>{
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		#[derive(Clone,Copy,Debug,Default,Deserialize,Eq,Hash,PartialEq,Serialize)]
 		/// layer to apply an operation
 		pub struct $layer{dim:i32,mismatchbehavior:OnMismatch}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		#[derive(Clone,Copy,Debug,Default,Deserialize,Eq,Hash,PartialEq,Serialize)]
 		/// wrapper to apply an operation
 		pub struct $wrap<A>{inner:A,layer:$layer}
 	};
@@ -792,10 +790,10 @@ macro_rules! soft_like{
 				Self{dim:-1,temperature:1.0}
 			}
 		}
-		#[derive(Clone,Copy,Debug,PartialEq)]
+		#[derive(Clone,Copy,Debug,Deserialize,PartialEq,Serialize)]
 		/// layer to apply an operation
 		pub struct $layer{dim:i32,temperature:f32}
-		#[derive(Clone,Copy,Debug,Default,PartialEq)]// TODO eq and hash that do something about the float
+		#[derive(Clone,Copy,Debug,Default,Deserialize,PartialEq,Serialize)]// TODO eq and hash that do something about the float
 		/// wrapper to apply an operation
 		pub struct $wrap<A>{inner:A,layer:$layer}
 	};
@@ -842,8 +840,11 @@ macro_rules! soft_like{
 				self
 			}
 		}
+		impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for $wrap<A> where $layer:Into<M>{
+			fn into_sequence(self)->Sequential<Vec<M>>{self.inner.into_sequence().with_next(self.layer)}
+		}
 		impl<A:UnwrapInner> UnwrapInner for $wrap<A>{
-			fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}// TODO more thorough into sequence and unwrap inner impls for everything
+			fn unwrap_inner(self)->A::Inner{self.into_inner().unwrap_inner()}
 			type Inner=A::Inner;
 		}
 		impl<A> $wrap<A>{
@@ -918,6 +919,13 @@ macro_rules! sum_like{
 			fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.layer.decompose_cloned())}
 			type Decomposition=(A::Decomposition,<$layer as Decompose>::Decomposition);
 		}
+		impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for $wrap<A> where $layer:Into<M>{
+			fn into_sequence(self)->Sequential<Vec<M>>{self.inner.into_sequence().with_next(self.layer)}
+		}
+		impl<A:UnwrapInner> UnwrapInner for $wrap<A>{
+			fn unwrap_inner(self)->A::Inner{self.into_inner().unwrap_inner()}
+			type Inner=A::Inner;
+		}
 		impl<A:Op<Output=Y>,Y> Op for $wrap<A> where $layer:AI<Y,f32>{
 			type Output=f32;
 		}
@@ -952,15 +960,15 @@ macro_rules! sum_like{
 			}
 			fn decompose(self)->Self::Decomposition{(self.dim,self.reductionmode.decompose())}
 			fn decompose_cloned(&self)->Self::Decomposition{(self.dim,self.reductionmode.decompose_cloned())}
-			type Decomposition=(i32,usize);
+			type Decomposition=(i32,u64);
 		}
 		impl Op for $layer{
 			type Output=f32;
 		}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		#[derive(Clone,Copy,Debug,Default,Deserialize,Eq,Hash,PartialEq,Serialize)]
 		/// layer to apply an operation
 		pub struct $layer{dim:i32,reductionmode:ReductionMode}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		#[derive(Clone,Copy,Debug,Default,Deserialize,Eq,Hash,PartialEq,Serialize)]
 		/// wrapper to apply an operation
 		pub struct $wrap<A>{inner:A,layer:$layer}
 	}
@@ -1017,10 +1025,10 @@ macro_rules! uncop_like{// TODO using op traits with output may better allow typ
 		impl Op for $layer{
 			type Output=Vec<f32>;
 		}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		#[derive(Clone,Copy,Debug,Default,Deserialize,Eq,Hash,PartialEq,Serialize)]
 		/// layer to apply an operation
 		pub struct $layer{seal:PhantomData<()>}
-		#[derive(Clone,Copy,Debug,Default,Eq,Hash,PartialEq)]
+		#[derive(Clone,Copy,Debug,Default,Deserialize,Eq,Hash,PartialEq,Serialize)]
 		/// wrapper to apply an operation
 		pub struct $wrap<A>{inner:A,layer:$layer}
 	}
@@ -1073,15 +1081,15 @@ mod tests{
 	}*/
 	use super::*;
 }
-#[derive(Clone,Copy,Debug,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Deserialize,Eq,Hash,PartialEq,Serialize)]
 /// alignment
 pub enum Alignment{Center,Left,Right}
-#[derive(Clone,Copy,Debug,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Deserialize,Eq,Hash,PartialEq,Serialize)]
 /// shape mismatch handling
 pub enum OnMismatch{Error,Pad(Alignment),Truncate(Alignment)}
-#[derive(Clone,Copy,Debug,Eq,Hash,PartialEq)]
+#[derive(Clone,Copy,Debug,Deserialize,Eq,Hash,PartialEq,Serialize)]
 /// reduction mode
-pub enum ReductionMode{Component,Dim(usize),Tensor}
+pub enum ReductionMode{Component,Dim(i32),Tensor}
 /// creates an operation that applies the closure
 pub fn apply<F:Fn(X)->Y,X,Y>(f:F)->Apply<F,X,Y>{
 	Apply{inner:f,phantom:PhantomData}
@@ -1099,31 +1107,31 @@ impl<A:AI<X,Y>+UnwrapInner,X,Y> UnwrapInner for SetType<A,X,Y>{
 	type Inner=A::Inner;
 }
 
-#[derive(Clone,Copy,Debug,Default,PartialEq)]
+#[derive(Clone,Copy,Debug,Deserialize,Default,PartialEq,Serialize)]
 /// accumulates cumulative
 pub struct AccQ<A>{inner:A,layer:AccQLayer}
-#[derive(Clone,Copy,Debug,Default,PartialEq)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,PartialEq,Serialize)]
 /// accumulates cumulative
 pub struct AccQLayer{dim:i32,gamma:f32}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// applies a closure to the input// TODO more closure layers maybe
 pub struct Apply<F:Fn(X)->Y,X,Y>{inner:F,phantom:PhantomData<fn(X)->Y>}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// autoregressive inference
 pub struct Autoregression<A,X>{ai:A,state:Option<X>}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// module for cloning things
 pub struct Duplicate<A>{inner:A,times:usize}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// wraps to apply to every element of a vector
 pub struct Map<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// wrapper for applying ai modules sequentially
 pub struct Sequential<A>{inner:A}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// fixes the output type of a layer for a particular input type.
 pub struct SetType<A,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// wraps to apply each function
 pub struct Zip<A>{inner:A}
 soft_like!(@aiwrap @declare @decompose @impl ChooseLayer,Choose);
@@ -1138,6 +1146,7 @@ use {accessible_inner,bicop_like,cat_like,soft_like,sum_like,zip_tuple};
 use crate::{
 	AI,Decompose,IntoSequence,Op,UnwrapInner,ops::Abs as OpsAbs
 };
+use serde::{Deserialize,Serialize};
 use std::{
 	iter::FromIterator,marker::PhantomData,ops::{Add as OpsAdd,Mul as OpsMul}
 };
