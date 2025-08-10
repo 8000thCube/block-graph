@@ -31,7 +31,7 @@ impl AI<(Vec<f32>,Vec<f32>),f32> for SquaredErrorLayer{
 impl AI<(Vec<f32>,u32),f32> for CrossEntropyLayer{
 	fn forward(&self,(output,target):(Vec<f32>,u32))->f32{
 		let t=self.temperature;
-		-if t.is_nan(){output[target as usize].ln()}else{LogSoftmaxLayer::new(0).with_temperature(t).forward_fixed(output)[target as usize]}
+		-if t.is_nan(){output[target as usize].ln()}else{LogSoftmaxLayer::new(t).forward_fixed(output)[target as usize]}
 	}
 }
 impl AI<Vec<f32>,Vec<f32>> for AbnormalSoftmaxLayer{
@@ -52,7 +52,7 @@ impl AI<Vec<f32>,Vec<f32>> for AccQLayer{
 		input
 	}
 }
-impl AI<Vec<f32>,Vec<f32>> for ArgmaxLayer{
+impl AI<Vec<f32>,Vec<f32>> for SoftmaxLayer{
 	fn forward(&self,input:Vec<f32>)->Vec<f32>{
 		let t=self.temperature.recip();
 		if t.is_nan(){
@@ -789,7 +789,7 @@ macro_rules! soft_like{
 	(@declare $layer:ident,$wrap:ident)=>{
 		impl Default for $layer{
 			fn default()->Self{
-				Self{dim:0,temperature:1.0}
+				Self{dim:-1,temperature:1.0}
 			}
 		}
 		#[derive(Clone,Copy,Debug,PartialEq)]
@@ -824,7 +824,9 @@ macro_rules! soft_like{
 			/// gets the temperature
 			pub fn get_temperature(&self)->f32{self.temperature}
 			/// creates a new layer
-			pub fn new(dim:i32)->Self{Self::default().with_dim(dim)}
+			pub fn new(temperature:f32)->Self{
+				Self{dim:-1,temperature}
+			}
 			/// sets the dimension
 			pub fn set_dim(&mut self,dim:i32){self.dim=dim}
 			/// sets the mismatch behavior. A temperature of NaN will make the non soft version if possible. A finite temperature will make the soft version
@@ -850,8 +852,8 @@ macro_rules! soft_like{
 			pub fn get_temperature(&self)->f32{self.layer.temperature}
 			accessible_inner!(inner:A);
 			/// creates a new layer
-			pub fn new(dim:i32,inner:A)->Self where Self:Op{
-				Self{inner,layer:$layer::new(dim)}
+			pub fn new(inner:A,temperature:f32)->Self where Self:Op{
+				Self{inner,layer:$layer::new(temperature)}
 			}
 			/// sets the dimension
 			pub fn set_dim(&mut self,dim:i32){self.layer.dim=dim}
@@ -1126,7 +1128,7 @@ pub struct SetType<A,X,Y>{inner:A,phantom:PhantomData<fn(X)->Y>}
 pub struct Zip<A>{inner:A}
 soft_like!(@aiwrap @declare @decompose @impl ChooseLayer,Choose);
 soft_like!(AbnormalSoftmaxLayer,AbnormalSoftmax);
-soft_like!(ArgmaxLayer,Argmax);
+soft_like!(SoftmaxLayer,Softmax);
 soft_like!(@declare @decompose @impl CrossEntropyLayer,CrossEntropy);
 soft_like!(LogSoftmaxLayer,LogSoftmax);
 sum_like!(MeanLayer,Mean);
