@@ -13,6 +13,17 @@ fn slice_slice<B:Backend,K:BasicOps<B>+TensorKind<B>,const N:usize>(ranges:&[Ran
 
 	match ranges.len(){0=>tensor,1=>tensor.slice([0;1].map(|_|ranges[acc()].clone())),2=>tensor.slice([0;2].map(|_|ranges[acc()].clone())),3=>tensor.slice([0;3].map(|_|ranges[acc()].clone())),4=>tensor.slice([0;4].map(|_|ranges[acc()].clone())),5=>tensor.slice([0;5].map(|_|ranges[acc()].clone())),6=>tensor.slice([0;6].map(|_|ranges[acc()].clone())),7=>tensor.slice([0;7].map(|_|ranges[acc()].clone())),8=>tensor.slice([0;8].map(|_|ranges[acc()].clone())),_=>panic!("too many ranges for current max 8 dims")}
 }
+fn broadcast_multi<B:Backend,F:FnMut(Value<B>,Value<B>)->Value<B>>(u:Vec<Value<B>>,v:Vec<Value<B>>,mut f:F)->Value<B>{
+	if u.len()==1{
+		u.into_iter().cycle().zip(v).map(|(x,y)|f(x,y)).collect()
+	}else if v.len()==1{
+		u.into_iter().zip(v.into_iter().cycle()).map(|(x,y)|f(x,y)).collect()
+	}else if u.len()==v.len(){
+		u.into_iter().zip(v).map(|(x,y)|f(x,y)).collect()
+	}else{
+		"mismatched lengths".into()
+	}
+}
 fn hard_choose_burn_1<B:Backend,const N:usize>(dim:i32,distribution:Tensor<B,N>)->u32{
 	let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
 	let distribution=if dim==N-1{distribution}else{distribution.movedim(dim,N-1)}.into_data();
@@ -246,6 +257,31 @@ impl<B:Backend> AI<Value<B>,Tensor<B,1>> for SumLayer{
 		match input.float(){F1(x)=>sum(x),F2(x)=>sum(x),F3(x)=>sum(x),F4(x)=>sum(x),F5(x)=>sum(x),F6(x)=>sum(x),F7(x)=>sum(x),F8(x)=>sum(x),Value::Incompatible(e)=>panic!("Could not reduce to a scalar due to incompatibility: {e}"),Value::Multi(v)=>v.into_iter().map(|x|self.forward(x)).reduce(|x:Tensor<B,1>,y:Tensor<B,1>|x+y).unwrap(),_=>panic!("internal error")}
 	}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for Conv2d<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		fn f<B:Backend,const N:usize>(input:Tensor<B,N>,layer:&Conv2d<B>)->Value<B>{// TODO dimension check
+			let mut dims=input.dims();
+			let n:usize=dims.iter().product();
+
+			let c=if N<3{1}else{dims[N-3]};
+			let h=if N<2{1}else{dims[N-2]};
+			let w=dims[N-1];
+
+			let b=n/(c*h*w);
+			let output=layer.forward(input.reshape([b,c,h,w]));
+
+			let [_b,c,h,w]=output.dims();
+
+			dims[N-1]=w;
+			if N<3&&c!=1{return F3(output.reshape([c,h,w]))}else if N>=3{dims[N-3]=c}
+			if N<2&&h!=1{return F2(output.reshape([h,w]))}else if N>=2{dims[N-2]=h}
+			output.reshape(dims).into()
+		}
+		let l=self;
+
+		match input.float(){F1(x)=>f(x,l),F2(x)=>f(x,l),F3(x)=>f(x,l),F4(x)=>f(x,l),F5(x)=>f(x,l),F6(x)=>f(x,l),F7(x)=>f(x,l),F8(x)=>f(x,l),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|AI::forward(self,x)).collect(),_=>panic!("internal error")}
+	}
+}
 impl<B:Backend> AI<Value<B>,Value<B>> for CrossEntropyLayer{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match input{
@@ -432,7 +468,18 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Embedding<B>{
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for LayerNorm<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
-		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+		fn f<B:Backend,const N:usize>(input:Tensor<B,N>,layer:&LayerNorm<B>)->Value<B>{
+			let b=layer.beta.dims();
+			let g=layer.gamma.dims();
+			let i=input.dims();
+
+			if b!=g{return format!("malformed layer norm. beta dims: {b:?}. gamma dims: {g:?}.").into()}
+			if b.last()!=i.last(){return format!("layer norm for dimension {b:?} is not compatible with input dimensions {i:?}. The last dimension must match the norm dimension.").into()}
+			layer.forward(input).into()
+		}
+		let l=self;
+
+		match input.float(){F1(x)=>f(x,l),F2(x)=>f(x,l),F3(x)=>f(x,l),F4(x)=>f(x,l),F5(x)=>f(x,l),F6(x)=>f(x,l),F7(x)=>f(x,l),F8(x)=>f(x,l),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for Linear<B>{
@@ -911,8 +958,8 @@ macro_rules! bicop_num{
 			type Output=Value<B>;
 		}
 		impl<B:Backend> $trait<Value<B>> for Value<B>{
-			fn $traitfn(self,rhs:Value<B>)->Value<B>{
-				match self.promote(rhs){(B1(l),B1(r))=>I1(l.int().$traitfn(r.int())),(B2(l),B2(r))=>I2(l.int().$traitfn(r.int())),(B3(l),B3(r))=>I3(l.int().$traitfn(r.int())),(B4(l),B4(r))=>I4(l.int().$traitfn(r.int())),(B5(l),B5(r))=>I5(l.int().$traitfn(r.int())),(B6(l),B6(r))=>I6(l.int().$traitfn(r.int())),(B7(l),B7(r))=>I7(l.int().$traitfn(r.int())),(B8(l),B8(r))=>I8(l.int().$traitfn(r.int())),(F1(l),F1(r))=>F1(l.$traitfn(r)),(F2(l),F2(r))=>F2(l.$traitfn(r)),(F3(l),F3(r))=>F3(l.$traitfn(r)),(F4(l),F4(r))=>F4(l.$traitfn(r)),(F5(l),F5(r))=>F5(l.$traitfn(r)),(F6(l),F6(r))=>F6(l.$traitfn(r)),(F7(l),F7(r))=>F7(l.$traitfn(r)),(F8(l),F8(r))=>F8(l.$traitfn(r)),(I1(l),I1(r))=>I1(l.$traitfn(r)),(I2(l),I2(r))=>I2(l.$traitfn(r)),(I3(l),I3(r))=>I3(l.$traitfn(r)),(I4(l),I4(r))=>I4(l.$traitfn(r)),(I5(l),I5(r))=>I5(l.$traitfn(r)),(I6(l),I6(r))=>I6(l.$traitfn(r)),(I7(l),I7(r))=>I7(l.$traitfn(r)),(I8(l),I8(r))=>I8(l.$traitfn(r)),(Value::Multi(l),Value::Multi(r))=>l.into_iter().zip(r).map(|(l,r)|l.$traitfn(r)).collect(),(Value::Incompatible(e),_)=>e.into(),(_,Value::Incompatible(e))=>e.into(),_=>panic!("couldn't promote types for $traitfn")}
+			fn $traitfn(self,rhs:Value<B>)->Value<B>{// TODO check shape broadcast compatibility
+				match self.promote(rhs){(B1(l),B1(r))=>I1(l.int().$traitfn(r.int())),(B2(l),B2(r))=>I2(l.int().$traitfn(r.int())),(B3(l),B3(r))=>I3(l.int().$traitfn(r.int())),(B4(l),B4(r))=>I4(l.int().$traitfn(r.int())),(B5(l),B5(r))=>I5(l.int().$traitfn(r.int())),(B6(l),B6(r))=>I6(l.int().$traitfn(r.int())),(B7(l),B7(r))=>I7(l.int().$traitfn(r.int())),(B8(l),B8(r))=>I8(l.int().$traitfn(r.int())),(F1(l),F1(r))=>F1(l.$traitfn(r)),(F2(l),F2(r))=>F2(l.$traitfn(r)),(F3(l),F3(r))=>F3(l.$traitfn(r)),(F4(l),F4(r))=>F4(l.$traitfn(r)),(F5(l),F5(r))=>F5(l.$traitfn(r)),(F6(l),F6(r))=>F6(l.$traitfn(r)),(F7(l),F7(r))=>F7(l.$traitfn(r)),(F8(l),F8(r))=>F8(l.$traitfn(r)),(I1(l),I1(r))=>I1(l.$traitfn(r)),(I2(l),I2(r))=>I2(l.$traitfn(r)),(I3(l),I3(r))=>I3(l.$traitfn(r)),(I4(l),I4(r))=>I4(l.$traitfn(r)),(I5(l),I5(r))=>I5(l.$traitfn(r)),(I6(l),I6(r))=>I6(l.$traitfn(r)),(I7(l),I7(r))=>I7(l.$traitfn(r)),(I8(l),I8(r))=>I8(l.$traitfn(r)),(Value::Multi(l),Value::Multi(r))=>broadcast_multi(l,r,$trait::$traitfn),(Value::Incompatible(e),_)=>e.into(),(_,Value::Incompatible(e))=>e.into(),_=>panic!("couldn't promote types for $traitfn")}
 			}
 			type Output=Value<B>;
 		}
@@ -946,7 +993,7 @@ use Value::{B1,B2,B3,B4,B5,B6,B7,B8,F1,F2,F3,F4,F5,F6,F7,F8,I1,I2,I3,I4,I5,I6,I7
 use burn::{
 	module::{AutodiffModule,ConstantRecord,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
 	nn::{
-		Dropout,Embedding,LayerNorm,Linear,Relu,RotaryEncoding,Tanh,loss::{CrossEntropyLoss,MseLoss}
+		Dropout,Embedding,LayerNorm,Linear,Relu,RotaryEncoding,Tanh,conv::Conv2d,loss::{CrossEntropyLoss,MseLoss}
 	},
 	prelude::{Backend,Bool,Float,Int,Module,Tensor,TensorData},
 	record::{FileRecorder,RecorderError},

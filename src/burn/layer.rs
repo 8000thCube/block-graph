@@ -71,155 +71,6 @@ impl From<Tanh> for Config{
 impl<B:Backend,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Layer<B> where Layer<B>:Into<M>{
 	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
 }
-impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
-	fn forward(&self,input:Value<B>)->Value<B>{
-		match self{
-			Layer::Attention(f)=>f.forward(input),
-			Layer::Bias(f)=>f.forward(input),
-			Layer::CacheKV(f)=>f.forward(input),
-			Layer::Cat(f)=>f.forward(input),
-			Layer::CrossEntropy(f)=>AI::forward(f,input),
-			Layer::Dropout(f)=>AI::forward(f,input),
-			Layer::Embedding(f)=>AI::forward(f,input),
-			Layer::KQV(f)=>f.forward(input),
-			Layer::LayerNorm(f)=>AI::forward(f,input),
-			Layer::Linear(f)=>AI::forward(f,input),
-			Layer::Mse(f)=>AI::forward(f,input),
-			Layer::Relu(f)=>AI::forward(f,input),
-			Layer::Rotary(f)=>AI::forward(f,input),
-			Layer::Stack(dim)=>input.stack(*dim as i32),
-			Layer::Sum(f)=>f.forward(input),
-			Layer::Tanh(f)=>AI::forward(f,input),
-		}
-	}
-	fn forward_mut(&mut self,input:Value<B>)->Value<B>{
-		match self{
-			Layer::Attention(f)=>f.forward_mut(input),
-			Layer::Bias(f)=>f.forward_mut(input),
-			Layer::CacheKV(f)=>f.forward_mut(input),
-			Layer::Cat(f)=>f.0.forward_mut(input),
-			Layer::CrossEntropy(f)=>AI::forward_mut(f,input),
-			Layer::Dropout(f)=>AI::forward_mut(f,input),
-			Layer::Embedding(f)=>AI::forward_mut(f,input),
-			Layer::KQV(f)=>f.forward_mut(input),
-			Layer::LayerNorm(f)=>AI::forward_mut(f,input),
-			Layer::Linear(f)=>AI::forward_mut(f,input),
-			Layer::Mse(f)=>AI::forward_mut(f,input),
-			Layer::Relu(f)=>AI::forward_mut(f,input),
-			Layer::Rotary(f)=>AI::forward_mut(f,input),
-			Layer::Stack(dim)=>input.stack(*dim as i32),
-			Layer::Sum(f)=>f.0.forward_mut(input),
-			Layer::Tanh(f)=>AI::forward_mut(f,input),
-		}
-	}
-}
-impl<B:Backend> Decompose for Layer<B>{
-	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
-	fn decompose(self)->Self::Decomposition{self}
-	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
-	type Decomposition=Self;
-}
-impl<B:Backend> From<CatLayer> for Layer<B>{
-	fn from(value:CatLayer)->Self{Layer::Cat(Ignored(value))}
-}
-impl<B:Backend> From<CrossEntropyLoss<B>> for Layer<B>{
-	fn from(value:CrossEntropyLoss<B>)->Self{Layer::CrossEntropy(value)}
-}
-impl<B:Backend> From<Dropout> for Layer<B>{
-	fn from(value:Dropout)->Self{Layer::Dropout(value)}
-}
-impl<B:Backend> From<Embedding<B>> for Layer<B>{
-	fn from(value:Embedding<B>)->Self{Layer::Embedding(value)}
-}
-impl<B:Backend> From<LayerNorm<B>> for Layer<B>{
-	fn from(value:LayerNorm<B>)->Self{Layer::LayerNorm(value)}
-}
-impl<B:Backend> From<Linear<B>> for Layer<B>{
-	fn from(value:Linear<B>)->Self{Layer::Linear(value)}
-}
-impl<B:Backend> From<MseLoss> for Layer<B>{
-	fn from(value:MseLoss)->Self{Layer::Mse(value)}
-}
-impl<B:Backend> From<Relu> for Layer<B>{
-	fn from(value:Relu)->Self{Layer::Relu(value)}
-}
-impl<B:Backend> From<RotaryEncoding<B>> for Layer<B>{
-	fn from(value:RotaryEncoding<B>)->Self{Layer::Rotary(value)}
-}
-impl<B:Backend> From<SumLayer> for Layer<B>{
-	fn from(value:SumLayer)->Self{Layer::Sum(Ignored(value))}
-}
-impl<B:Backend> From<Tanh> for Layer<B>{
-	fn from(value:Tanh)->Self{Layer::Tanh(value)}
-}
-impl<B:Backend> Layer<B>{// TODO direct bias layer might be good since I have a use case for it and sometimes you just unexpectedly need bias
-	/// creates a embedding layer
-	pub fn embedding(input:usize,output:usize,wscale:f32)->Self{
-		let mut l=EmbeddingConfig::new(input,output);
-		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
-		let l=l.init(&Default::default());
-		Self::Embedding(l)
-	}
-	/// creates a layer norm layer
-	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim).init(&Default::default()))}
-	/// creates a linear layer
-	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
-		let mut l=LinearConfig::new(input,output).with_bias(bias);
-		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
-		let l=l.init(&Default::default());
-		Self::Linear(l)
-	}
-	/// creates a relu layer
-	pub fn relu()->Self{Self::Relu(Relu)}
-	/// creates a rotary layer
-	pub fn rotary(distance:usize,head:usize)->Self{Self::Rotary(RotaryEncodingConfig::new(distance,head).init(&Default::default()))}
-	/// creates a tanh layer
-	pub fn tanh()->Self{Self::Tanh(Tanh)}
-}
-impl<B:Backend> Op for Layer<B>{
-	type Output=Value<B>;
-}
-#[derive(Clone,Copy,Debug)]
-pub enum AttentionMask{Causal,None,Window(usize)}
-#[derive(Config)]
-/// enumerates config for some burn layers
-pub enum Config{Cat(CatLayer),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
-#[derive(Debug,Module)]//TODO more layers//TODO kqv, rotary, attention, bias
-/// enumerates some burn layers
-pub enum Layer<B:Backend>{Attention(Attention<B>),Bias(Bias<B>),CacheKV(CacheKV<B>),Cat(Ignored<CatLayer>),CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),KQV(KQV<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Sum(Ignored<SumLayer>),Tanh(Tanh)}
-/// scales the initializer
-pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
-	let r=r as f64;// apparently
-	match initializer{
-		Initializer::Constant{value}=>Initializer::Constant{value:value*r},
-		Initializer::KaimingNormal{gain,fan_out_only}=>Initializer::KaimingNormal{gain:gain*r,fan_out_only},
-		Initializer::KaimingUniform{gain,fan_out_only}=>Initializer::KaimingUniform{gain:gain*r,fan_out_only},
-		Initializer::Normal{mean,std}=>Initializer::Normal{mean:mean*r,std:std*r},
-		Initializer::Ones=>Initializer::Constant{value:r},
-		Initializer::Orthogonal{gain}=>Initializer::Orthogonal{gain:gain*r},
-		Initializer::Uniform{min,max}=>Initializer::Uniform{min:min*r,max:max*r},
-		Initializer::XavierNormal{gain}=>Initializer::XavierNormal{gain:gain*r},
-		Initializer::XavierUniform{gain}=>Initializer::XavierUniform{gain:gain*r},
-		Initializer::Zeros=>Initializer::Zeros
-	}
-}
-/// scales the initializer
-pub fn w_scale_mut(initializer:&mut Initializer,r:f32){*initializer=w_scale(initializer.clone(),r)}
-
-#[derive(Debug,Module)]
-/// layer for computing attention from [key,query,value] inputs
-pub struct Attention<B:Backend>{dropout:f32,heads:usize,mask:Ignored<AttentionMask>,phantom:PhantomData<B>}
-#[derive(Debug,Module)]
-/// layer for adding bias anywhere
-pub struct Bias<B:Backend>{bias:Param<Tensor<B,1>>}
-#[derive(Debug,Default,Module)]
-/// layer for caching kv values from kqv when run mutably. cats along d1 and outputs the concatenated keys and values. clears cache on forward_mut when new data is incompatible for concatenation
-pub struct CacheKV<B:Backend>{keys:Value<B>,values:Value<B>}
-#[derive(Debug,Module)]
-/// layer for linear splitting into [key,query,value] for attention purposes
-pub struct KQV<B:Backend>{key:Linear<B>,query:Linear<B>,value:Linear<B>}
-
-
 impl<B:Backend> AI<(Value<B>,Value<B>),(Value<B>,Value<B>)> for CacheKV<B>{
 	fn forward(&self,(k,v):(Value<B>,Value<B>))->(Value<B>,Value<B>){
 		let (keys,values)=(self.keys.clone(),self.values.clone());
@@ -234,74 +85,6 @@ impl<B:Backend> AI<(Value<B>,Value<B>),(Value<B>,Value<B>)> for CacheKV<B>{
 		(keys,values)
 	}
 }
-impl<B:Backend> AI<Value<B>,Value<B>> for CacheKV<B>{
-	fn forward(&self,input:Value<B>)->Value<B>{
-		match input{
-			Value::Incompatible(e)=>e.into(),
-			Value::Multi(v) if v.len()>=2=>match v.len(){
-				2=>{
-					let [k,v]=v.try_into().unwrap();
-
-					let (k,v)=self.forward((k,v));
-					vec![k,v].into()
-				},
-				3=>{
-					let [k,q,v]=v.try_into().unwrap();
-
-					let (k,v)=self.forward((k,v));
-					vec![k,q,v].into()
-				},
-				_=>{
-					v.into_iter().map(|x|self.forward(x)).collect()
-				}
-			},
-			_=>"cache kv inputs must be in pairs or triples".into()
-		}
-	}
-	fn forward_mut(&mut self,input:Value<B>)->Value<B>{
-		match input{
-			Value::Incompatible(e)=>e.into(),
-			Value::Multi(v) if v.len()>=2=>match v.len(){
-				2=>{
-					let [k,v]=v.try_into().unwrap();
-
-					let (k,v)=self.forward_mut((k,v));
-					vec![k,v].into()
-				},
-				3=>{
-					let [k,q,v]=v.try_into().unwrap();
-
-					let (k,v)=self.forward_mut((k,v));
-					vec![k,q,v].into()
-				},
-				_=>{
-					v.into_iter().map(|x|self.forward_mut(x)).collect()
-				}
-			},
-			_=>"cache kv inputs must be in pairs or triples".into()
-		}
-	}
-}
-
-impl<B:Backend> AI<Value<B>,(Value<B>,Value<B>,Value<B>)> for KQV<B>{
-	fn forward(&self,input:Value<B>)->(Value<B>,Value<B>,Value<B>){
-		let (k,q)=(input.clone(),input.clone());
-		let v=input;
-
-		(AI::forward(&self.key,k),AI::forward(&self.query,q),AI::forward(&self.value,v))
-	}
-}
-impl<B:Backend> AI<Value<B>,Value<B>> for KQV<B>{
-	fn forward(&self,input:Value<B>)->Value<B>{
-		let (k,q,v)=self.forward(input);
-		vec![k,q,v].into()
-	}
-}
-impl<B:Backend> AI<Value<B>,Value<B>> for Bias<B>{
-	fn forward(&self,input:Value<B>)->Value<B>{input+Value::from(self.bias.val())}
-}
-
-
 impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{
 	fn forward(&self,(k,q,v):(Value<B>,Value<B>,Value<B>))->Value<B>{// TODO support for other numbers of dimensions
 		fn apply_mask<B:Backend,const D:usize>(a:Tensor<B,D>,mask:AttentionMask,value:f32)->Tensor<B,D>{
@@ -359,6 +142,14 @@ impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{
 		}
 	}
 }
+impl<B:Backend> AI<Value<B>,(Value<B>,Value<B>,Value<B>)> for KQV<B>{
+	fn forward(&self,input:Value<B>)->(Value<B>,Value<B>,Value<B>){
+		let (k,q)=(input.clone(),input.clone());
+		let v=input;
+
+		(AI::forward(&self.key,k),AI::forward(&self.query,q),AI::forward(&self.value,v))
+	}
+}
 impl<B:Backend> AI<Value<B>,Value<B>> for Attention<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match input{
@@ -373,11 +164,215 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Attention<B>{
 		}
 	}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for Bias<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{input+Value::from(self.bias.val())}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for CacheKV<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input{
+			Value::Incompatible(e)=>e.into(),
+			Value::Multi(v) if v.len()>=2=>match v.len(){
+				2=>{
+					let [k,v]=v.try_into().unwrap();
 
+					let (k,v)=self.forward((k,v));
+					vec![k,v].into()
+				},
+				3=>{
+					let [k,q,v]=v.try_into().unwrap();
+
+					let (k,v)=self.forward((k,v));
+					vec![k,q,v].into()
+				},
+				_=>{
+					v.into_iter().map(|x|self.forward(x)).collect()
+				}
+			},
+			_=>"cache kv inputs must be in pairs or triples".into()
+		}
+	}
+	fn forward_mut(&mut self,input:Value<B>)->Value<B>{
+		match input{
+			Value::Incompatible(e)=>e.into(),
+			Value::Multi(v) if v.len()>=2=>match v.len(){
+				2=>{
+					let [k,v]=v.try_into().unwrap();
+
+					let (k,v)=self.forward_mut((k,v));
+					vec![k,v].into()
+				},
+				3=>{
+					let [k,q,v]=v.try_into().unwrap();
+
+					let (k,v)=self.forward_mut((k,v));
+					vec![k,q,v].into()
+				},
+				_=>{
+					v.into_iter().map(|x|self.forward_mut(x)).collect()
+				}
+			},
+			_=>"cache kv inputs must be in pairs or triples".into()
+		}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for KQV<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		let (k,q,v)=self.forward(input);
+		vec![k,q,v].into()
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match self{
+			Layer::Attention(f)=>f.forward(input),
+			Layer::Bias(f)=>f.forward(input),
+			Layer::CacheKV(f)=>f.forward(input),
+			Layer::Cat(f)=>f.forward(input),
+			Layer::Conv2d(f)=>AI::forward(f,input),
+			Layer::CrossEntropy(f)=>AI::forward(f,input),
+			Layer::Dropout(f)=>AI::forward(f,input),
+			Layer::Embedding(f)=>AI::forward(f,input),
+			Layer::KQV(f)=>f.forward(input),
+			Layer::LayerNorm(f)=>AI::forward(f,input),
+			Layer::Linear(f)=>AI::forward(f,input),
+			Layer::Mse(f)=>AI::forward(f,input),
+			Layer::Relu(f)=>AI::forward(f,input),
+			Layer::Rotary(f)=>AI::forward(f,input),
+			Layer::Stack(dim)=>input.stack(*dim as i32),
+			Layer::Sum(f)=>f.forward(input),
+			Layer::Tanh(f)=>AI::forward(f,input),
+		}
+	}
+	fn forward_mut(&mut self,input:Value<B>)->Value<B>{
+		match self{
+			Layer::Attention(f)=>f.forward_mut(input),
+			Layer::Bias(f)=>f.forward_mut(input),
+			Layer::CacheKV(f)=>f.forward_mut(input),
+			Layer::Cat(f)=>f.0.forward_mut(input),
+			Layer::Conv2d(f)=>f.forward_mut(input),
+			Layer::CrossEntropy(f)=>AI::forward_mut(f,input),
+			Layer::Dropout(f)=>AI::forward_mut(f,input),
+			Layer::Embedding(f)=>AI::forward_mut(f,input),
+			Layer::KQV(f)=>f.forward_mut(input),
+			Layer::LayerNorm(f)=>AI::forward_mut(f,input),
+			Layer::Linear(f)=>AI::forward_mut(f,input),
+			Layer::Mse(f)=>AI::forward_mut(f,input),
+			Layer::Relu(f)=>AI::forward_mut(f,input),
+			Layer::Rotary(f)=>AI::forward_mut(f,input),
+			Layer::Stack(dim)=>input.stack(*dim as i32),
+			Layer::Sum(f)=>f.0.forward_mut(input),
+			Layer::Tanh(f)=>AI::forward_mut(f,input),
+		}
+	}
+}
+impl<B:Backend> Decompose for Layer<B>{
+	fn compose(decomposition:Self::Decomposition)->Self{decomposition}
+	fn decompose(self)->Self::Decomposition{self}
+	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
+	type Decomposition=Self;
+}
+impl<B:Backend> From<CatLayer> for Layer<B>{
+	fn from(value:CatLayer)->Self{Layer::Cat(Ignored(value))}
+}
+impl<B:Backend> From<CrossEntropyLoss<B>> for Layer<B>{
+	fn from(value:CrossEntropyLoss<B>)->Self{Layer::CrossEntropy(value)}
+}
+impl<B:Backend> From<Dropout> for Layer<B>{
+	fn from(value:Dropout)->Self{Layer::Dropout(value)}
+}
+impl<B:Backend> From<Embedding<B>> for Layer<B>{
+	fn from(value:Embedding<B>)->Self{Layer::Embedding(value)}
+}
+impl<B:Backend> From<LayerNorm<B>> for Layer<B>{
+	fn from(value:LayerNorm<B>)->Self{Layer::LayerNorm(value)}
+}
+impl<B:Backend> From<Linear<B>> for Layer<B>{
+	fn from(value:Linear<B>)->Self{Layer::Linear(value)}
+}
+impl<B:Backend> From<MseLoss> for Layer<B>{
+	fn from(value:MseLoss)->Self{Layer::Mse(value)}
+}
+impl<B:Backend> From<Relu> for Layer<B>{
+	fn from(value:Relu)->Self{Layer::Relu(value)}
+}
+impl<B:Backend> From<RotaryEncoding<B>> for Layer<B>{
+	fn from(value:RotaryEncoding<B>)->Self{Layer::Rotary(value)}
+}
+impl<B:Backend> From<SumLayer> for Layer<B>{
+	fn from(value:SumLayer)->Self{Layer::Sum(Ignored(value))}
+}
+impl<B:Backend> From<Tanh> for Layer<B>{
+	fn from(value:Tanh)->Self{Layer::Tanh(value)}
+}
+impl<B:Backend> Layer<B>{
+	/// creates a embedding layer
+	pub fn embedding(input:usize,output:usize,wscale:f32)->Self{
+		let mut l=EmbeddingConfig::new(input,output);
+		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
+		let l=l.init(&Default::default());
+		Self::Embedding(l)
+	}
+	/// creates a layer norm layer
+	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim).init(&Default::default()))}
+	/// creates a linear layer
+	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
+		let mut l=LinearConfig::new(input,output).with_bias(bias);
+		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
+		let l=l.init(&Default::default());
+		Self::Linear(l)
+	}
+	/// creates a relu layer
+	pub fn relu()->Self{Self::Relu(Relu)}
+	/// creates a rotary layer
+	pub fn rotary(distance:usize,head:usize)->Self{Self::Rotary(RotaryEncodingConfig::new(distance,head).init(&Default::default()))}
+	/// creates a tanh layer
+	pub fn tanh()->Self{Self::Tanh(Tanh)}
+}
+impl<B:Backend> Op for Layer<B>{
+	type Output=Value<B>;
+}
+#[derive(Clone,Copy,Debug)]
+pub enum AttentionMask{Causal,None,Window(usize)}
+#[derive(Config)]
+/// enumerates config for some burn layers
+pub enum Config{Cat(CatLayer),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
+#[derive(Debug,Module)]//TODO more layers//TODO kqv, rotary, attention, bias
+/// enumerates some burn layers
+pub enum Layer<B:Backend>{Attention(Attention<B>),Bias(Bias<B>),CacheKV(CacheKV<B>),Cat(Ignored<CatLayer>),Conv2d(Conv2d<B>),CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),KQV(KQV<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Sum(Ignored<SumLayer>),Tanh(Tanh)}
+/// scales the initializer
+pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
+	let r=r as f64;// apparently
+	match initializer{
+		Initializer::Constant{value}=>Initializer::Constant{value:value*r},
+		Initializer::KaimingNormal{gain,fan_out_only}=>Initializer::KaimingNormal{gain:gain*r,fan_out_only},
+		Initializer::KaimingUniform{gain,fan_out_only}=>Initializer::KaimingUniform{gain:gain*r,fan_out_only},
+		Initializer::Normal{mean,std}=>Initializer::Normal{mean:mean*r,std:std*r},
+		Initializer::Ones=>Initializer::Constant{value:r},
+		Initializer::Orthogonal{gain}=>Initializer::Orthogonal{gain:gain*r},
+		Initializer::Uniform{min,max}=>Initializer::Uniform{min:min*r,max:max*r},
+		Initializer::XavierNormal{gain}=>Initializer::XavierNormal{gain:gain*r},
+		Initializer::XavierUniform{gain}=>Initializer::XavierUniform{gain:gain*r},
+		Initializer::Zeros=>Initializer::Zeros
+	}
+}
+/// scales the initializer
+pub fn w_scale_mut(initializer:&mut Initializer,r:f32){*initializer=w_scale(initializer.clone(),r)}
+#[derive(Debug,Module)]
+/// layer for computing attention from [key,query,value] inputs
+pub struct Attention<B:Backend>{dropout:f32,heads:usize,mask:Ignored<AttentionMask>,phantom:PhantomData<B>}
+#[derive(Debug,Module)]
+/// layer for adding bias anywhere
+pub struct Bias<B:Backend>{bias:Param<Tensor<B,1>>}
+#[derive(Debug,Default,Module)]
+/// layer for caching kv values from kqv when run mutably. cats along d1 and outputs the concatenated keys and values. clears cache on forward_mut when new data is incompatible for concatenation
+pub struct CacheKV<B:Backend>{keys:Value<B>,values:Value<B>}
+#[derive(Debug,Module)]
+/// layer for linear splitting into [key,query,value] for attention purposes
+pub struct KQV<B:Backend>{key:Linear<B>,query:Linear<B>,value:Linear<B>}
 use burn::{
 	module::{Ignored,Param},
 	nn::{
-		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
+		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::Conv2d,loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
 	},
 	prelude::*,
 	tensor::activation
