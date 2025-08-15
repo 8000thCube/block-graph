@@ -1126,6 +1126,9 @@ pub struct Duplicate<A>{inner:A,times:usize}
 /// wraps to apply to every element of a vector
 pub struct Map<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
+/// layer for removing dimensions with size 1
+pub struct SqueezeLayer{dim:i32}
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// wrapper for applying ai modules sequentially
 pub struct Sequential<A>{inner:A}
 #[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
