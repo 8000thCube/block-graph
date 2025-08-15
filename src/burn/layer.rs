@@ -1,3 +1,20 @@
+impl AttentionConfig{
+	pub fn init<B:Backend>(&self,_device:&B::Device)->Attention<B>{
+		let (dropout,heads,mask)=(self.dropout,self.heads,self.mask);
+		let mask=Ignored(mask);
+		let phantom=PhantomData;
+
+		Attention{dropout,heads,mask,phantom}
+	}
+}
+impl BiasConfig{
+	pub fn init<B:Backend>(&self,device:&B::Device)->Bias<B>{
+		let dim=self.dim;
+		let shape=[dim];
+
+		Bias{bias:self.initializer.init_with(shape,None,Some(dim),device)}
+	}
+}
 impl Config{
 	/// creates a embedding config
 	pub fn embedding(input:usize,output:usize,wscale:f32)->Self{
@@ -7,7 +24,7 @@ impl Config{
 	}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
+		match self{Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
@@ -25,7 +42,7 @@ impl Config{
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
 	pub fn w_scale(mut self,r:f32)->Self{
-		match &mut self{Config::Cat(_c)=>(),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
+		match &mut self{Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
 		self
 	}
 }
@@ -67,6 +84,15 @@ impl From<SumLayer> for Config{
 }
 impl From<Tanh> for Config{
 	fn from(_value:Tanh)->Self{Config::Tanh}
+}
+impl KQVConfig{
+	pub fn init<B:Backend>(&self,device:&B::Device)->KQV<B>{
+		let (embed,initializer,kdim,vdim)=(self.embed.clone(),self.initializer.clone(),self.kdim.clone(),self.vdim.clone());
+		let (key,value)=(LinearConfig::new(embed,kdim).with_initializer(initializer.clone()).init(device),LinearConfig::new(embed,vdim).with_initializer(initializer.clone()).init(device));
+		let query=LinearConfig::new(embed,kdim).with_initializer(initializer).init(device);
+
+		KQV{key,query,value}
+	}
 }
 impl<B:Backend,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Layer<B> where Layer<B>:Into<M>{
 	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
@@ -331,11 +357,11 @@ impl<B:Backend> Layer<B>{
 impl<B:Backend> Op for Layer<B>{
 	type Output=Value<B>;
 }
-#[derive(Clone,Copy,Debug)]
+#[derive(Clone,Copy,Debug,Deserialize,Serialize)]
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Cat(CatLayer),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
+pub enum Config{Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
 #[derive(Debug,Module)]//TODO more layers//TODO kqv, rotary, attention, bias
 /// enumerates some burn layers
 pub enum Layer<B:Backend>{Attention(Attention<B>),Bias(Bias<B>),CacheKV(CacheKV<B>),Cat(Ignored<CatLayer>),Conv2d(Conv2d<B>),CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),KQV(KQV<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Sum(Ignored<SumLayer>),Tanh(Tanh)}
@@ -357,9 +383,33 @@ pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
 }
 /// scales the initializer
 pub fn w_scale_mut(initializer:&mut Initializer,r:f32){*initializer=w_scale(initializer.clone(),r)}
+#[derive(Config,Debug)]
+/// layer for computing attention from [key,query,value] inputs
+pub struct AttentionConfig{
+	#[config(default="0.2")]
+	dropout:f32,
+	heads:usize,
+	mask:AttentionMask
+}
 #[derive(Debug,Module)]
 /// layer for computing attention from [key,query,value] inputs
 pub struct Attention<B:Backend>{dropout:f32,heads:usize,mask:Ignored<AttentionMask>,phantom:PhantomData<B>}
+#[derive(Config,Debug)]
+/// layer for adding bias somewhere
+pub struct BiasConfig{
+	dim:usize,
+	#[config(default="Initializer::Normal{mean:0.0,std:1.0}")]
+	initializer:Initializer
+}
+#[derive(Config,Debug)]
+/// layer for linear splitting into [key,query,value] for attention purposes
+pub struct KQVConfig{
+	embed:usize,
+	#[config(default="Initializer::XavierNormal{gain:1.0}")]
+	initializer:Initializer,
+	kdim:usize,
+	vdim:usize
+}
 #[derive(Debug,Module)]
 /// layer for adding bias anywhere
 pub struct Bias<B:Backend>{bias:Param<Tensor<B,1>>}
@@ -372,7 +422,7 @@ pub struct KQV<B:Backend>{key:Linear<B>,query:Linear<B>,value:Linear<B>}
 use burn::{
 	module::{Ignored,Param},
 	nn::{
-		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::Conv2d,loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
+		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
 	},
 	prelude::*,
 	tensor::activation
@@ -380,4 +430,5 @@ use burn::{
 use crate::{
 	ai::{AI,Decompose,IntoSequence,Op},builtin::{CatLayer,Sequential,SumLayer},burn::Value
 };
+use serde::{Deserialize,Serialize};
 use std::{marker::PhantomData,mem};
