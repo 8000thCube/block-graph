@@ -74,11 +74,14 @@ impl<B:Backend,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Layer<B> where 
 impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match self{
-			//Layer::Bias(f)=>todo!(),
+			Layer::Attention(f)=>f.forward(input),
+			Layer::Bias(f)=>f.forward(input),
+			Layer::CacheKV(f)=>f.forward(input),
 			Layer::Cat(f)=>f.forward(input),
 			Layer::CrossEntropy(f)=>AI::forward(f,input),
 			Layer::Dropout(f)=>AI::forward(f,input),
 			Layer::Embedding(f)=>AI::forward(f,input),
+			Layer::KQV(f)=>f.forward(input),
 			Layer::LayerNorm(f)=>AI::forward(f,input),
 			Layer::Linear(f)=>AI::forward(f,input),
 			Layer::Mse(f)=>AI::forward(f,input),
@@ -87,6 +90,26 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::Stack(dim)=>input.stack(*dim as i32),
 			Layer::Sum(f)=>f.forward(input),
 			Layer::Tanh(f)=>AI::forward(f,input),
+		}
+	}
+	fn forward_mut(&mut self,input:Value<B>)->Value<B>{
+		match self{
+			Layer::Attention(f)=>f.forward_mut(input),
+			Layer::Bias(f)=>f.forward_mut(input),
+			Layer::CacheKV(f)=>f.forward_mut(input),
+			Layer::Cat(f)=>f.0.forward_mut(input),
+			Layer::CrossEntropy(f)=>AI::forward_mut(f,input),
+			Layer::Dropout(f)=>AI::forward_mut(f,input),
+			Layer::Embedding(f)=>AI::forward_mut(f,input),
+			Layer::KQV(f)=>f.forward_mut(input),
+			Layer::LayerNorm(f)=>AI::forward_mut(f,input),
+			Layer::Linear(f)=>AI::forward_mut(f,input),
+			Layer::Mse(f)=>AI::forward_mut(f,input),
+			Layer::Relu(f)=>AI::forward_mut(f,input),
+			Layer::Rotary(f)=>AI::forward_mut(f,input),
+			Layer::Stack(dim)=>input.stack(*dim as i32),
+			Layer::Sum(f)=>f.0.forward_mut(input),
+			Layer::Tanh(f)=>AI::forward_mut(f,input),
 		}
 	}
 }
@@ -163,7 +186,7 @@ pub enum AttentionMask{Causal,None,Window(usize)}
 pub enum Config{Cat(CatLayer),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
 #[derive(Debug,Module)]//TODO more layers//TODO kqv, rotary, attention, bias
 /// enumerates some burn layers
-pub enum Layer<B:Backend>{Cat(Ignored<CatLayer>),CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Sum(Ignored<SumLayer>),Tanh(Tanh)}
+pub enum Layer<B:Backend>{Attention(Attention<B>),Bias(Bias<B>),CacheKV(CacheKV<B>),Cat(Ignored<CatLayer>),CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),KQV(KQV<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Sum(Ignored<SumLayer>),Tanh(Tanh)}
 /// scales the initializer
 pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
 	let r=r as f64;// apparently
@@ -183,27 +206,125 @@ pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
 /// scales the initializer
 pub fn w_scale_mut(initializer:&mut Initializer,r:f32){*initializer=w_scale(initializer.clone(),r)}
 
-/*
 #[derive(Debug,Module)]
 /// layer for computing attention from [key,query,value] inputs
-pub struct Attention<B:Backend>{heads:usize,mask:Ignored<AttentionMask>,summary:Linear<B>}
+pub struct Attention<B:Backend>{dropout:f32,heads:usize,mask:Ignored<AttentionMask>,phantom:PhantomData<B>}
 #[derive(Debug,Module)]
 /// layer for adding bias anywhere
 pub struct Bias<B:Backend>{bias:Param<Tensor<B,1>>}
-#[derive(Debug,Module)]
-/// layer for caching kv values from kqv when run mutably. clears cache when new data is incompatible for concatenation
+#[derive(Debug,Default,Module)]
+/// layer for caching kv values from kqv when run mutably. cats along d1 and outputs the concatenated keys and values. clears cache on forward_mut when new data is incompatible for concatenation
 pub struct CacheKV<B:Backend>{keys:Value<B>,values:Value<B>}
 #[derive(Debug,Module)]
-/// layer for linear splitting into [key,query,value]
+/// layer for linear splitting into [key,query,value] for attention purposes
 pub struct KQV<B:Backend>{key:Linear<B>,query:Linear<B>,value:Linear<B>}
 
-impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{// TODO this will need some more functions on value to be conveniently implementable
-	fn forward(&self,(k,q,v):(Value<B>,Value<B>,Value<B>))->Value<B>{// TODO support for other numbers of dimensions
-		fn f_3d<B:Backend>(attentionmask:AttentionMask,heads:usize,k:Tensor<B,3>,q:Tensor<B,3>,v:Tensor<B,3>)->Result<Tensor<B,3>,String>{
-			todo!()
+
+impl<B:Backend> AI<(Value<B>,Value<B>),(Value<B>,Value<B>)> for CacheKV<B>{
+	fn forward(&self,(k,v):(Value<B>,Value<B>))->(Value<B>,Value<B>){
+		let (keys,values)=(self.keys.clone(),self.values.clone());
+		(if keys.is_empty(){k}else{Value::from(vec![keys,k]).cat(1)},if values.is_empty(){v}else{Value::from(vec![values,v]).cat(1)})
+	}
+	fn forward_mut(&mut self,(k,v):(Value<B>,Value<B>))->(Value<B>,Value<B>){
+		let (keys,values)=(mem::take(&mut self.keys),mem::take(&mut self.values));
+
+		let (keys,values)=(if keys.is_empty(){k}else{Value::from(vec![keys,k]).cat(1)},if values.is_empty(){v}else{Value::from(vec![values,v]).cat(1)});
+		(self.keys,self.values)=if keys.is_incompatible()||values.is_incompatible(){Default::default()}else{(keys.clone(),values.clone())};
+
+		(keys,values)
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for CacheKV<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input{
+			Value::Incompatible(e)=>e.into(),
+			Value::Multi(v) if v.len()>=2=>match v.len(){
+				2=>{
+					let [k,v]=v.try_into().unwrap();
+
+					let (k,v)=self.forward((k,v));
+					vec![k,v].into()
+				},
+				3=>{
+					let [k,q,v]=v.try_into().unwrap();
+
+					let (k,v)=self.forward((k,v));
+					vec![k,q,v].into()
+				},
+				_=>{
+					v.into_iter().map(|x|self.forward(x)).collect()
+				}
+			},
+			_=>"cache kv inputs must be in pairs or triples".into()
 		}
-		fn mask_causal<B:Backend,const D:usize>(a:Tensor<B,D>,length:usize,value:f64)->Tensor<B,D>{
-			if D<2{return mask_window::<B,2>(a.unsqueeze(),length,value).squeeze(0)}							// shouldn't actually happen but if the dimension is less than 2 we can just treat it like it has a second dimension of size 1
+	}
+	fn forward_mut(&mut self,input:Value<B>)->Value<B>{
+		match input{
+			Value::Incompatible(e)=>e.into(),
+			Value::Multi(v) if v.len()>=2=>match v.len(){
+				2=>{
+					let [k,v]=v.try_into().unwrap();
+
+					let (k,v)=self.forward_mut((k,v));
+					vec![k,v].into()
+				},
+				3=>{
+					let [k,q,v]=v.try_into().unwrap();
+
+					let (k,v)=self.forward_mut((k,v));
+					vec![k,q,v].into()
+				},
+				_=>{
+					v.into_iter().map(|x|self.forward_mut(x)).collect()
+				}
+			},
+			_=>"cache kv inputs must be in pairs or triples".into()
+		}
+	}
+}
+
+impl<B:Backend> AI<Value<B>,(Value<B>,Value<B>,Value<B>)> for KQV<B>{
+	fn forward(&self,input:Value<B>)->(Value<B>,Value<B>,Value<B>){
+		let (k,q)=(input.clone(),input.clone());
+		let v=input;
+
+		(AI::forward(&self.key,k),AI::forward(&self.query,q),AI::forward(&self.value,v))
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for KQV<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		let (k,q,v)=self.forward(input);
+		vec![k,q,v].into()
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for Bias<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{input+Value::from(self.bias.val())}
+}
+
+
+impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{
+	fn forward(&self,(k,q,v):(Value<B>,Value<B>,Value<B>))->Value<B>{// TODO support for other numbers of dimensions
+		fn apply_mask<B:Backend,const D:usize>(a:Tensor<B,D>,mask:AttentionMask,value:f32)->Tensor<B,D>{
+			match mask{AttentionMask::Causal=>mask_causal(a,value as f64),AttentionMask::None=>a,AttentionMask::Window(n)=>mask_window(a,n,value as f64)}
+		}
+		fn f_3d<B:Backend>(dropout:f32,heads:usize,mask:AttentionMask,k:Tensor<B,3>,q:Tensor<B,3>,v:Tensor<B,3>)->Result<Tensor<B,3>,String>{
+			let (kdims,qdims,vdims)=(k.dims(),q.dims(),v.dims());
+
+			if kdims!=qdims{return Err("mismatched dims".into())}
+			if kdims!=vdims{return Err("mismatched dims".into())}
+			let [batch,sequence,embed]=kdims;
+			let dropout=Dropout{prob:dropout as f64};
+			let head=if embed%heads==0{embed/heads}else{return Err("embed must be a multiple of heads".into())};
+
+			let (k,q,v)=(k.reshape([batch,sequence,heads,head]).swap_dims(1,2),q.reshape([batch,sequence,heads,head]).swap_dims(1,2),v.reshape([batch,sequence,heads,head]).swap_dims(1,2));
+			let a=activation::softmax(apply_mask(q.matmul(k.transpose())/(head as f32).sqrt(),mask,-9999.0),3);
+			let a=dropout.forward(a);
+			let s=a.matmul(v).swap_dims(1,2).reshape([0,0,-1]);
+
+			Ok(s)
+		}
+		fn mask_causal<B:Backend,const D:usize>(a:Tensor<B,D>,value:f64)->Tensor<B,D>{
+			if D<2{return mask_causal::<B,2>(a.unsqueeze(),value).squeeze(0)}									// shouldn't actually happen but if the dimension is less than 2 we can just treat it like it has a second dimension of size 1
 
 			let (device,dims)=(a.device(),a.dims());
 			let (key,query)=(dims[D-1],dims[D-2]);
@@ -226,25 +347,23 @@ impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{// TO
 			let a=a.mask_fill(causal.unsqueeze(),value).mask_fill(window.unsqueeze(),value);
 			a
 		}
-		let (heads,mask)=(self.heads,self.mask.0);
-		let summary=&self.summary;
+		let (dropout,heads,mask)=(self.dropout,self.heads,self.mask.0);
 
-		let output:Value<B>=match match (k.float(),q.float(),v.float()){
-			(Value::F3(k),Value::F3(q),Value::F3(v))=>f_3d(mask,heads,k,q,v).map(Into::into),
+		match match (k.float(),q.float(),v.float()){
+			(Value::F3(k),Value::F3(q),Value::F3(v))=>f_3d(dropout,heads,mask,k,q,v).map(Into::into),
 			(Value::Multi(k),Value::Multi(q),Value::Multi(v))=>if k.len()==q.len()&&q.len()==v.len(){Ok(k.into_iter().zip(q).zip(v).map(|((k,q),v)|self.forward((k,q,v))).collect())}else{Err("incompatible lengths".into())}
 			_=>Err("attention is currently only supported for 3d float inputs [batch, seq, embed]".into())
 		}{
 			Err(e)=>e.into(),
 			Ok(x)=>x
-		};
-		AI::forward(summary,output)
+		}
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for Attention<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match input{
 			Value::Incompatible(e)=>e.into(),
-			Value::Multi(v)=>if v.len()==3{
+			Value::Multi(v) if v.len()>=3=>if v.len()==3{
 				let [k,q,v]=v.try_into().unwrap();
 				self.forward((k,q,v))
 			}else{
@@ -254,28 +373,16 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Attention<B>{
 		}
 	}
 }
-impl<B:Backend> AI<Value<B>,(Value<B>,Value<B>,Value<B>)> for KQV<B>{
-	fn forward(&self,input:Value<B>)->(Value<B>,Value<B>,Value<B>){
-		let (k,q)=(input.clone(),input.clone());
-		let v=input;
-
-		(AI::forward(&self.key,k),AI::forward(&self.query,q),AI::forward(&self.value,v))
-	}
-}
-impl<B:Backend> AI<Value<B>,Value<B>> for KQV<B>{
-	fn forward(&self,input:Value<B>)->Value<B>{
-		let (k,q,v)=self.forward(input);
-		vec![k,q,v].into()
-	}
-}*/
 
 use burn::{
-	module::Ignored,
+	module::{Ignored,Param},
 	nn::{
 		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
 	},
-	prelude::*
+	prelude::*,
+	tensor::activation
 };
 use crate::{
 	ai::{AI,Decompose,IntoSequence,Op},builtin::{CatLayer,Sequential,SumLayer},burn::Value
 };
+use std::{marker::PhantomData,mem};
