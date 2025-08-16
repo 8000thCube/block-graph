@@ -16,24 +16,20 @@ impl BiasConfig{
 	}
 }
 impl Config{
+	/// creates an attention config
+	pub fn attention(heads:usize,mask:AttentionMask)->Self{Self::Attention(AttentionConfig::new(heads,mask))}
+	/// creates a bias config
+	pub fn bias(dim:usize)->Self{Self::Bias(BiasConfig::new(dim))}
 	/// creates a embedding config
-	pub fn embedding(input:usize,output:usize,wscale:f32)->Self{
-		let mut l=EmbeddingConfig::new(input,output);
-		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
-		Self::Embedding(l)
-	}
+	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
+		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
 	/// creates a linear config
-	pub fn linear(bias:bool,input:usize,output:usize,wscale:f32)->Self{
-		let mut l=LinearConfig::new(input,output).with_bias(bias);
-		if wscale!=1.0{l.initializer=w_scale(l.initializer,wscale)}
-		Self::Linear(l)
-	}
+	pub fn linear(bias:bool,input:usize,output:usize)->Self{Self::Linear(LinearConfig::new(input,output).with_bias(bias))}
 	/// creates a relu config
 	pub fn relu()->Self{Self::Relu}
 	/// creates a rotary config
@@ -42,7 +38,7 @@ impl Config{
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
 	pub fn w_scale(mut self,r:f32)->Self{
-		match &mut self{Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
+		match &mut self{Config::Attention(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
 		self
 	}
 }
@@ -51,6 +47,12 @@ impl Decompose for Config{
 	fn decompose(self)->Self::Decomposition{self}
 	fn decompose_cloned(&self)->Self::Decomposition{self.clone()}
 	type Decomposition=Self;
+}
+impl From<AttentionConfig> for Config{
+	fn from(value:AttentionConfig)->Self{Self::Attention(value)}
+}
+impl From<BiasConfig> for Config{
+	fn from(value:BiasConfig)->Self{Self::Bias(value)}
 }
 impl From<CatLayer> for Config{
 	fn from(value:CatLayer)->Self{Config::Cat(value)}
@@ -361,7 +363,7 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
+pub enum Config{Attention(AttentionConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
 #[derive(Debug,Module)]//TODO more layers//TODO kqv, rotary, attention, bias
 /// enumerates some burn layers
 pub enum Layer<B:Backend>{Attention(Attention<B>),Bias(Bias<B>),CacheKV(CacheKV<B>),Cat(Ignored<CatLayer>),Conv2d(Conv2d<B>),CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),KQV(KQV<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Sum(Ignored<SumLayer>),Tanh(Tanh)}
