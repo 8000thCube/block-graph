@@ -166,7 +166,7 @@ pub trait Op{
 	/// wraps with an absolute value operation
 	fn abs(self)->Abs<Self> where Self:Sized,Abs<Self>:Op{Abs::new(self)}
 	/// wraps with a accq operation
-	fn acc_q(self,dim:i32,gamma:f32)->AccQ<Self> where AccQ<Self>:Op,Self:Sized{AccQ::new(dim,gamma,self)}
+	fn acc_q(self,gamma:f32)->AccQ<Self> where AccQ<Self>:Op,Self:Sized{AccQ::new(gamma,self)}
 	/// wraps with a cat operation
 	fn cat(self,dim:i32)->Cat<Self> where Cat<Self>:Op,Self:Sized{Cat::new(dim,self)}
 	/// sequences with another ai operation
@@ -226,7 +226,9 @@ pub trait UnwrapInner{
 	type Inner;
 }
 use {op_tuple,decompose_primitive,decompose_tuple};
-use crate::builtin::{AbnormalSoftmax,Abs,AccQ,Autoregression,Cat,Choose,CrossEntropy,Duplicate,LogSoftmax,Map,Mean,Sequential,SetType,Softmax,SquaredError,Sum,Zip};
+use crate::builtin::{
+	Autoregression,Duplicate,Map,Sequential,SetType,Zip,math::{Abs,Mean,SquaredError,Sum},reinforcement::AccQ,soft::{AbnormalSoftmax,Choose,CrossEntropy,LogSoftmax,Softmax},structural::Cat
+};
 use std::{
 	collections::HashMap,cmp::Ord,hash::{BuildHasher,Hash},ops::Range
 };
