@@ -262,6 +262,9 @@ impl<A:AI<X,X>,X> AI<X,X> for Sequential<Vec<A>>{
 	fn forward(&self,input:X)->X{self.inner().iter().fold(input,|x,a|a.forward(x))}
 	fn forward_mut(&mut self,input:X)->X{self.inner_mut().iter_mut().fold(input,|x,a|a.forward_mut(x))}
 }
+impl<A:AI<X,Y>+IntoSequence<M>,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M> for SetType<A,X,Y>{
+	fn into_sequence(self)->Sequential<Vec<M>>{self.into_inner().into_sequence()}
+}
 impl<A:AI<X,Y>+Op<Output=Y>,B:AI<Y,Z>,X,Y,Z> AI<X,Z> for Sequential<(A,B)>{
 	fn forward(&self,input:X)->Z{
 		let (a,b)=self.inner();
@@ -285,6 +288,10 @@ impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J
 impl<A:AI<X,Y>+Op<Output=Y>,T,X,Y,Z> AI<(X,T),Z> for CrossEntropy<A> where CrossEntropyLayer:AI<(Y,T),Z>{
 	fn forward(&self,(input,target):(X,T))->Z{self.layer.forward((self.inner.forward(input),target))}
 	fn forward_mut(&mut self,(input,target):(X,T))->Z{self.layer.forward_mut((self.inner.forward_mut(input),target))}
+}
+impl<A:AI<X,Y>+UnwrapInner,X,Y> UnwrapInner for SetType<A,X,Y>{
+	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
+	type Inner=A::Inner;
 }
 impl<A:AI<X,Y>,X,Y:Clone,const N:usize> AI<X,[Y;N]> for Duplicate<A>{
 	fn forward(&self,input:X)->[Y;N]{
@@ -1098,13 +1105,6 @@ impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Sequent
 	fn into_sequence(self)->Sequential<Vec<M>>{
 		Sequential{inner:self.into_inner().into_iter().flat_map(|a|a.into_sequence().into_inner()).collect()}
 	}
-}
-impl<A:AI<X,Y>+IntoSequence<M>,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M> for SetType<A,X,Y>{
-	fn into_sequence(self)->Sequential<Vec<M>>{self.into_inner().into_sequence()}
-}
-impl<A:AI<X,Y>+UnwrapInner,X,Y> UnwrapInner for SetType<A,X,Y>{
-	fn unwrap_inner(self)->Self::Inner{self.into_inner().unwrap_inner()}
-	type Inner=A::Inner;
 }
 
 #[derive(Clone,Copy,Debug,Deserialize,Default,PartialEq,Serialize)]
