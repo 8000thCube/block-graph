@@ -430,7 +430,10 @@ use burn::{
 	tensor::activation
 };
 use crate::{
-	ai::{AI,Decompose,IntoSequence,Op},builtin::{CatLayer,Sequential,SumLayer},burn::Value
+	ai::{AI,Decompose,IntoSequence,Op},
+	builtin::{
+		Sequential,math::SumLayer,structural::CatLayer
+	},burn::Value
 };
 use serde::{Deserialize,Serialize};
 use std::{marker::PhantomData,mem};

@@ -1002,7 +1002,11 @@ use burn::{
 	}
 };
 use crate::{
-	AI,Decompose,Merge,Op,builtin::{AccQLayer,Alignment,SoftmaxLayer,CatLayer,ChooseLayer,CrossEntropyLayer,MeanLayer,ReductionMode,SquaredErrorLayer,SumLayer},ops::Abs
+	AI,Decompose,Merge,Op,
+	builtin::{
+		Alignment,ReductionMode,math::{MeanLayer,SquaredErrorLayer,SumLayer},reinforcement::AccQLayer,soft::{ChooseLayer,CrossEntropyLayer,SoftmaxLayer},structural::CatLayer
+	},
+	ops::Abs
 };
 use rand::random;
 use serde::{Deserialize,Serialize};

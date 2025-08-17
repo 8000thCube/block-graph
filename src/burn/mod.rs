@@ -475,7 +475,10 @@ use burn::{
 	}
 };
 use crate::{
-	AI,Decompose,Graph,Inner,Op,UnwrapInner,Unvec,builtin::{Abs,AccQ,Cat,Choose,CrossEntropy,Duplicate,Map,Mean,Sequential,SetType,SquaredError,Zip}
+	AI,Decompose,Graph,Inner,Op,UnwrapInner,Unvec,
+	builtin::{
+		Duplicate,Map,Sequential,SetType,Zip,math::{Abs,Mean,SquaredError},reinforcement::AccQ,soft::{Choose,CrossEntropy},structural::Cat
+	},
 };
 use rand::random;
 use std::{
