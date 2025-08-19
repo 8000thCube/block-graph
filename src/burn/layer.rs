@@ -415,12 +415,51 @@ pub struct KQVConfig{
 #[derive(Debug,Module)]
 /// layer for adding bias anywhere
 pub struct Bias<B:Backend>{bias:Param<Tensor<B,1>>}
-#[derive(Debug,Default,Module)]
+#[derive(Debug,Default,Deserialize,Module,Serialize)]
 /// layer for caching kv values from kqv when run mutably. cats along d1 and outputs the concatenated keys and values. clears cache on forward_mut when new data is incompatible for concatenation
 pub struct CacheKV<B:Backend>{keys:Value<B>,values:Value<B>}
-#[derive(Debug,Module)]
+#[derive(Debug,Deserialize,Module,Serialize)]
 /// layer for linear splitting into [key,query,value] for attention purposes
-pub struct KQV<B:Backend>{key:Linear<B>,query:Linear<B>,value:Linear<B>}
+pub struct KQV<B:Backend>{
+	#[serde(deserialize_with="deserialize_linear")]
+	#[serde(serialize_with="serialize_linear")]
+	key:Linear<B>,
+	#[serde(deserialize_with="deserialize_linear")]
+	#[serde(serialize_with="serialize_linear")]
+	query:Linear<B>,
+	#[serde(deserialize_with="deserialize_linear")]
+	#[serde(serialize_with="serialize_linear")]
+	value:Linear<B>
+}
+
+
+fn deserialize<'a,D:Deserializer<'a>,T:Deserialize<'a>>(deserializer:D)->Result<T,D::Error>{T::deserialize(deserializer)}
+fn derror<D:Display,E:Derror>(msg:D)->E{E::custom(msg)}
+fn deserialize_linear<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<Linear<B>,D::Error>{
+	let data:Vec<Value<B>>=deserialize(deserializer)?;
+    let mut data=data.into_iter();
+	let weight:Value<B>=if let Some(w)=data.next(){w}else{return Err(derror("linear weight parameter not found"))};
+	let weight:Param<Tensor<B,2>>=Param::from_tensor(if let Ok(w)=weight.try_into(){w}else{return Err(derror("linear weight parameter must be a rank 2 float"))});
+
+	let bias:Option<Param<Tensor<B,1>>>=if let Some(b)=data.next(){
+		if let Ok(b)=b.try_into(){Some(Param::from_tensor(b))}else{return Err(derror("linear bias parameter must be a rank 1 float"))}
+	}else{
+		None
+	};
+
+	Ok(Linear{weight,bias})
+}
+
+fn serialize<'a,S:Serializer,T:Serialize>(data:&T,serializer:S)->Result<S::Ok,S::Error>{data.serialize(serializer)}
+//fn serror<D:Display,E:Serror>(msg:D)->E{E::custom(msg)}
+fn serialize_linear<B:Backend,S:Serializer>(layer:&Linear<B>,serializer:S)->Result<S::Ok,S::Error>{
+	let mut data:Vec<Value<B>>=Vec::with_capacity(2);
+
+	data.push(layer.weight.clone().val().into());
+	if let Some(b)=layer.bias.as_ref(){data.push(b.val().into())}
+	serialize(&data,serializer)
+}
+
 use burn::{
 	module::{Ignored,Param},
 	nn::{
@@ -435,5 +474,5 @@ use crate::{
 		Sequential,math::SumLayer,structural::CatLayer
 	},burn::Value
 };
-use serde::{Deserialize,Serialize};
-use std::{marker::PhantomData,mem};
+use serde::{Deserialize,Deserializer,Serialize,Serializer,de::Error as Derror};
+use std::{fmt::Display,marker::PhantomData,mem};
