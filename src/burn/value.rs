@@ -3,16 +3,6 @@ bicop_num!(Div,div,div_scalar);
 bicop_num!(Mul,mul,mul_scalar);
 bicop_num!(Rem,rem,remainder_scalar);
 bicop_num!(Sub,sub,sub_scalar);
-fn slice_slice<B:Backend,K:BasicOps<B>+TensorKind<B>,const N:usize>(ranges:&[Range<usize>],tensor:Tensor<B,N,K>)->Tensor<B,N,K>{
-	let mut n=0;
-	let mut acc=||{
-		let a=n;
-		n+=1;
-		a
-	};
-
-	match ranges.len(){0=>tensor,1=>tensor.slice([0;1].map(|_|ranges[acc()].clone())),2=>tensor.slice([0;2].map(|_|ranges[acc()].clone())),3=>tensor.slice([0;3].map(|_|ranges[acc()].clone())),4=>tensor.slice([0;4].map(|_|ranges[acc()].clone())),5=>tensor.slice([0;5].map(|_|ranges[acc()].clone())),6=>tensor.slice([0;6].map(|_|ranges[acc()].clone())),7=>tensor.slice([0;7].map(|_|ranges[acc()].clone())),8=>tensor.slice([0;8].map(|_|ranges[acc()].clone())),_=>panic!("too many ranges for current max 8 dims")}
-}
 fn broadcast_multi<B:Backend,F:FnMut(Value<B>,Value<B>)->Value<B>>(u:Vec<Value<B>>,v:Vec<Value<B>>,mut f:F)->Value<B>{
 	if u.len()==1{
 		u.into_iter().cycle().zip(v).map(|(x,y)|f(x,y)).collect()
@@ -51,6 +41,16 @@ fn hard_choose_burn_tensor<B:Backend,const N:usize>(dim:i32,distribution:Tensor<
 	let r:Tensor<B,N,Int>=Tensor::from_data(TensorData::new(hard_choose_burn_multi(dim as i32,distribution),dims),&device);
 
 	r.movedim(N-1,dim)
+}
+fn slice_slice<B:Backend,K:BasicOps<B>+TensorKind<B>,const N:usize>(ranges:&[Range<usize>],tensor:Tensor<B,N,K>)->Tensor<B,N,K>{
+	let mut n=0;
+	let mut acc=||{
+		let a=n;
+		n+=1;
+		a
+	};
+
+	match ranges.len(){0=>tensor,1=>tensor.slice([0;1].map(|_|ranges[acc()].clone())),2=>tensor.slice([0;2].map(|_|ranges[acc()].clone())),3=>tensor.slice([0;3].map(|_|ranges[acc()].clone())),4=>tensor.slice([0;4].map(|_|ranges[acc()].clone())),5=>tensor.slice([0;5].map(|_|ranges[acc()].clone())),6=>tensor.slice([0;6].map(|_|ranges[acc()].clone())),7=>tensor.slice([0;7].map(|_|ranges[acc()].clone())),8=>tensor.slice([0;8].map(|_|ranges[acc()].clone())),_=>panic!("too many ranges for current max 8 dims")}
 }
 fn soft_choose_burn_1<B:Backend,const N:usize>(dim:i32,logits:Tensor<B,N>,temperature:f32)->u32{
 	let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
@@ -106,6 +106,9 @@ impl Shape{
 		match alignment{Alignment::Center=>result[4-l/2..][..l].copy_from_slice(slice),Alignment::Left=>result[..l].copy_from_slice(slice),Alignment::Right=>result[8-l..].copy_from_slice(slice)}
 		result
 	}
+}
+impl<'a,B:Backend> Deserialize<'a> for Value<B>{
+	fn deserialize<D:Deserializer<'a>>(deserializer:D)->Result<Self,D::Error>{ValueData::deserialize(deserializer).map(Into::into)}
 }
 impl<A:AutodiffBackend> AutodiffModule<A> for Value<A>{
 	fn valid(&self)->Self::InnerModule{
@@ -578,6 +581,38 @@ impl<B:Backend> Default for Value<B>{
 impl<B:Backend> Display for Value<B>{
     fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->FmtResult{write!(f,"todo")}
 }
+impl<B:Backend> From<Vec<bool>> for Value<B>{
+	fn from(value:Vec<bool>)->Self{
+		let l=value.len();
+		let t:Tensor<B,1,Bool>=Tensor::from_data(TensorData::new(value,[l]),&Default::default());
+
+		t.into()
+	}
+}
+impl<B:Backend> From<Vec<f32>> for Value<B>{
+	fn from(value:Vec<f32>)->Self{
+		let l=value.len();
+		let t:Tensor<B,1>=Tensor::from_data(TensorData::new(value,[l]),&Default::default());
+
+		t.into()
+	}
+}
+impl<B:Backend> From<Vec<i32>> for Value<B>{
+	fn from(value:Vec<i32>)->Self{
+		let l=value.len();
+		let t:Tensor<B,1,Int>=Tensor::from_data(TensorData::new(value,[l]),&Default::default());
+
+		t.into()
+	}
+}
+impl<B:Backend> From<Vec<u32>> for Value<B>{
+	fn from(value:Vec<u32>)->Self{
+		let l=value.len();
+		let t:Tensor<B,1,Int>=Tensor::from_data(TensorData::new(value,[l]),&Default::default());
+
+		t.into()
+	}
+}
 impl<B:Backend> ModuleDisplay for Value<B>{
 	fn custom_content(&self,_content:Content)->Option<Content>{
 		//todo!()
@@ -600,6 +635,23 @@ impl<B:Backend> ModuleDisplayDefault for Value<B>{
 }
 impl<B:Backend> From<String> for Value<B>{
 	fn from(value:String)->Self{Self::Incompatible(value)}
+}
+impl<B:Backend> From<Value<B>> for ValueData{
+	fn from(value:Value<B>)->Self{
+		match value{B1(x)=>BX(x.into_data()),B2(x)=>BX(x.into_data()),B3(x)=>BX(x.into_data()),B4(x)=>BX(x.into_data()),B5(x)=>BX(x.into_data()),B6(x)=>BX(x.into_data()),B7(x)=>BX(x.into_data()),B8(x)=>BX(x.into_data()),F1(x)=>FX(x.into_data()),F2(x)=>FX(x.into_data()),F3(x)=>FX(x.into_data()),F4(x)=>FX(x.into_data()),F5(x)=>FX(x.into_data()),F6(x)=>FX(x.into_data()),F7(x)=>FX(x.into_data()),F8(x)=>FX(x.into_data()),I1(x)=>IX(x.into_data()),I2(x)=>IX(x.into_data()),I3(x)=>IX(x.into_data()),I4(x)=>IX(x.into_data()),I5(x)=>IX(x.into_data()),I6(x)=>IX(x.into_data()),I7(x)=>IX(x.into_data()),I8(x)=>IX(x.into_data()),Value::Incompatible(e)=>ValueData::Incompatible(e),Value::Multi(v)=>ValueData::Multi(v.into_iter().map(ValueData::from).collect())}
+	}
+}
+impl<B:Backend> From<ValueData> for Value<B>{
+	fn from(value:ValueData)->Self{
+		let device=Default::default();
+		match value{
+			BX(data)=>match data.shape.len(){1=>B1(Tensor::from_data(data,&device)),2=>B2(Tensor::from_data(data,&device)),3=>B3(Tensor::from_data(data,&device)),4=>B4(Tensor::from_data(data,&device)),5=>B5(Tensor::from_data(data,&device)),6=>B6(Tensor::from_data(data,&device)),7=>B7(Tensor::from_data(data,&device)),8=>B8(Tensor::from_data(data,&device)),_=>panic!("tensor ranks above 8 are currently not supported")},
+			FX(data)=>match data.shape.len(){1=>F1(Tensor::from_data(data,&device)),2=>F2(Tensor::from_data(data,&device)),3=>F3(Tensor::from_data(data,&device)),4=>F4(Tensor::from_data(data,&device)),5=>F5(Tensor::from_data(data,&device)),6=>F6(Tensor::from_data(data,&device)),7=>F7(Tensor::from_data(data,&device)),8=>F8(Tensor::from_data(data,&device)),_=>panic!("tensor ranks above 8 are currently not supported")},
+			IX(data)=>match data.shape.len(){1=>I1(Tensor::from_data(data,&device)),2=>I2(Tensor::from_data(data,&device)),3=>I3(Tensor::from_data(data,&device)),4=>I4(Tensor::from_data(data,&device)),5=>I5(Tensor::from_data(data,&device)),6=>I6(Tensor::from_data(data,&device)),7=>I7(Tensor::from_data(data,&device)),8=>I8(Tensor::from_data(data,&device)),_=>panic!("tensor ranks above 8 are currently not supported")},
+			ValueData::Incompatible(e)=>e.into(),
+			ValueData::Multi(v)=>v.into_iter().map(Value::from).collect(),
+		}
+	}
 }
 impl<B:Backend> From<Vec<Value<B>>> for Value<B>{
 	fn from(value:Vec<Value<B>>)->Self{Self::Multi(value)}
@@ -674,6 +726,9 @@ impl<B:Backend> Module<B> for Value<B>{
 		match self{B1(x)=>x.visit(visitor),B2(x)=>x.visit(visitor),B3(x)=>x.visit(visitor),B4(x)=>x.visit(visitor),B5(x)=>x.visit(visitor),B6(x)=>x.visit(visitor),B7(x)=>x.visit(visitor),B8(x)=>x.visit(visitor),F1(x)=>x.visit(visitor),F2(x)=>x.visit(visitor),F3(x)=>x.visit(visitor),F4(x)=>x.visit(visitor),F5(x)=>x.visit(visitor),F6(x)=>x.visit(visitor),F7(x)=>x.visit(visitor),F8(x)=>x.visit(visitor),I1(x)=>x.visit(visitor),I2(x)=>x.visit(visitor),I3(x)=>x.visit(visitor),I4(x)=>x.visit(visitor),I5(x)=>x.visit(visitor),I6(x)=>x.visit(visitor),I7(x)=>x.visit(visitor),I8(x)=>x.visit(visitor),Value::Incompatible(_e)=>(),Value::Multi(v)=>v.iter().for_each(|x|x.visit(visitor))}
 	}
 	type Record=ConstantRecord;
+}
+impl<B:Backend> Serialize for Value<B>{
+	fn serialize<S:Serializer>(&self,serializer:S)->Result<S::Ok,S::Error>{ValueData::from(self.clone()).serialize(serializer)}
 }
 impl<B:Backend> Value<B>{//TODO scalars
 	/// casts to a bool tensor if not one
@@ -974,6 +1029,7 @@ macro_rules! try_unwrap{
 		pub fn $unwrap(self)->$tensor{self.try_into().unwrap()}
 	}
 }
+
 #[derive(Clone,Copy,Debug,Eq,PartialEq,Deserialize,Serialize)]
 /// enumerates kinds for values
 pub enum Kind{Bool,Float,Incompatible,Int,Multi}
@@ -983,13 +1039,17 @@ pub enum Shape{Incompatible(String),Multi(usize),Recursive(Vec<Shape>),X1([usize
 #[derive(Clone,Debug)]//TODO implement serde for this
 /// enumerates burn tensors up to 8 dimensions, along with a variant to represent operation compatibility errors, and a variant for multiple tensors. An empty multi variant can be used to represent a lack of data. Once a the depth of a multi variant is enough for an operation to take full effect, further nesting should result in the same as applying separately
 pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
-#[derive(Clone,Debug)]
+#[derive(Clone,Debug,Deserialize,Serialize)]
+/// burn tensors as tensor data for serialization
+pub enum ValueData{BX(TensorData),FX(TensorData),IX(TensorData),Incompatible(String),Multi(Vec<ValueData>)}
+#[derive(Clone,Debug,Deserialize,Serialize)]
 /// general loss output for being converted into other loss outputs
 pub struct LossOutput<B:Backend>{loss:Value<B>,output:Value<B>,target:Value<B>}
 use {bicop_num,try_unwrap};
 use Bound::{Excluded,Included,Unbounded};
 use Shape::{X1,X2,X3,X4,X5,X6,X7,X8};
 use Value::{B1,B2,B3,B4,B5,B6,B7,B8,F1,F2,F3,F4,F5,F6,F7,F8,I1,I2,I3,I4,I5,I6,I7,I8};
+use ValueData::{BX,FX,IX};
 use burn::{
 	module::{AutodiffModule,ConstantRecord,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
 	nn::{
@@ -1009,7 +1069,7 @@ use crate::{
 	ops::Abs
 };
 use rand::random;
-use serde::{Deserialize,Serialize};
+use serde::{Deserialize,Deserializer,Serialize,Serializer};
 use std::{
 	any::TypeId,fmt::{Display,Result as FmtResult},iter::{FromIterator,once},mem,ops::{Add,Bound,Div,Mul,RangeBounds,Range,Rem,Sub},path::PathBuf,slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
 };
