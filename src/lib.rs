@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 mod ai;
+/// graph stuff
 mod graph;
 /// builtin ai layers and value types
 pub mod builtin;
