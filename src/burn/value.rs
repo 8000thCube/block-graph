@@ -1,4 +1,4 @@
-bicop_num!(Add,add,add_scalar);// TODO from vec would be convenient// TODO make things properly serialized instead of whatever nonsense burn is doing
+bicop_num!(Add,add,add_scalar);
 bicop_num!(Div,div,div_scalar);
 bicop_num!(Mul,mul,mul_scalar);
 bicop_num!(Rem,rem,remainder_scalar);
@@ -1043,6 +1043,7 @@ pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,
 /// burn tensors as tensor data for serialization
 pub enum ValueData{BX(TensorData),FX(TensorData),IX(TensorData),Incompatible(String),Multi(Vec<ValueData>)}
 #[derive(Clone,Debug,Deserialize,Serialize)]
+#[serde(bound="")]
 /// general loss output for being converted into other loss outputs
 pub struct LossOutput<B:Backend>{loss:Value<B>,output:Value<B>,target:Value<B>}
 use {bicop_num,try_unwrap};
