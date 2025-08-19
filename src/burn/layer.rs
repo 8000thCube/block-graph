@@ -1,3 +1,110 @@
+fn derror<D:Display,E:Derror>(msg:D)->E{E::custom(msg)}
+fn deserialize_conv2d<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<Conv2d<B>,D::Error>{
+	let record=Conv2dRecord::deserialize(deserializer)?;
+
+	let (dilation,groups,kernelsize,stride)=(record.dilation,record.groups,record.kernelsize,record.stride);
+	let bias=if let Some(b)=record.bias{
+		if let Ok(b)=b.try_into(){Some(Param::from_tensor(b))}else{return Err(derror("linear bias parameter must be a rank 1 float"))}
+	}else{
+		None
+	};
+	let padding=record.padding.clone();
+	let weight=Param::from_tensor(if let Ok(w)=record.weight.try_into(){w}else{return Err(derror("linear weight parameter must be a rank 2 float"))});
+
+	Ok(Conv2d{bias,dilation,groups,kernel_size:kernelsize,padding,stride,weight})
+}
+fn deserialize_cross_entropy<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<CrossEntropyLoss<B>,D::Error>{
+	let record=CrossEntropyRecord::deserialize(deserializer)?;
+
+	let (logits,pad,smoothing)=(record.logits,record.pad,record.smoothing);
+	let weights=if let Some(s)=record.weights{
+		if let Ok(s)=s.try_into(){Some(s)}else{return Err(derror("cross entropy weights parameter must be a rank 1 float"))}
+	}else{
+		None
+	};
+
+	Ok(CrossEntropyLoss{logits,pad_tokens:pad,smoothing,weights})
+}
+fn deserialize_dropout<'a,D:Deserializer<'a>>(deserializer:D)->Result<Dropout,D::Error>{
+	Ok(Dropout{prob:f64::deserialize(deserializer)?})
+}
+fn deserialize_embedding<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<Embedding<B>,D::Error>{
+	let weight=deserialize_param(deserializer)?;
+	Ok(Embedding{weight})
+}
+fn deserialize_ignored<'a,D:Deserializer<'a>,T:Deserialize<'a>>(deserializer:D)->Result<Ignored<T>,D::Error>{
+	let data:T=T::deserialize(deserializer)?;
+	Ok(Ignored(data))
+}
+fn deserialize_layer_norm<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<LayerNorm<B>,D::Error>{
+	let mut layer=LayerNormConfig::new(1).init(&Default::default());
+	let record=LayerNormRecord::deserialize(deserializer)?;
+
+	if let Ok(b)=record.beta.try_into(){layer.beta=Param::from_tensor(b)}else{return Err(derror("beta parameter must be a rank 1 float"))}
+	if let Ok(g)=record.gamma.try_into(){layer.gamma=Param::from_tensor(g)}else{return Err(derror("gamma parameter must be a rank 1 float"))}
+
+	Ok(layer)
+}
+fn deserialize_linear<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<Linear<B>,D::Error>{
+	let record=LinearRecord::deserialize(deserializer)?;
+
+	let bias=if let Some(b)=record.bias{
+		if let Ok(b)=b.try_into(){Some(Param::from_tensor(b))}else{return Err(derror("linear bias parameter must be a rank 1 float"))}
+	}else{
+		None
+	};
+	let weight=Param::from_tensor(if let Ok(w)=record.weight.try_into(){w}else{return Err(derror("linear weight parameter must be a rank 2 float"))});
+
+	Ok(Linear{bias,weight})
+}
+fn deserialize_nothing<'a,D:Deserializer<'a>,T:Default>(_deserializer:D)->Result<T,D::Error>{Ok(T::default())}
+fn deserialize_param<'a,B:Backend,D:Deserializer<'a>,const N:usize>(deserializer:D)->Result<Param<Tensor<B,N>>,D::Error>{
+	let data:Value<B>=Value::deserialize(deserializer)?;
+	if let Ok(t)=data.try_into(){Ok(Param::from_tensor(t))}else{Err(derror(format!("expected parameter to be a rank {N} float")))}
+}
+fn deserialize_rotary<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<RotaryEncoding<B>,D::Error>{Ok(RotaryEncodingConfig::deserialize(deserializer)?.init(&Default::default()))}
+fn serialize_conv2d<B:Backend,S:Serializer>(layer:&Conv2d<B>,serializer:S)->Result<S::Ok,S::Error>{
+	let (dilation,groups,kernelsize,stride)=(layer.dilation,layer.groups,layer.kernel_size,layer.stride);
+	let bias=layer.bias.as_ref().map(|b|b.val().into());
+	let padding=layer.padding.clone();
+	let weight=layer.weight.val().into();
+
+	Conv2dRecord{bias,dilation,groups,kernelsize,padding,stride,weight}.serialize(serializer)
+}
+fn serialize_cross_entropy<'a,B:Backend,S:Serializer>(layer:&CrossEntropyLoss<B>,serializer:S)->Result<S::Ok,S::Error>{
+	let (logits,pad,smoothing)=(layer.logits.clone(),layer.pad_tokens.clone(),layer.smoothing.clone());
+	let weights=layer.weights.clone().map(Into::into);
+
+	CrossEntropyRecord{logits,pad,smoothing,weights}.serialize(serializer)
+}
+fn serialize_dropout<S:Serializer>(data:&Dropout,serializer:S)->Result<S::Ok,S::Error>{data.prob.serialize(serializer)}
+fn serialize_embedding<B:Backend,S:Serializer>(layer:&Embedding<B>,serializer:S)->Result<S::Ok,S::Error>{serialize_param(&layer.weight,serializer)}
+fn serror<D:Display,E:Serror>(msg:D)->E{E::custom(msg)}
+fn serialize_ignored<S:Serializer,T:Serialize>(data:&Ignored<T>,serializer:S)->Result<S::Ok,S::Error>{
+	let data:&T=data;
+	data.serialize(serializer)
+}
+fn serialize_layer_norm<B:Backend,S:Serializer>(layer:&LayerNorm<B>,serializer:S)->Result<S::Ok,S::Error>{
+	LayerNormRecord{beta:layer.beta.val().into(),gamma:layer.gamma.val().into()}.serialize(serializer)
+}
+fn serialize_linear<B:Backend,S:Serializer>(layer:&Linear<B>,serializer:S)->Result<S::Ok,S::Error>{
+	let bias=layer.bias.as_ref().map(|b|b.val().into());
+	let weight=layer.weight.val().into();
+
+	LinearRecord{bias,weight}.serialize(serializer)
+}
+fn serialize_nothing<S:Serializer,T:Default>(_data:&T,serializer:S)->Result<S::Ok,S::Error>{().serialize(serializer)}
+fn serialize_param<B:Backend,S:Serializer,const N:usize>(data:&Param<Tensor<B,N>>,serializer:S)->Result<S::Ok,S::Error>{
+	if N>8{return Err(serror("tensor rank greater than 8 is not currently supported"))}
+	let data:Value<B>=data.val().into();
+	data.serialize(serializer)
+}
+fn serialize_rotary<B:Backend,S:Serializer>(data:&RotaryEncoding<B>,serializer:S)->Result<S::Ok,S::Error>{
+	let [distance,head,_2]=data.freq_complex.dims();
+	let theta:f32=data.theta.clone().into_scalar().elem();
+
+	RotaryEncodingConfig::new(distance,head).with_theta(theta).serialize(serializer)
+}
 impl AttentionConfig{
 	pub fn init<B:Backend>(&self,_device:&B::Device)->Attention<B>{
 		let (dropout,heads,mask)=(self.dropout,self.heads,self.mask);
@@ -364,9 +471,54 @@ pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
 pub enum Config{Attention(AttentionConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
-#[derive(Debug,Module)]//TODO more layers//TODO kqv, rotary, attention, bias
+#[derive(Debug,Deserialize,Module,Serialize)]//TODO more layers
+#[serde(bound="")]
 /// enumerates some burn layers
-pub enum Layer<B:Backend>{Attention(Attention<B>),Bias(Bias<B>),CacheKV(CacheKV<B>),Cat(Ignored<CatLayer>),Conv2d(Conv2d<B>),CrossEntropy(CrossEntropyLoss<B>),Dropout(Dropout),Embedding(Embedding<B>),KQV(KQV<B>),LayerNorm(LayerNorm<B>),Linear(Linear<B>),Mse(MseLoss),Relu(Relu),Rotary(RotaryEncoding<B>),Stack(usize),Sum(Ignored<SumLayer>),Tanh(Tanh)}
+pub enum Layer<B:Backend>{
+	Attention(Attention<B>),
+	Bias(Bias<B>),
+	#[serde(deserialize_with="deserialize_nothing")]
+	#[serde(serialize_with="serialize_nothing")]
+	CacheKV(CacheKV<B>),
+	#[serde(deserialize_with="deserialize_ignored")]
+	#[serde(serialize_with="serialize_ignored")]
+	Cat(Ignored<CatLayer>),
+	#[serde(deserialize_with="deserialize_conv2d")]
+	#[serde(serialize_with="serialize_conv2d")]
+	Conv2d(Conv2d<B>),
+	#[serde(deserialize_with="deserialize_cross_entropy")]
+	#[serde(serialize_with="serialize_cross_entropy")]
+	CrossEntropy(CrossEntropyLoss<B>),
+	#[serde(deserialize_with="deserialize_dropout")]
+	#[serde(serialize_with="serialize_dropout")]
+	Dropout(Dropout),
+	#[serde(deserialize_with="deserialize_embedding")]
+	#[serde(serialize_with="serialize_embedding")]
+	Embedding(Embedding<B>),
+	KQV(KQV<B>),
+	#[serde(deserialize_with="deserialize_layer_norm")]
+	#[serde(serialize_with="serialize_layer_norm")]
+	LayerNorm(LayerNorm<B>),
+	#[serde(deserialize_with="deserialize_linear")]
+	#[serde(serialize_with="serialize_linear")]
+	Linear(Linear<B>),
+	#[serde(deserialize_with="deserialize_nothing")]
+	#[serde(serialize_with="serialize_nothing")]
+	Mse(MseLoss),
+	#[serde(deserialize_with="deserialize_nothing")]
+	#[serde(serialize_with="serialize_nothing")]
+	Relu(Relu),
+	#[serde(deserialize_with="deserialize_rotary")]
+	#[serde(serialize_with="serialize_rotary")]
+	Rotary(RotaryEncoding<B>),
+	Stack(usize),
+	#[serde(deserialize_with="deserialize_ignored")]
+	#[serde(serialize_with="serialize_ignored")]
+	Sum(Ignored<SumLayer>),
+	#[serde(deserialize_with="deserialize_nothing")]
+	#[serde(serialize_with="serialize_nothing")]
+	Tanh(Tanh)
+}
 /// scales the initializer
 pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
 	let r=r as f64;// apparently
@@ -393,9 +545,17 @@ pub struct AttentionConfig{
 	heads:usize,
 	mask:AttentionMask
 }
-#[derive(Debug,Module)]
+#[derive(Debug,Deserialize,Module,Serialize)]
+#[serde(bound="")]
 /// layer for computing attention from [key,query,value] inputs
-pub struct Attention<B:Backend>{dropout:f32,heads:usize,mask:Ignored<AttentionMask>,phantom:PhantomData<B>}
+pub struct Attention<B:Backend>{
+	dropout:f32,
+	heads:usize,
+	#[serde(deserialize_with="deserialize_ignored")]
+	#[serde(serialize_with="serialize_ignored")]
+	mask:Ignored<AttentionMask>,
+	phantom:PhantomData<B>
+}
 #[derive(Config,Debug)]
 /// layer for adding bias somewhere
 pub struct BiasConfig{
@@ -412,13 +572,20 @@ pub struct KQVConfig{
 	kdim:usize,
 	vdim:usize
 }
-#[derive(Debug,Module)]
+#[derive(Debug,Deserialize,Module,Serialize)]
+#[serde(bound="")]
 /// layer for adding bias anywhere
-pub struct Bias<B:Backend>{bias:Param<Tensor<B,1>>}
+pub struct Bias<B:Backend>{
+	#[serde(deserialize_with="deserialize_param")]
+	#[serde(serialize_with="serialize_param")]
+	bias:Param<Tensor<B,1>>
+}
 #[derive(Debug,Default,Deserialize,Module,Serialize)]
+#[serde(bound="")]
 /// layer for caching kv values from kqv when run mutably. cats along d1 and outputs the concatenated keys and values. clears cache on forward_mut when new data is incompatible for concatenation
 pub struct CacheKV<B:Backend>{keys:Value<B>,values:Value<B>}
 #[derive(Debug,Deserialize,Module,Serialize)]
+#[serde(bound="")]
 /// layer for linear splitting into [key,query,value] for attention purposes
 pub struct KQV<B:Backend>{
 	#[serde(deserialize_with="deserialize_linear")]
@@ -431,39 +598,32 @@ pub struct KQV<B:Backend>{
 	#[serde(serialize_with="serialize_linear")]
 	value:Linear<B>
 }
-
-
-fn deserialize<'a,D:Deserializer<'a>,T:Deserialize<'a>>(deserializer:D)->Result<T,D::Error>{T::deserialize(deserializer)}
-fn derror<D:Display,E:Derror>(msg:D)->E{E::custom(msg)}
-fn deserialize_linear<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<Linear<B>,D::Error>{
-	let data:Vec<Value<B>>=deserialize(deserializer)?;
-    let mut data=data.into_iter();
-	let weight:Value<B>=if let Some(w)=data.next(){w}else{return Err(derror("linear weight parameter not found"))};
-	let weight:Param<Tensor<B,2>>=Param::from_tensor(if let Ok(w)=weight.try_into(){w}else{return Err(derror("linear weight parameter must be a rank 2 float"))});
-
-	let bias:Option<Param<Tensor<B,1>>>=if let Some(b)=data.next(){
-		if let Ok(b)=b.try_into(){Some(Param::from_tensor(b))}else{return Err(derror("linear bias parameter must be a rank 1 float"))}
-	}else{
-		None
-	};
-
-	Ok(Linear{weight,bias})
+#[derive(Deserialize,Serialize)]
+#[serde(bound="")]
+struct Conv2dRecord<B:Backend>{
+	bias:Option<Value<B>>,
+	dilation:[usize;2],
+	groups:usize,
+	kernelsize:[usize;2],
+	#[serde(deserialize_with="deserialize_ignored")]
+	#[serde(serialize_with="serialize_ignored")]
+	padding:Ignored<PaddingConfig2d>,
+	stride:[usize;2],
+	weight:Value<B>
 }
-
-fn serialize<'a,S:Serializer,T:Serialize>(data:&T,serializer:S)->Result<S::Ok,S::Error>{data.serialize(serializer)}
-//fn serror<D:Display,E:Serror>(msg:D)->E{E::custom(msg)}
-fn serialize_linear<B:Backend,S:Serializer>(layer:&Linear<B>,serializer:S)->Result<S::Ok,S::Error>{
-	let mut data:Vec<Value<B>>=Vec::with_capacity(2);
-
-	data.push(layer.weight.clone().val().into());
-	if let Some(b)=layer.bias.as_ref(){data.push(b.val().into())}
-	serialize(&data,serializer)
-}
-
+#[derive(Deserialize,Serialize)]
+#[serde(bound="")]
+struct CrossEntropyRecord<B:Backend>{logits:bool,pad:Option<Vec<usize>>,weights:Option<Value<B>>,smoothing:Option<f32>}
+#[derive(Deserialize,Serialize)]
+#[serde(bound="")]
+struct LayerNormRecord<B:Backend>{beta:Value<B>,gamma:Value<B>}
+#[derive(Deserialize,Serialize)]
+#[serde(bound="")]
+struct LinearRecord<B:Backend>{bias:Option<Value<B>>,weight:Value<B>}
 use burn::{
 	module::{Ignored,Param},
 	nn::{
-		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
+		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,PaddingConfig2d,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
 	},
 	prelude::*,
 	tensor::activation
@@ -474,5 +634,5 @@ use crate::{
 		Sequential,math::SumLayer,structural::CatLayer
 	},burn::Value
 };
-use serde::{Deserialize,Deserializer,Serialize,Serializer,de::Error as Derror};
+use serde::{Deserialize,Deserializer,Serialize,Serializer,de::Error as Derror,ser::Error as Serror};
 use std::{fmt::Display,marker::PhantomData,mem};
