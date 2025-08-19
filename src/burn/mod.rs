@@ -391,25 +391,25 @@ mod value;
 pub fn new<B:Backend>()->Identity<B>{
 	Identity{phantom:PhantomData}
 }
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// batcher that stacks things
 pub struct BatchStacker;
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// wrapper for converting loss to classification output
 pub struct Classification<A>{inner:A,layer:ClassificationLayer}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// layer for converting loss to classification output
 pub struct ClassificationLayer{seal:PhantomData<()>}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// metrics renderer implementation that doesn't actually do anything
 pub struct DontRender;
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// identity version that knows what backend
 pub struct Identity<B:Backend>{phantom:PhantomData<B>}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// wrapper for converting loss to regression output
 pub struct Regression<A>{inner:A,layer:RegressionLayer}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// layer for converting loss to regression output
 pub struct RegressionLayer{seal:PhantomData<()>}
 #[derive(Config,Debug)]
@@ -481,6 +481,7 @@ use crate::{
 	},
 };
 use rand::random;
+use serde::{Deserialize,Serialize};
 use std::{
 	fmt::{Debug,Display},fs::{create_dir_all as create_folder},marker::PhantomData,path::PathBuf
 };
