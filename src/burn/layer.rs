@@ -477,8 +477,6 @@ pub enum Config{Attention(AttentionConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer
 pub enum Layer<B:Backend>{
 	Attention(Attention<B>),
 	Bias(Bias<B>),
-	#[serde(deserialize_with="deserialize_nothing")]
-	#[serde(serialize_with="serialize_nothing")]
 	CacheKV(CacheKV<B>),
 	#[serde(deserialize_with="deserialize_ignored")]
 	#[serde(serialize_with="serialize_ignored")]
@@ -613,6 +611,9 @@ struct Conv2dRecord<B:Backend>{
 }
 #[derive(Deserialize,Serialize)]
 #[serde(bound="")]
+struct BatchNormRecord<B:Backend>{beta:Value<B>,epsilon:f64,gamma:Value<B>,mean:Value<B>,momentum:f64,variance:Value<B>}
+#[derive(Deserialize,Serialize)]
+#[serde(bound="")]
 struct CrossEntropyRecord<B:Backend>{logits:bool,pad:Option<Vec<usize>>,weights:Option<Value<B>>,smoothing:Option<f32>}
 #[derive(Deserialize,Serialize)]
 #[serde(bound="")]
@@ -623,7 +624,7 @@ struct LinearRecord<B:Backend>{bias:Option<Value<B>>,weight:Value<B>}
 use burn::{
 	module::{Ignored,Param},
 	nn::{
-		Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,PaddingConfig2d,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
+		BatchNorm,Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,PaddingConfig2d,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
 	},
 	prelude::*,
 	tensor::activation
