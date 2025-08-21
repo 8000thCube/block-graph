@@ -310,6 +310,11 @@ impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Map<A> 
 		Sequential::new(self.inner.into_sequence().into_inner().into_iter().map(|inner|Map{inner}.into()).collect())
 	}
 }
+impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Sequential<Vec<A>>{//TODO into sequence for tuple
+	fn into_sequence(self)->Sequential<Vec<M>>{
+		Sequential{inner:self.into_inner().into_iter().flat_map(|a|a.into_sequence().into_inner()).collect()}
+	}
+}
 impl<A:Op<Output=S>,B:AI<S,T>+Op<Output=T>,C:AI<T,U>+Op<Output=U>,D:AI<U,V>+Op<Output=V>,E:AI<V,W>+Op<Output=W>,F:AI<W,X>+Op<Output=X>,G:AI<Y,Z>+Op<Output=Y>,H:AI<Y,Z>+Op<Output=Z>,S,T,U,V,W,X,Y,Z> Op for Sequential<(A,B,C,D,E,F,G,H)>{
 	type Output=Z;
 }
@@ -480,11 +485,6 @@ pub mod soft;
 /// layers like cat or swap dims that change the organization or structure of tensors
 pub mod structural;
 
-impl<A:IntoSequence<M>,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Sequential<Vec<A>>{//TODO into sequence for tuple
-	fn into_sequence(self)->Sequential<Vec<M>>{
-		Sequential{inner:self.into_inner().into_iter().flat_map(|a|a.into_sequence().into_inner()).collect()}
-	}
-}
 impl<A:AI<X,Y>+IntoSequence<M>,M:AI<M::Output,M::Output>+Op,X,Y> IntoSequence<M> for SetType<A,X,Y>{
 	fn into_sequence(self)->Sequential<Vec<M>>{self.into_inner().into_sequence()}
 }
