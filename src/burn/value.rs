@@ -153,6 +153,11 @@ impl<B:Backend,K:'static+TensorKind<B>,const N:usize> TryFrom<Value<B>> for Tens
 impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for Value<B>{
 	fn from(value:&S)->Self{Self::Incompatible(value.as_ref().to_string())}
 }
+impl<B:Backend,const D:usize> AI<Value<B>,Value<B>> for BatchNorm<B,D>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+	}
+}
 impl<B:Backend> AI<(Value<B>,Value<B>),Vec<f32>> for CrossEntropyLayer{
 	fn forward(&self,input:(Value<B>,Value<B>))->Vec<f32>{
 		let output:Value<B>=self.forward(input);
@@ -393,17 +398,6 @@ impl<B:Backend> AI<Value<B>,Value<B>> for AccQLayer{
 		match input.float(){F1(x)=>F1(acc_q(dim,gamma,x)),F2(x)=>F2(acc_q(dim,gamma,x)),F3(x)=>F3(acc_q(dim,gamma,x)),F4(x)=>F4(acc_q(dim,gamma,x)),F5(x)=>F5(acc_q(dim,gamma,x)),F6(x)=>F6(acc_q(dim,gamma,x)),F7(x)=>F7(acc_q(dim,gamma,x)),F8(x)=>F8(acc_q(dim,gamma,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect()),_=>panic!("unexpected non float value")}
 	}
 }
-impl<B:Backend> AI<Value<B>,Value<B>> for SoftmaxLayer{
-	fn forward(&self,input:Value<B>)->Value<B>{
-		fn f<B:Backend,const N:usize>(dim:i32,temperature:f32,x:Tensor<B,N>)->Tensor<B,N>{
-			let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
-			softmax(x/temperature,dim)
-		}
-		let (dim,temperature)=(self.get_dim(),self.get_temperature());
-
-		match input.float(){F1(x)=>F1(f(dim,temperature,x)),F2(x)=>F2(f(dim,temperature,x)),F3(x)=>F3(f(dim,temperature,x)),F4(x)=>F4(f(dim,temperature,x)),F5(x)=>F5(f(dim,temperature,x)),F6(x)=>F6(f(dim,temperature,x)),F7(x)=>F7(f(dim,temperature,x)),F8(x)=>F8(f(dim,temperature,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>x.into_iter().map(|x|self.forward(x)).collect(),_=>panic!("unexpected non float value")}
-	}
-}
 impl<B:Backend> AI<Value<B>,Value<B>> for CatLayer{
 	fn forward(&self,input:Value<B>)->Value<B>{input.cat(self.get_dim())}
 }
@@ -493,6 +487,17 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Linear<B>{
 impl<B:Backend> AI<Value<B>,Value<B>> for Relu{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for SoftmaxLayer{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		fn f<B:Backend,const N:usize>(dim:i32,temperature:f32,x:Tensor<B,N>)->Tensor<B,N>{
+			let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
+			softmax(x/temperature,dim)
+		}
+		let (dim,temperature)=(self.get_dim(),self.get_temperature());
+
+		match input.float(){F1(x)=>F1(f(dim,temperature,x)),F2(x)=>F2(f(dim,temperature,x)),F3(x)=>F3(f(dim,temperature,x)),F4(x)=>F4(f(dim,temperature,x)),F5(x)=>F5(f(dim,temperature,x)),F6(x)=>F6(f(dim,temperature,x)),F7(x)=>F7(f(dim,temperature,x)),F8(x)=>F8(f(dim,temperature,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>x.into_iter().map(|x|self.forward(x)).collect(),_=>panic!("unexpected non float value")}
 	}
 }
 impl<B:Backend> AI<Value<B>,Value<B>> for ChooseLayer{
@@ -731,6 +736,16 @@ impl<B:Backend> Serialize for Value<B>{
 	fn serialize<S:Serializer>(&self,serializer:S)->Result<S::Ok,S::Error>{ValueData::from(self.clone()).serialize(serializer)}
 }
 impl<B:Backend> Value<B>{//TODO scalars
+	/// tests if all values are true
+	pub fn all(self)->Value<B>{
+		fn f<B:Backend,const N:usize>(x:Tensor<B,N,Bool>)->Value<B>{x.all().into()}
+		match self.bool(){B1(x)=>f(x),B2(x)=>f(x),B3(x)=>f(x),B4(x)=>f(x),B5(x)=>f(x),B6(x)=>f(x),B7(x)=>f(x),B8(x)=>f(x),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(Value::all).collect(),_=>panic!("internal error")}
+	}
+	/// tests if any values are true
+	pub fn any(self)->Value<B>{
+		fn f<B:Backend,const N:usize>(x:Tensor<B,N,Bool>)->Value<B>{x.any().into()}
+		match self.bool(){B1(x)=>f(x),B2(x)=>f(x),B3(x)=>f(x),B4(x)=>f(x),B5(x)=>f(x),B6(x)=>f(x),B7(x)=>f(x),B8(x)=>f(x),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(Value::any).collect(),_=>panic!("internal error")}
+	}
 	/// casts to a bool tensor if not one
 	pub fn bool(self)->Value<B>{
 		match self{B1(x)=>B1(x),B2(x)=>B2(x),B3(x)=>B3(x),B4(x)=>B4(x),B5(x)=>B5(x),B6(x)=>B6(x),B7(x)=>B7(x),B8(x)=>B8(x),F1(x)=>B1(x.bool()),F2(x)=>B2(x.bool()),F3(x)=>B3(x.bool()),F4(x)=>B4(x.bool()),F5(x)=>B5(x.bool()),F6(x)=>B6(x.bool()),F7(x)=>B7(x.bool()),F8(x)=>B8(x.bool()),I1(x)=>B1(x.bool()),I2(x)=>B2(x.bool()),I3(x)=>B3(x.bool()),I4(x)=>B4(x.bool()),I5(x)=>B5(x.bool()),I6(x)=>B6(x.bool()),I7(x)=>B7(x.bool()),I8(x)=>B8(x.bool()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(Value::bool).collect())}
@@ -916,6 +931,23 @@ impl<B:Backend> Value<B>{//TODO scalars
 
 		match self{B1(x)=>B1(slice_slice(ranges,x)),B2(x)=>B2(slice_slice(ranges,x)),B3(x)=>B3(slice_slice(ranges,x)),B4(x)=>B4(slice_slice(ranges,x)),B5(x)=>B5(slice_slice(ranges,x)),B6(x)=>B6(slice_slice(ranges,x)),B7(x)=>B7(slice_slice(ranges,x)),B8(x)=>B8(slice_slice(ranges,x)),F1(x)=>F1(slice_slice(ranges,x)),F2(x)=>F2(slice_slice(ranges,x)),F3(x)=>F3(slice_slice(ranges,x)),F4(x)=>F4(slice_slice(ranges,x)),F5(x)=>F5(slice_slice(ranges,x)),F6(x)=>F6(slice_slice(ranges,x)),F7(x)=>F7(slice_slice(ranges,x)),F8(x)=>F8(slice_slice(ranges,x)),I1(x)=>I1(slice_slice(ranges,x)),I2(x)=>I2(slice_slice(ranges,x)),I3(x)=>I3(slice_slice(ranges,x)),I4(x)=>I4(slice_slice(ranges,x)),I5(x)=>I5(slice_slice(ranges,x)),I6(x)=>I6(slice_slice(ranges,x)),I7(x)=>I7(slice_slice(ranges,x)),I8(x)=>I8(slice_slice(ranges,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|x.slice(ranges)).collect())}
 	}
+	/// splits into chunks along the dimension, or the multi vector if dim is None
+	pub fn split<I:Into<Option<i32>>>(self,chunksize:usize,dim:I)->Self{
+		fn f<B:Backend,K:'static+BasicOps<B>+TensorKind<B>,const N:usize>(dim:i32,size:usize,tensor:Tensor<B,N,K>)->Value<B>{
+			if dim>=N as i32||dim<(-(N as i32)){return format!("rank {N} is too low to split along dimension {dim}").into()}
+			let dim=if dim<0{N-((-dim) as usize)}else{dim as usize};
+
+			tensor.split(dim,size).into_iter().map(Value::from).collect()
+		}
+		let c=if chunksize==0{return "cannot split into chunks of 0 size".into()}else{chunksize};
+
+		if let Some(d)=dim.into(){
+			match self{B1(x)=>f(d,c,x),B2(x)=>f(d,c,x),B3(x)=>f(d,c,x),B4(x)=>f(d,c,x),B5(x)=>f(d,c,x),B6(x)=>f(d,c,x),B7(x)=>f(d,c,x),B8(x)=>f(d,c,x),F1(x)=>f(d,c,x),F2(x)=>f(d,c,x),F3(x)=>f(d,c,x),F4(x)=>f(d,c,x),F5(x)=>f(d,c,x),F6(x)=>f(d,c,x),F7(x)=>f(d,c,x),F8(x)=>f(d,c,x),I1(x)=>f(d,c,x),I2(x)=>f(d,c,x),I3(x)=>f(d,c,x),I4(x)=>f(d,c,x),I5(x)=>f(d,c,x),I6(x)=>f(d,c,x),I7(x)=>f(d,c,x),I8(x)=>f(d,c,x),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.into_iter().map(|x|x.split(c,Some(d))).collect()}
+		}else{
+			let v=self.into_multi();
+			v.chunks(chunksize).map(|c|Value::from(c.to_vec())).collect()
+		}
+	}
 	/// stacks the multi tensor, inserting a dimension at d, or N+d+1 if d is negative. for singular tensors this has an unsqueezing effect
 	pub fn stack(self,d:i32)->Self{self.unsqueeze_dim(d).cat(d)}
 	/// attempts to unwrap the inner incompatible value
@@ -1054,7 +1086,7 @@ use ValueData::{BX,FX,IX};
 use burn::{
 	module::{AutodiffModule,ConstantRecord,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
 	nn::{
-		Dropout,Embedding,LayerNorm,Linear,Relu,RotaryEncoding,Tanh,conv::Conv2d,loss::{CrossEntropyLoss,MseLoss}
+		BatchNorm,Dropout,Embedding,LayerNorm,Linear,Relu,RotaryEncoding,Tanh,conv::Conv2d,loss::{CrossEntropyLoss,MseLoss}
 	},
 	prelude::{Backend,Bool,Float,Int,Module,Tensor,TensorData},
 	record::{FileRecorder,RecorderError},
