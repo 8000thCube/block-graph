@@ -229,7 +229,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 
 		Self{connections:newconnections,layers:newlayers,order:neworder}
 	}
-	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a output splitter might be helpful if output order must be maintained somewhere
+	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a output splitter might be helpful if output order must be maintained somewhere. or some kind of memory of what the input order is
 	pub fn sort(&mut self){
 		let connections=&mut self.connections;
 		let mut dedup=HashSet::with_capacity(connections.len());
