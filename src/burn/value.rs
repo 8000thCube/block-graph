@@ -235,7 +235,10 @@ impl<B:Backend> AI<(Value<B>,Value<B>),LossOutput<B>> for SquaredErrorLayer{
 }
 impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for SquaredErrorLayer{
 	fn forward(&self,(output,target):(Value<B>,Value<B>))->Value<B>{
-		match (output.float(),target.float()){(F1(y),F1(t))=>MseLoss.forward_no_reduction(y,t).into(),(F2(y),F2(t))=>MseLoss.forward_no_reduction(y,t).into(),(F3(y),F3(t))=>MseLoss.forward_no_reduction(y,t).into(),(F4(y),F4(t))=>MseLoss.forward_no_reduction(y,t).into(),(F5(y),F5(t))=>MseLoss.forward_no_reduction(y,t).into(),(F6(y),F6(t))=>MseLoss.forward_no_reduction(y,t).into(),(F7(y),F7(t))=>MseLoss.forward_no_reduction(y,t).into(),(F8(y),F8(t))=>MseLoss.forward_no_reduction(y,t).into(),(Value::Incompatible(y),_)=>y.into(),(_,Value::Incompatible(t))=>t.into(),(Value::Multi(y),Value::Multi(t))=>Value::Multi(y.into_iter().zip(t).map(|x|self.forward_typed::<_,Value<B>>(x)).collect()),_=>"compatible inputs for squared error are float tensors of the same shape".into()}
+		fn f<B:Backend,const N:usize>(y:Tensor<B,N>,t:Tensor<B,N>)->Value<B>{
+			if y.dims()==t.dims(){MseLoss.forward_no_reduction(y,t).into()}else{"compatible inputs for squared error are float tensors of the same shape".into()}
+		}
+		match (output.float(),target.float()){(F1(y),F1(t))=>f(y,t),(F2(y),F2(t))=>f(y,t),(F3(y),F3(t))=>f(y,t),(F4(y),F4(t))=>f(y,t),(F5(y),F5(t))=>f(y,t),(F6(y),F6(t))=>f(y,t),(F7(y),F7(t))=>f(y,t),(F8(y),F8(t))=>f(y,t),(Value::Incompatible(y),_)=>y.into(),(_,Value::Incompatible(t))=>t.into(),(Value::Multi(y),t)=>broadcast_multi(y,t.into_multi(),|y,t|self.forward((y,t))),(y,Value::Multi(t))=>broadcast_multi(y.into_multi(),t,|y,t|self.forward((y,t))),_=>"compatible inputs for squared error are float tensors of the same shape".into()}
 	}
 }
 impl<B:Backend> AI<(Value<B>,Value<B>),Vec<f32>> for SquaredErrorLayer{
