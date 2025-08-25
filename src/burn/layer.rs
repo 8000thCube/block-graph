@@ -1,4 +1,13 @@
 fn derror<D:Display,E:Derror>(msg:D)->E{E::custom(msg)}
+fn deserialize_batch_norm<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<BatchNorm<B,1>,D::Error>{
+	let record:BatchNormRecord<B>=BatchNormRecord::deserialize(deserializer)?;
+
+	let (beta,epsilon,gamma,mean,momentum,variance)=(record.beta,record.epsilon,record.gamma,record.mean,record.momentum,record.variance);
+	let (beta,gamma)=if let (Ok(b),Ok(g))=(beta.try_into(),gamma.try_into()){(Param::from_tensor(b),Param::from_tensor(g))}else{return Err(derror("batch norm beta and gamma parameters must be rank 1 floats"))};
+	let (mean,variance)=if let (Ok(m),Ok(v))=(mean.try_into(),variance.try_into()){(RunningState::new(m),RunningState::new(v))}else{return Err(derror("batch norm mean and variance states must be rank 1 floats"))};
+
+	Ok(BatchNorm{beta,epsilon,gamma,momentum,running_mean:mean,running_var:variance})
+}
 fn deserialize_conv2d<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<Conv2d<B>,D::Error>{
 	let record=Conv2dRecord::deserialize(deserializer)?;
 
@@ -63,6 +72,13 @@ fn deserialize_param<'a,B:Backend,D:Deserializer<'a>,const N:usize>(deserializer
 	if let Ok(t)=data.try_into(){Ok(Param::from_tensor(t))}else{Err(derror(format!("expected parameter to be a rank {N} float")))}
 }
 fn deserialize_rotary<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<RotaryEncoding<B>,D::Error>{Ok(RotaryEncodingConfig::deserialize(deserializer)?.init(&Default::default()))}
+fn serialize_batch_norm<B:Backend,S:Serializer>(layer:&BatchNorm<B,1>,serializer:S)->Result<S::Ok,S::Error>{
+	let (beta,gamma)=(Value::from(layer.beta.val()),Value::from(layer.gamma.val()));
+	let (epsilon,momentum)=(layer.epsilon,layer.momentum);
+	let (mean,variance)=(Value::from(layer.running_mean.value()),Value::from(layer.running_var.value()));
+
+	BatchNormRecord{beta,epsilon,gamma,mean,momentum,variance}.serialize(serializer)
+}
 fn serialize_conv2d<B:Backend,S:Serializer>(layer:&Conv2d<B>,serializer:S)->Result<S::Ok,S::Error>{
 	let (dilation,groups,kernelsize,stride)=(layer.dilation,layer.groups,layer.kernel_size,layer.stride);
 	let bias=layer.bias.as_ref().map(|b|b.val().into());
@@ -131,7 +147,7 @@ impl Config{
 	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
+		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
@@ -145,7 +161,7 @@ impl Config{
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
 	pub fn w_scale(mut self,r:f32)->Self{
-		match &mut self{Config::Attention(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
+		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
 		self
 	}
 }
@@ -360,6 +376,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{
 		match self{
 			Layer::Attention(f)=>f.forward(input),
+			Layer::BatchNorm(f)=>AI::forward(f,input),
 			Layer::Bias(f)=>f.forward(input),
 			Layer::CacheKV(f)=>f.forward(input),
 			Layer::Cat(f)=>f.forward(input),
@@ -381,6 +398,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 	fn forward_mut(&mut self,input:Value<B>)->Value<B>{
 		match self{
 			Layer::Attention(f)=>f.forward_mut(input),
+			Layer::BatchNorm(f)=>AI::forward_mut(f,input),
 			Layer::Bias(f)=>f.forward_mut(input),
 			Layer::CacheKV(f)=>f.forward_mut(input),
 			Layer::Cat(f)=>f.0.forward_mut(input),
@@ -470,13 +488,16 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Attention(AttentionConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
+pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
 #[derive(Debug,Deserialize,Module,Serialize)]//TODO more layers
 #[serde(bound="")]
 /// enumerates some burn layers
 pub enum Layer<B:Backend>{
 	Attention(Attention<B>),
 	Bias(Bias<B>),
+	#[serde(deserialize_with="deserialize_batch_norm")]
+	#[serde(serialize_with="serialize_batch_norm")]
+	BatchNorm(BatchNorm<B,1>),
 	CacheKV(CacheKV<B>),
 	#[serde(deserialize_with="deserialize_ignored")]
 	#[serde(serialize_with="serialize_ignored")]
@@ -622,9 +643,9 @@ struct LayerNormRecord<B:Backend>{beta:Value<B>,gamma:Value<B>}
 #[serde(bound="")]
 struct LinearRecord<B:Backend>{bias:Option<Value<B>>,weight:Value<B>}
 use burn::{
-	module::{Ignored,Param},
+	module::{Ignored,Param,RunningState},
 	nn::{
-		BatchNorm,Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,PaddingConfig2d,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
+		BatchNorm,BatchNormConfig,Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,PaddingConfig2d,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
 	},
 	prelude::*,
 	tensor::activation
