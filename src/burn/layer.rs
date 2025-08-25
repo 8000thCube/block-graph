@@ -141,6 +141,8 @@ impl BiasConfig{
 impl Config{
 	/// creates an attention config
 	pub fn attention(heads:usize,mask:AttentionMask)->Self{Self::Attention(AttentionConfig::new(heads,mask))}
+	/// creates a batch norm config
+	pub fn batch_norm(countfeatures:usize,epsilon:f32,momentum:f32)->Self{Self::BatchNorm(BatchNormConfig::new(countfeatures).with_epsilon(epsilon as f64).with_momentum(momentum as f64))}
 	/// creates a bias config
 	pub fn bias(dim:usize)->Self{Self::Bias(BiasConfig::new(dim))}
 	/// creates a embedding config
@@ -458,6 +460,8 @@ impl<B:Backend> From<Tanh> for Layer<B>{
 	fn from(value:Tanh)->Self{Layer::Tanh(value)}
 }
 impl<B:Backend> Layer<B>{
+	/// creates a batch norm layer
+	pub fn batch_norm(countfeatures:usize,epsilon:f32,momentum:f32)->Self{Config::batch_norm(countfeatures,epsilon,momentum).init(&Default::default())}
 	/// creates a embedding layer
 	pub fn embedding(input:usize,output:usize,wscale:f32)->Self{
 		let mut l=EmbeddingConfig::new(input,output);
