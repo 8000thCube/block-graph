@@ -155,7 +155,23 @@ impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for Value<B>{
 }
 impl<B:Backend,const D:usize> AI<Value<B>,Value<B>> for BatchNorm<B,D>{
 	fn forward(&self,input:Value<B>)->Value<B>{
-		match input.float(){F1(x)=>F1(self.forward(x)),F2(x)=>F2(self.forward(x)),F3(x)=>F3(self.forward(x)),F4(x)=>F4(self.forward(x)),F5(x)=>F5(self.forward(x)),F6(x)=>F6(self.forward(x)),F7(x)=>F7(self.forward(x)),F8(x)=>F8(self.forward(x)),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(|x|AI::forward(self,x)).collect()),_=>panic!("internal error")}
+		fn f<B:Backend,const D:usize,const E:usize,const F:usize>(norm:&BatchNorm<B,D>,x:Tensor<B,E>)->Value<B>{
+			let norm:BatchNorm<B,F>=BatchNorm{beta:norm.beta.clone(),epsilon:norm.epsilon.clone(),gamma:norm.gamma.clone(),momentum:norm.momentum.clone(),running_mean:norm.running_mean.clone(),running_var:norm.running_var.clone()};
+			norm.forward(x).into()
+		}
+		match input.float(){
+			F1(x)=>AI::forward(self,F1(x).unsqueeze().unsqueeze()).squeeze().squeeze(),
+			F2(x)=>AI::forward(self,F2(x).unsqueeze()).squeeze(),
+			F3(x)=>f::<B,D,3,1>(self,x),
+			F4(x)=>f::<B,D,4,2>(self,x),
+			F5(x)=>f::<B,D,5,3>(self,x),
+			F6(x)=>f::<B,D,6,4>(self,x),
+			F7(x)=>f::<B,D,7,5>(self,x),
+			F8(x)=>f::<B,D,8,6>(self,x),
+			Value::Incompatible(e)=>e.into(),
+			Value::Multi(v)=>v.into_iter().map(|x|AI::forward(self,x)).collect(),
+			_=>panic!("internal error")
+		}
 	}
 }
 impl<B:Backend> AI<(Value<B>,Value<B>),Vec<f32>> for CrossEntropyLayer{
