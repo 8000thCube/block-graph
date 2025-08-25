@@ -176,6 +176,9 @@ impl Decompose for Config{
 impl From<AttentionConfig> for Config{
 	fn from(value:AttentionConfig)->Self{Self::Attention(value)}
 }
+impl From<BatchNormConfig> for Config{
+	fn from(value:BatchNormConfig)->Self{Self::BatchNorm(value)}
+}
 impl From<BiasConfig> for Config{
 	fn from(value:BiasConfig)->Self{Self::Bias(value)}
 }
@@ -223,6 +226,11 @@ impl KQVConfig{
 }
 impl<B:Backend,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Layer<B> where Layer<B>:Into<M>{
 	fn into_sequence(self)->Sequential<Vec<M>>{vec![self.into()].sequential()}
+}
+impl<B:Backend,const N:usize> From<BatchNorm<B,N>> for Layer<B>{
+	fn from(value:BatchNorm<B,N>)->Self{
+		Self::BatchNorm(BatchNorm{beta:value.beta,epsilon:value.epsilon,gamma:value.gamma,momentum:value.momentum,running_mean:value.running_mean,running_var:value.running_var})
+	}
 }
 impl<B:Backend> AI<(Value<B>,Value<B>),(Value<B>,Value<B>)> for CacheKV<B>{
 	fn forward(&self,(k,v):(Value<B>,Value<B>))->(Value<B>,Value<B>){
