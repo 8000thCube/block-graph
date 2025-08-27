@@ -654,6 +654,7 @@ struct LayerNormRecord<B:Backend>{beta:Value<B>,gamma:Value<B>}
 #[derive(Deserialize,Serialize)]
 #[serde(bound="")]
 struct LinearRecord<B:Backend>{bias:Option<Value<B>>,weight:Value<B>}
+
 use burn::{
 	module::{Ignored,Param,RunningState},
 	nn::{
