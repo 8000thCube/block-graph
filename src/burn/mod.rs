@@ -400,6 +400,26 @@ mod tests{
 }
 mod layer;
 mod value;
+
+pub fn apply_depthwise<B:Backend,F:Fn(Value<B>)->Value<B>>(depth:usize,op:F,value:Value<B>)->Value<B>{
+	fn inner<B:Backend,F:Fn(Value<B>)->Value<B>>(depth:usize,op:&F,value:Value<B>)->(Value<B>,usize){
+		let mut height=0;
+		let value=if value.is_multi(){
+			let value=value.into_iter().map(|v|{
+				let (v,h)=inner(depth,op,v);
+				height=height.max(h);
+				v
+			}).collect();
+			height+=1;
+			value
+		}else{
+			value
+		};
+		(if depth==height{op(value)}else{value},height)
+	}
+	inner(depth,&op,value).0
+}
+
 /// starts the building of an ai structure in chained method style from an identity operation
 pub fn new<B:Backend>()->Identity<B>{
 	Identity{phantom:PhantomData}
