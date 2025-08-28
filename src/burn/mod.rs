@@ -400,7 +400,7 @@ mod tests{
 }
 mod layer;
 mod value;
-
+/// helper function for applying operations that apply to a specific depth of multiple structure such that wrapping multiple appropriate inputs with a multi outputs the output of the function applied to all inputs.
 pub fn apply_depthwise<B:Backend,F:Fn(Value<B>)->Value<B>>(depth:usize,op:F,value:Value<B>)->Value<B>{
 	fn inner<B:Backend,F:Fn(Value<B>)->Value<B>>(depth:usize,op:&F,value:Value<B>)->(Value<B>,usize){
 		let mut height=0;
@@ -419,7 +419,6 @@ pub fn apply_depthwise<B:Backend,F:Fn(Value<B>)->Value<B>>(depth:usize,op:F,valu
 	}
 	inner(depth,&op,value).0
 }
-
 /// starts the building of an ai structure in chained method style from an identity operation
 pub fn new<B:Backend>()->Identity<B>{
 	Identity{phantom:PhantomData}
