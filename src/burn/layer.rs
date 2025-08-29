@@ -149,7 +149,7 @@ impl Config{
 	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
+		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
@@ -163,7 +163,7 @@ impl Config{
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
 	pub fn w_scale(mut self,r:f32)->Self{
-		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
+		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::ScaleShift(c)=>c.initializer.as_mut().into_iter().for_each(|i|w_scale_mut(i,r)),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
 		self
 	}
 }
@@ -222,6 +222,15 @@ impl KQVConfig{
 		let query=LinearConfig::new(embed,kdim).with_initializer(initializer).init(device);
 
 		KQV{key,query,value}
+	}
+}
+impl ScaleShiftConfig{
+	pub fn init<B:Backend>(&self,device:&B::Device)->ScaleShift<B>{
+		let initializer=&self.initializer;
+
+		let a=if let Some(i)=initializer{i.init_with([1],None,None,device)}else{Initializer::Constant{value:1.0}.init_with([1],None,None,device)};
+		let b=if let Some(i)=initializer{i.init_with([1],None,None,device)}else{Initializer::Constant{value:0.0}.init_with([1],None,None,device)};
+		ScaleShift{a,b}
 	}
 }
 impl<B:Backend,M:AI<M::Output,M::Output>+Op> IntoSequence<M> for Layer<B> where Layer<B>:Into<M>{
@@ -400,6 +409,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::Mse(f)=>AI::forward(f,input),
 			Layer::Relu(f)=>AI::forward(f,input),
 			Layer::Rotary(f)=>AI::forward(f,input),
+			Layer::ScaleShift(f)=>f.forward(input),
 			Layer::Stack(dim)=>input.stack(*dim as i32),
 			Layer::Sum(f)=>f.forward(input),
 			Layer::Tanh(f)=>AI::forward(f,input),
@@ -422,10 +432,17 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::Mse(f)=>AI::forward_mut(f,input),
 			Layer::Relu(f)=>AI::forward_mut(f,input),
 			Layer::Rotary(f)=>AI::forward_mut(f,input),
+			Layer::ScaleShift(f)=>f.forward_mut(input),
 			Layer::Stack(dim)=>input.stack(*dim as i32),
 			Layer::Sum(f)=>f.0.forward_mut(input),
 			Layer::Tanh(f)=>AI::forward_mut(f,input),
 		}
+	}
+}
+impl<B:Backend> AI<Value<B>,Value<B>> for ScaleShift<B>{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		let (a,b)=(Value::from(self.a.val()),Value::from(self.b.val()));
+		input*a+b
 	}
 }
 impl<B:Backend> Decompose for Layer<B>{
@@ -500,7 +517,7 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),Stack(usize),Sum(SumLayer),Tanh}
+pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Stack(usize),Sum(SumLayer),Tanh}
 #[derive(Debug,Deserialize,Module,Serialize)]//TODO more layers
 #[serde(bound="")]
 /// enumerates some burn layers
@@ -542,6 +559,7 @@ pub enum Layer<B:Backend>{
 	#[serde(deserialize_with="deserialize_rotary")]
 	#[serde(serialize_with="serialize_rotary")]
 	Rotary(RotaryEncoding<B>),
+	ScaleShift(ScaleShift<B>),
 	Stack(usize),
 	#[serde(deserialize_with="deserialize_ignored")]
 	#[serde(serialize_with="serialize_ignored")]
@@ -629,6 +647,23 @@ pub struct KQV<B:Backend>{
 	#[serde(serialize_with="serialize_linear")]
 	value:Linear<B>
 }
+#[derive(Debug,Deserialize,Module,Serialize)]
+#[serde(bound="")]
+/// layer that applies a componentwise scalar affine transformation: f(x)=ax+b where a and b are tunable scalars
+pub struct ScaleShift<B:Backend>{
+	#[serde(deserialize_with="deserialize_param")]
+	#[serde(serialize_with="serialize_param")]
+	a:Param<Tensor<B,1>>,
+	#[serde(deserialize_with="deserialize_param")]
+	#[serde(serialize_with="serialize_param")]
+	b:Param<Tensor<B,1>>
+}
+#[derive(Config,Debug)]
+/// scale shift config
+pub struct ScaleShiftConfig{
+	#[config(default="None")]
+	initializer:Option<Initializer>
+}
 #[derive(Deserialize,Serialize)]
 #[serde(bound="")]
 struct Conv2dRecord<B:Backend>{
@@ -654,7 +689,6 @@ struct LayerNormRecord<B:Backend>{beta:Value<B>,gamma:Value<B>}
 #[derive(Deserialize,Serialize)]
 #[serde(bound="")]
 struct LinearRecord<B:Backend>{bias:Option<Value<B>>,weight:Value<B>}
-
 use burn::{
 	module::{Ignored,Param,RunningState},
 	nn::{
