@@ -159,6 +159,8 @@ impl Config{
 	pub fn relu()->Self{Self::Relu}
 	/// creates a rotary config
 	pub fn rotary(distance:usize,head:usize)->Self{Self::Rotary(RotaryEncodingConfig::new(distance,head))}
+	/// creates a scale shift config
+	pub fn scale_shift()->Self{Self::ScaleShift(ScaleShiftConfig::new())}
 	/// creates a tanh config
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
@@ -507,6 +509,8 @@ impl<B:Backend> Layer<B>{
 	pub fn relu()->Self{Self::Relu(Relu)}
 	/// creates a rotary layer
 	pub fn rotary(distance:usize,head:usize)->Self{Self::Rotary(RotaryEncodingConfig::new(distance,head).init(&Default::default()))}
+	/// creates a scale shift layer
+	pub fn scale_shift()->Self{Self::ScaleShift(ScaleShiftConfig::new().init(&Default::default()))}
 	/// creates a tanh layer
 	pub fn tanh()->Self{Self::Tanh(Tanh)}
 }
