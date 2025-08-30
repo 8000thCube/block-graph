@@ -930,7 +930,7 @@ impl<B:Backend> Value<B>{//TODO scalars
 	/// promotes the values to make them match if possible. lower ranks can be unsqueezed to higher ranks. This is a shallow operation, so tensors inside multi will be unaffected. incompatible with non multi will return the input
 	pub fn promote_rank(self,rhs:Value<B>)->(Value<B>,Value<B>){
 		let (mut l,mut r)=(self,rhs);
-		let (mut lr,mut rr)=(l.rank().unwrap(),r.rank().unwrap());
+		let (mut lr,mut rr)=if let (Some(l),Some(r))=(l.rank(),r.rank()){(l,r)}else{return (l,r)};
 		while lr<rr{
 			l=l.unsqueeze();
 			lr+=1;
