@@ -1,4 +1,4 @@
-impl Abs for f32{// TODO implement operations for result types
+impl Abs for f32{// TODO implement operations for result types. also add these more thouroughly
 	fn abs(self)->Self::Output{f32::abs(self)}
 	type Output=f32;
 }
