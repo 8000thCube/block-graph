@@ -374,9 +374,9 @@ mod tests{
 		let train=InMemDataset::new(dataset.clone().into_iter().map(|(i,o)|(Value::from(i),Value::from(o))).collect());
 		let valid=InMemDataset::new(dataset.into_iter().map(|(i,o)|(Value::from(i.valid()),Value::from(o.valid()))).collect());
 		let mut graph:Graph<Layer<A>>=Graph::new();
-		graph.connect(true,"input",Layer::linear(true,2,10,1.0),"x");
-		graph.connect(true,"x",Layer::relu(),"y");
-		graph.connect(true,"y",Layer::linear(false,10,1,1.0),"output");
+		graph.connect("input","x").with_clear(true).with(Layer::linear(true,2,10,1.0));
+		graph.connect("x","y").with_clear(true).with(Layer::relu());
+		graph.connect("y","output").with_clear(true).with(Layer::linear(false,10,1,1.0));
 
 		let graph=Unvec(graph).wrap_inner().squared_error().set_type::<(Value<A>,Value<A>),LossOutput<A>>().regression().wrap();
 		let graph=graph.train(&TrainConfig::new().with_checkpoints(false),SgdConfig::new().init(),0.01,train,valid);
