@@ -167,29 +167,55 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for Graph<C>{
 	fn default()->Self{Self::new()}
 }
+
+
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
+	/// sets the flag for whether the input should be cleared after use
+	pub fn with_clear(mut self,clear:bool)->Self{
+		self.clear=clear;
+		self
+	}
+	/// adds a layer to the associated graph if there is one, returning the layer if not or the previous layer associated with the layer id
+	pub fn with<L:Into<C>>(&mut self,layer:L)->Option<C>{self.graph.as_mut().and_then(|g|g.layers.insert(self.layer.clone(),layer.into()))}
+}
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for ConnectionConfig<'a,C,V>{
+	fn default()->Self{
+		Self{clear:false,connection:Label::new(),graph:None,index:-1,input:Label::new(),layer:Label::new(),output:Label::new()}
+	}
+}
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Drop for ConnectionConfig<'a,C,V>{
+	fn drop(&mut self){
+		if let Some(g)=self.graph.take(){g.add_connection(self)}
+	}
+}
+
+
 impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	/// creates a new empty graph
 	pub fn new()->Self{
 		Self{connections:HashMap::with_hasher(H(0)),layers:HashMap::with_hasher(H(0)),order:Vec::new()}
 	}
-	/// adds a connection between two vertices reusing a layer
-	pub fn add_connection<X:Into<Label>,I:Into<Label>,L:Into<Label>,O:Into<Label>>(&mut self,clear:bool,connection:X,input:I,layer:L,output:O){
+	/// adds a connection between two vertices
+	pub fn add_connection<'a>(&mut self,config:&ConnectionConfig<'a,C,V>){
 		let (connections,order)=(&mut self.connections,&mut self.order);
-		let (connection,input,layer,output)=(connection.into(),input.into(),layer.into(),output.into());
+		let (connection,input,layer,output)=(config.connection.clone(),config.input.clone(),config.layer.clone(),config.output.clone());
+		let (clear,index)=(config.clear,config.index);
 
 		connections.insert(connection.clone(),(clear as u64,input,layer,output));
-		order.push(connection);
+		if index<0{order.push(connection)}else{order.insert(index as usize,connection)}
 	}
 	/// adds a layer without connecting it
 	pub fn add_layer<X:Into<C>,L:Into<Label>>(&mut self,label:L,layer:X){
 		self.layers.insert(label.into(),layer.into());
 	}
-	/// adds a connection between vertices, returning the connection and layer indices//TODO with clear or somethign because clear is only going to be needed if someone knows better than the sort
-	pub fn connect<I:Into<Label>,L:Into<C>,O:Into<Label>>(&mut self,clear:bool,input:I,layer:L,output:O)->(Label,Label){// TODO more helpful return types with chain opportunities. possibly include clear and labels there
-		let (connectionlabel,layerlabel)=(Label::new(),Label::new());
-		self.add_connection(clear,connectionlabel.clone(),input,layerlabel.clone(),output);
-		self.add_layer(layerlabel.clone(),layer);
-		(connectionlabel,layerlabel)
+	/// adds a connection between vertices
+	pub fn connect<I:Into<Label>,O:Into<Label>>(&mut self,input:I,output:O)->ConnectionConfig<'_,C,V>{
+		let (connection,layer)=(Label::new(),Label::new());
+		let (input,output)=(input.into(),output.into());
+		let clear=false;
+		let graph=Some(self);
+		let index=-1;
+		ConnectionConfig{clear,connection,graph,index,input,layer,output}
 	}
 	/// gets connection information by label. (flags, input, layer, output)
 	pub fn get_connection(&self,label:&Label)->Option<(bool,&Label,&Label,&Label)>{
@@ -229,7 +255,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 
 		Self{connections:newconnections,layers:newlayers,order:neworder}
 	}
-	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a output splitter might be helpful if output order must be maintained somewhere. or some kind of memory of what the input order is
+	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a output splitter might be helpful if output order must be maintained somewhere
 	pub fn sort(&mut self){
 		let connections=&mut self.connections;
 		let mut dedup=HashSet::with_capacity(connections.len());
@@ -322,8 +348,8 @@ mod tests{
 
 		order.shuffle(&mut rand::rng());
 		for &n in order.iter(){
-			graph.connect(true,n,Append(n+100),n+1);
-			graph.connect(true,n,Append(n+200),n+1);
+			graph.connect(n,n+1).with_clear(true).with(Append(n+100));
+			graph.connect(n,n+1).with_clear(true).with(Append(n+200));
 		}
 		let unsorted:Vec<u64>=Unvec(&graph).forward(Vec::new());
 
@@ -339,7 +365,7 @@ mod tests{
 
 		order.shuffle(&mut rand::rng());
 		for &n in order.iter(){
-			graph.connect(false,n,Append(n),n+1);
+			graph.connect(n,n+1).with(Append(n));
 		}
 		let unsorted:Vec<u64>=Unvec(&graph).forward(Vec::new());
 
@@ -363,6 +389,9 @@ mod tests{
 	use rand::seq::SliceRandom;
 	use super::*;
 }
+#[derive(Debug)]
+/// allows configuring a connection to add to the graph, or manipulating an existing connection
+pub struct ConnectionConfig<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>{clear:bool,connection:Label,graph:Option<&'a mut Graph<C>>,index:isize,input:Label,layer:Label,output:Label}
 #[derive(Clone,Debug,Eq,PartialEq)]
 /// graph like ai operation structure
 pub struct Graph<C>{connections:HashMap<Label,(u64,Label,Label,Label),H>,layers:HashMap<Label,C,H>,order:Vec<Label>}
