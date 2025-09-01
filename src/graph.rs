@@ -170,17 +170,47 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for Graph<C>{
 
 
 impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
+	/// adds a layer to the associated graph if there is one, returning the layer if not or the previous layer associated with the layer id
+	pub fn insert_layer<L:Into<C>>(&mut self,layer:L)->Option<C>{self.graph.as_mut().and_then(|g|g.layers.insert(self.layer.clone(),layer.into()))}
+	/// inserts the layer into the graph using the current layer id
+	pub fn with<L:Into<C>>(mut self,layer:L)->Self{
+		self.insert_layer(layer);
+		self
+	}
 	/// sets the flag for whether the input should be cleared after use
 	pub fn with_clear(mut self,clear:bool)->Self{
 		self.clear=clear;
 		self
 	}
-	/// adds a layer to the associated graph if there is one, returning the layer if not or the previous layer associated with the layer id
-	pub fn with<L:Into<C>>(&mut self,layer:L)->Option<C>{self.graph.as_mut().and_then(|g|g.layers.insert(self.layer.clone(),layer.into()))}
+	/// sets the index to insert in the run order
+	pub fn with_index(mut self,index:usize)->Self{
+		self.index=index;
+		self
+	}
+	/// sets the input label
+	pub fn with_input<L:Into<Label>>(mut self,label:L)->Self{
+		self.input=label.into();
+		self
+	}
+	/// sets the connection label
+	pub fn with_label<L:Into<Label>>(mut self,label:L)->Self{
+		self.connection=label.into();
+		self
+	}
+	/// sets the layer label
+	pub fn with_layer<L:Into<Label>>(mut self,label:L)->Self{
+		self.layer=label.into();
+		self
+	}
+	/// sets the output label
+	pub fn with_output<L:Into<Label>>(mut self,label:L)->Self{
+		self.output=label.into();
+		self
+	}
 }
 impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for ConnectionConfig<'a,C,V>{
 	fn default()->Self{
-		Self{clear:false,connection:Label::new(),graph:None,index:-1,input:Label::new(),layer:Label::new(),output:Label::new()}
+		Self{clear:false,connection:Label::new(),graph:None,index:usize::MAX,input:Label::new(),layer:Label::new(),output:Label::new()}
 	}
 }
 impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Drop for ConnectionConfig<'a,C,V>{
@@ -202,7 +232,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let (clear,index)=(config.clear,config.index);
 
 		connections.insert(connection.clone(),(clear as u64,input,layer,output));
-		if index<0{order.push(connection)}else{order.insert(index as usize,connection)}
+		if index<order.len(){order.insert(index,connection)}else{order.push(connection)}
 	}
 	/// adds a layer without connecting it
 	pub fn add_layer<X:Into<C>,L:Into<Label>>(&mut self,label:L,layer:X){
@@ -213,8 +243,9 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let (connection,layer)=(Label::new(),Label::new());
 		let (input,output)=(input.into(),output.into());
 		let clear=false;
+		let index=self.order.len();
+
 		let graph=Some(self);
-		let index=-1;
 		ConnectionConfig{clear,connection,graph,index,input,layer,output}
 	}
 	/// gets connection information by label. (flags, input, layer, output)
@@ -391,7 +422,7 @@ mod tests{
 }
 #[derive(Debug)]
 /// allows configuring a connection to add to the graph, or manipulating an existing connection
-pub struct ConnectionConfig<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>{clear:bool,connection:Label,graph:Option<&'a mut Graph<C>>,index:isize,input:Label,layer:Label,output:Label}
+pub struct ConnectionConfig<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>{clear:bool,connection:Label,graph:Option<&'a mut Graph<C>>,index:usize,input:Label,layer:Label,output:Label}
 #[derive(Clone,Debug,Eq,PartialEq)]
 /// graph like ai operation structure
 pub struct Graph<C>{connections:HashMap<Label,(u64,Label,Label,Label),H>,layers:HashMap<Label,C,H>,order:Vec<Label>}
