@@ -318,7 +318,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 				n+=1;
 			}
 		}
-		order.iter().for_each(|label|if let Some((clear,input,_layer,_output))=connections.get_mut(label){*clear=set_bit(*clear,1,nodes.insert(input.clone(),(Vec::new(),0)).is_none())});
+		order.iter().for_each(|label|if let Some((clear,input,_layer,_output))=connections.get_mut(label){*clear=set_bit(*clear,1,!nodes.contains_key(input))});
 		order.reverse();
 	}
 }
