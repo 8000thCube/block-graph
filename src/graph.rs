@@ -170,8 +170,20 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for Graph<C>{
 
 
 impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
+	/// gets the index, or usize::MAX to insert at the end of the order
+	pub fn get_index(&self)->usize{self.index}
+	/// references the input label
+	pub fn input(&self)->&Label{&self.input}
 	/// adds a layer to the associated graph if there is one, returning the layer if not or the previous layer associated with the layer id
 	pub fn insert_layer<L:Into<C>>(&mut self,layer:L)->Option<C>{self.graph.as_mut().and_then(|g|g.layers.insert(self.layer.clone(),layer.into()))}
+	/// checks if clear
+	pub fn is_clear(&self)->bool{self.clear}
+	/// references the connection label
+	pub fn label(&self)->&Label{&self.connection}
+	/// references the layer label
+	pub fn layer(&self)->&Label{&self.layer}
+	/// references the input label
+	pub fn output(&self)->&Label{&self.output}
 	/// inserts the layer into the graph using the current layer id
 	pub fn with<L:Into<C>>(mut self,layer:L)->Self{
 		self.insert_layer(layer);
@@ -182,7 +194,7 @@ impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
 		self.clear=clear;
 		self
 	}
-	/// sets the index to insert in the run order
+	/// sets the index to insert in the run order, or usize::MAX to insert at the end of the order
 	pub fn with_index(mut self,index:usize)->Self{
 		self.index=index;
 		self
