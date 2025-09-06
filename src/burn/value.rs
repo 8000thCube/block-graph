@@ -638,23 +638,44 @@ impl<B:Backend> From<Vec<u32>> for Value<B>{
 	}
 }
 impl<B:Backend> ModuleDisplay for Value<B>{
-	fn custom_content(&self,_content:Content)->Option<Content>{
-		//todo!()
-		None
-	}
-	fn custom_settings(&self)->Option<DisplaySettings>{
-		//todo!()
-		None
-	}
-	fn format(&self,_passed_settings:DisplaySettings)->String{
-		"todo".into()
+	fn custom_content(&self,_content:Content)->Option<Content>{None}
+	fn custom_settings(&self)->Option<DisplaySettings>{None}
+	fn format(&self,s:DisplaySettings)->String{
+		match self{
+			B1(x)=>x.format(s),
+			B2(x)=>x.format(s),
+			B3(x)=>x.format(s),
+			B4(x)=>x.format(s),
+			B5(x)=>x.format(s),
+			B6(x)=>x.format(s),
+			B7(x)=>x.format(s),
+			B8(x)=>x.format(s),
+			F1(x)=>x.format(s),
+			F2(x)=>x.format(s),
+			F3(x)=>x.format(s),
+			F4(x)=>x.format(s),
+			F5(x)=>x.format(s),
+			F6(x)=>x.format(s),
+			F7(x)=>x.format(s),
+			F8(x)=>x.format(s),
+			I1(x)=>x.format(s),
+			I2(x)=>x.format(s),
+			I3(x)=>x.format(s),
+			I4(x)=>x.format(s),
+			I5(x)=>x.format(s),
+			I6(x)=>x.format(s),
+			I7(x)=>x.format(s),
+			I8(x)=>x.format(s),
+			Value::Incompatible(e)=>e.to_string(),
+			Value::Multi(v)=>"[".chars().chain(v.iter().flat_map(|x|{
+				let x:Vec<char>=x.format(s.clone()).chars().chain(", ".chars()).collect();
+				x
+			})).chain("]".chars()).collect()
+		}
 	}
 }
 impl<B:Backend> ModuleDisplayDefault for Value<B>{
-	fn content(&self,_content:Content)->Option<Content>{
-		//todo!()
-		None
-	}
+	fn content(&self,content:Content)->Option<Content>{Some(content)}
 	fn num_params(&self)->usize{Module::num_params(self)}
 }
 impl<B:Backend> From<String> for Value<B>{
