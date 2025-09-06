@@ -84,8 +84,8 @@ impl Label{
 		self
 	}
 }
-impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
-	/// gets the index, or usize::MAX to insert at the end of the order
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionEditor<'a,C,V>{
+	/// gets the index, or usize::MAX to insert at the end of the order regardless of the number of connections
 	pub fn get_index(&self)->usize{self.index}
 	/// references the input label
 	pub fn input(&self)->&Label{&self.input}
@@ -109,7 +109,7 @@ impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
 		self.clear=clear;
 		self
 	}
-	/// sets the index to insert in the run order, or usize::MAX to insert at the end of the order
+	/// sets the index to insert in the run order, or usize::MAX to insert at the end of the order regardless of the number of connections
 	pub fn with_index(mut self,index:usize)->Self{
 		self.index=index;
 		self
@@ -135,12 +135,29 @@ impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
 		self
 	}
 }
-impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for ConnectionConfig<'a,C,V>{
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>ConnectionInfo<'a,C,V>{
+	/// gets the index in the connection processing order
+	pub fn get_index(&self)->usize{
+		let connection=self.connection;
+		self.graph.order.iter().position(|label|connection==label).expect("order should contain all connection labels")
+	}
+	/// references the input label
+	pub fn input(&self)->&Label{&self.input}
+	/// checks if clear
+	pub fn is_clear(&self)->bool{self.clear}
+	/// references the connection label
+	pub fn label(&self)->&Label{self.connection}
+	/// references the layer label
+	pub fn layer(&self)->&Label{self.layer}
+	/// references the input label
+	pub fn output(&self)->&Label{self.output}
+}
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for ConnectionEditor<'a,C,V>{
 	fn default()->Self{
 		Self{clear:false,connection:Label::new(),graph:None,index:usize::MAX,input:Label::new(),layer:Label::new(),output:Label::new()}
 	}
 }
-impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Drop for ConnectionConfig<'a,C,V>{
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Drop for ConnectionEditor<'a,C,V>{
 	fn drop(&mut self){
 		if let Some(g)=self.graph.take(){g.add_connection(self)}
 	}
@@ -205,7 +222,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let (connections,order)=(&self.connections,&self.order);
 		let layers=&self.layers;
 
-		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get(layer){
+		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get(layer){// TODO maybe make no layer just identity
 			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
 			let y=f.forward(x);
 			map.entry(output.clone()).or_default().merge(y);
@@ -233,7 +250,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		Self{connections:HashMap::with_hasher(H(0)),layers:HashMap::with_hasher(H(0)),order:Vec::new()}
 	}
 	/// adds a connection between two vertices
-	pub fn add_connection<'a>(&mut self,config:&ConnectionConfig<'a,C,V>){
+	pub fn add_connection<'a>(&mut self,config:&ConnectionEditor<'a,C,V>){
 		let (connections,order)=(&mut self.connections,&mut self.order);
 		let (connection,input,layer,output)=(config.connection.clone(),config.input.clone(),config.layer.clone(),config.output.clone());
 		let (clear,index)=(config.clear,config.index);
@@ -246,19 +263,22 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		self.layers.insert(label.into(),layer.into());
 	}
 	/// adds a connection between vertices
-	pub fn connect<I:Into<Label>,O:Into<Label>>(&mut self,input:I,output:O)->ConnectionConfig<'_,C,V>{
+	pub fn connect<I:Into<Label>,O:Into<Label>>(&mut self,input:I,output:O)->ConnectionEditor<'_,C,V>{
 		let (connection,layer)=(Label::new(),Label::new());
 		let (input,output)=(input.into(),output.into());
 		let clear=false;
 		let index=self.order.len();
 
 		let graph=Some(self);
-		ConnectionConfig{clear,connection,graph,index,input,layer,output}
+		ConnectionEditor{clear,connection,graph,index,input,layer,output}
 	}
 	/// gets connection information by label
-	pub fn get_connection(&self,label:&Label)->Option<(bool,&Label,&Label,&Label)>{// TODO connectioninfo struct for immutable connection infor
-		let (clear,input,layer,output)=self.connections.get(label)?;
-		Some((*clear>0,input,layer,output))
+	pub fn get_connection<'a>(&'a self,label:&Label)->Option<ConnectionInfo<'a,C,V>>{
+		let (connection,(clear,input,layer,output))=self.connections.get_key_value(label)?;
+		let clear=*clear>0;
+		let graph=self;
+
+		Some(ConnectionInfo{clear,connection,graph,input,layer,output})
 	}
 	/// gets the layer information by label
 	pub fn get_layer(&self,label:&Label)->Option<&C>{self.layers.get(label)}
@@ -427,9 +447,15 @@ mod tests{
 	use rand::seq::SliceRandom;
 	use super::*;
 }
-#[derive(Debug)]
+/*#[derive(Clone,Debug)]
+/// allows configuring a connection to add to the graph
+pub struct ConnectionConfig{clear:bool,connection:Label,index:usize,input:Label,layer:Label,output:Label}*/
+#[derive(Debug)]// TODO split connection config and connection editor
 /// allows configuring a connection to add to the graph, or manipulating an existing connection
-pub struct ConnectionConfig<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>{clear:bool,connection:Label,graph:Option<&'a mut Graph<C>>,index:usize,input:Label,layer:Label,output:Label}
+pub struct ConnectionEditor<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>{clear:bool,connection:Label,graph:Option<&'a mut Graph<C>>,index:usize,input:Label,layer:Label,output:Label}
+#[derive(Clone,Debug)]
+/// information about a connection
+pub struct ConnectionInfo<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>{clear:bool,connection:&'a Label,graph:&'a Graph<C>,input:&'a Label,layer:&'a Label,output:&'a Label}
 #[derive(Clone,Debug,Eq,PartialEq)]
 /// graph like ai operation structure
 pub struct Graph<C>{connections:HashMap<Label,(u64,Label,Label,Label),H>,layers:HashMap<Label,C,H>,order:Vec<Label>}
