@@ -84,6 +84,67 @@ impl Label{
 		self
 	}
 }
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
+	/// gets the index, or usize::MAX to insert at the end of the order
+	pub fn get_index(&self)->usize{self.index}
+	/// references the input label
+	pub fn input(&self)->&Label{&self.input}
+	/// adds a layer to the associated graph if there is one, returning the layer if not or the previous layer associated with the layer id
+	pub fn insert_layer<L:Into<C>>(&mut self,layer:L)->Option<C>{self.graph.as_mut().and_then(|g|g.layers.insert(self.layer.clone(),layer.into()))}
+	/// checks if clear
+	pub fn is_clear(&self)->bool{self.clear}
+	/// references the connection label
+	pub fn label(&self)->&Label{&self.connection}
+	/// references the layer label
+	pub fn layer(&self)->&Label{&self.layer}
+	/// references the input label
+	pub fn output(&self)->&Label{&self.output}
+	/// inserts the layer into the graph using the current layer id
+	pub fn with<L:Into<C>>(mut self,layer:L)->Self{
+		self.insert_layer(layer);
+		self
+	}
+	/// sets the flag for whether the input should be cleared after use
+	pub fn with_clear(mut self,clear:bool)->Self{
+		self.clear=clear;
+		self
+	}
+	/// sets the index to insert in the run order, or usize::MAX to insert at the end of the order
+	pub fn with_index(mut self,index:usize)->Self{
+		self.index=index;
+		self
+	}
+	/// sets the input label
+	pub fn with_input<L:Into<Label>>(mut self,label:L)->Self{
+		self.input=label.into();
+		self
+	}
+	/// sets the connection label
+	pub fn with_label<L:Into<Label>>(mut self,label:L)->Self{
+		self.connection=label.into();
+		self
+	}
+	/// sets the layer label
+	pub fn with_layer<L:Into<Label>>(mut self,label:L)->Self{
+		self.layer=label.into();
+		self
+	}
+	/// sets the output label
+	pub fn with_output<L:Into<Label>>(mut self,label:L)->Self{
+		self.output=label.into();
+		self
+	}
+}
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for ConnectionConfig<'a,C,V>{
+	fn default()->Self{
+		Self{clear:false,connection:Label::new(),graph:None,index:usize::MAX,input:Label::new(),layer:Label::new(),output:Label::new()}
+	}
+}
+impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Drop for ConnectionConfig<'a,C,V>{
+	fn drop(&mut self){
+		if let Some(g)=self.graph.take(){g.add_connection(self)}
+	}
+}
 impl<A:AI<Vec<X>,Vec<Y>>,X,Y> AI<X,Y> for Unvec<A>{
 	fn forward(&self,input:X)->Y{self.0.forward(vec![input]).into_iter().next().unwrap()}
 	fn forward_mut(&mut self,input:X)->Y{self.0.forward_mut(vec![input]).into_iter().next().unwrap()}
@@ -156,7 +217,6 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let layers=&mut self.layers;
 
 		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get_mut(layer){
-			//dbg!(input);
 			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
 			let y=f.forward_mut(x);
 			map.entry(output.clone()).or_default().merge(y);
@@ -167,71 +227,6 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for Graph<C>{
 	fn default()->Self{Self::new()}
 }
-
-
-impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> ConnectionConfig<'a,C,V>{
-	/// gets the index, or usize::MAX to insert at the end of the order
-	pub fn get_index(&self)->usize{self.index}
-	/// references the input label
-	pub fn input(&self)->&Label{&self.input}
-	/// adds a layer to the associated graph if there is one, returning the layer if not or the previous layer associated with the layer id
-	pub fn insert_layer<L:Into<C>>(&mut self,layer:L)->Option<C>{self.graph.as_mut().and_then(|g|g.layers.insert(self.layer.clone(),layer.into()))}
-	/// checks if clear
-	pub fn is_clear(&self)->bool{self.clear}
-	/// references the connection label
-	pub fn label(&self)->&Label{&self.connection}
-	/// references the layer label
-	pub fn layer(&self)->&Label{&self.layer}
-	/// references the input label
-	pub fn output(&self)->&Label{&self.output}
-	/// inserts the layer into the graph using the current layer id
-	pub fn with<L:Into<C>>(mut self,layer:L)->Self{
-		self.insert_layer(layer);
-		self
-	}
-	/// sets the flag for whether the input should be cleared after use
-	pub fn with_clear(mut self,clear:bool)->Self{
-		self.clear=clear;
-		self
-	}
-	/// sets the index to insert in the run order, or usize::MAX to insert at the end of the order
-	pub fn with_index(mut self,index:usize)->Self{
-		self.index=index;
-		self
-	}
-	/// sets the input label
-	pub fn with_input<L:Into<Label>>(mut self,label:L)->Self{
-		self.input=label.into();
-		self
-	}
-	/// sets the connection label
-	pub fn with_label<L:Into<Label>>(mut self,label:L)->Self{
-		self.connection=label.into();
-		self
-	}
-	/// sets the layer label
-	pub fn with_layer<L:Into<Label>>(mut self,label:L)->Self{
-		self.layer=label.into();
-		self
-	}
-	/// sets the output label
-	pub fn with_output<L:Into<Label>>(mut self,label:L)->Self{
-		self.output=label.into();
-		self
-	}
-}
-impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Default for ConnectionConfig<'a,C,V>{
-	fn default()->Self{
-		Self{clear:false,connection:Label::new(),graph:None,index:usize::MAX,input:Label::new(),layer:Label::new(),output:Label::new()}
-	}
-}
-impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Drop for ConnectionConfig<'a,C,V>{
-	fn drop(&mut self){
-		if let Some(g)=self.graph.take(){g.add_connection(self)}
-	}
-}
-
-
 impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 	/// creates a new empty graph
 	pub fn new()->Self{
@@ -260,8 +255,8 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let graph=Some(self);
 		ConnectionConfig{clear,connection,graph,index,input,layer,output}
 	}
-	/// gets connection information by label. (flags, input, layer, output)
-	pub fn get_connection(&self,label:&Label)->Option<(bool,&Label,&Label,&Label)>{
+	/// gets connection information by label
+	pub fn get_connection(&self,label:&Label)->Option<(bool,&Label,&Label,&Label)>{// TODO connectioninfo struct for immutable connection infor
 		let (clear,input,layer,output)=self.connections.get(label)?;
 		Some((*clear>0,input,layer,output))
 	}
