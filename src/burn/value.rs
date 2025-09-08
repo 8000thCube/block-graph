@@ -538,6 +538,44 @@ impl<B:Backend> AI<Value<B>,Value<B>> for ChooseLayer{
 			_=>panic!("internal error")}
 	}
 }
+impl<B:Backend> AI<Value<B>,Value<B>> for MaxPool2d{
+	fn forward(&self,input:Value<B>)->Value<B>{
+		fn f<B:Backend,const N:usize>(pool:&MaxPool2d,x:Tensor<B,N>)->Value<B>{
+			match N{
+				0=>panic!("internal error"),
+				1=>f::<B,2>(pool,x.unsqueeze()).squeeze(),
+				2=>f::<B,3>(pool,x.unsqueeze()).squeeze(),
+				3=>f::<B,4>(pool,x.unsqueeze()).squeeze(),
+				4=>pool.forward(Value::from(x).unwrap_f4()).into(),
+				_=>{
+					let mut dims=x.dims();
+
+					let [channels,h,w]=[dims[N-3],dims[N-2],dims[N-1]];
+					let big:usize=dims.iter().take(N-3).product();
+					let y=x.reshape([big,channels,h,w]);
+
+					dims[N-3..].copy_from_slice(&y.dims()[1..]);
+
+					let y=pool.forward(y);
+					y.reshape(dims).into()
+				}
+			}
+		}
+		match input.float(){
+			F1(x)=>f(self,x),
+			F2(x)=>f(self,x),
+			F3(x)=>f(self,x),
+			F4(x)=>f(self,x),
+			F5(x)=>f(self,x),
+			F6(x)=>f(self,x),
+			F7(x)=>f(self,x),
+			F8(x)=>f(self,x),
+			Value::Incompatible(e)=>e.into(),
+			Value::Multi(v)=>v.into_iter().map(|x|AI::forward(self,x)).collect(),
+			_=>panic!("Internal error")
+		}
+	}
+}
 impl<B:Backend> AI<Value<B>,Value<B>> for RotaryEncoding<B>{
 	fn forward(&self,input:Value<B>)->Value<B>{AI::forward(self,(input,0)).0}
 }
@@ -1190,7 +1228,7 @@ use ValueData::{BX,FX,IX};
 use burn::{
 	module::{AutodiffModule,ConstantRecord,Content,DisplaySettings,ModuleDisplay,ModuleDisplayDefault,ModuleMapper,ModuleVisitor,Quantizer},
 	nn::{
-		BatchNorm,Dropout,Embedding,LayerNorm,Linear,Relu,RotaryEncoding,Tanh,conv::Conv2d,loss::{CrossEntropyLoss,MseLoss}
+		BatchNorm,Dropout,Embedding,LayerNorm,Linear,Relu,RotaryEncoding,Tanh,conv::Conv2d,loss::{CrossEntropyLoss,MseLoss},pool::MaxPool2d
 	},
 	prelude::{Backend,Bool,Float,Int,Module,Tensor,TensorData},
 	record::{FileRecorder,RecorderError},
