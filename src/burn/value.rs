@@ -967,6 +967,41 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn len_recursive(&self)->usize{
 		if let Value::Multi(v)=self{v.iter().map(Value::len_recursive).sum()}else{1}
 	}
+	/// mask filling
+	pub fn mask_fill(self,mask:Value<B>,v:f32)->Self{
+		let (x,mask)=self.promote_rank(mask.bool());
+		match (x,mask){
+			(B1(x),B1(m))=>B1(x.int().mask_fill(m,v).bool()),
+			(B2(x),B2(m))=>B2(x.int().mask_fill(m,v).bool()),
+			(B3(x),B3(m))=>B3(x.int().mask_fill(m,v).bool()),
+			(B4(x),B4(m))=>B4(x.int().mask_fill(m,v).bool()),
+			(B5(x),B5(m))=>B5(x.int().mask_fill(m,v).bool()),
+			(B6(x),B6(m))=>B6(x.int().mask_fill(m,v).bool()),
+			(B7(x),B7(m))=>B7(x.int().mask_fill(m,v).bool()),
+			(B8(x),B8(m))=>B8(x.int().mask_fill(m,v).bool()),
+			(F1(x),B1(m))=>F1(x.mask_fill(m,v)),
+			(F2(x),B2(m))=>F2(x.mask_fill(m,v)),
+			(F3(x),B3(m))=>F3(x.mask_fill(m,v)),
+			(F4(x),B4(m))=>F4(x.mask_fill(m,v)),
+			(F5(x),B5(m))=>F5(x.mask_fill(m,v)),
+			(F6(x),B6(m))=>F6(x.mask_fill(m,v)),
+			(F7(x),B7(m))=>F7(x.mask_fill(m,v)),
+			(F8(x),B8(m))=>F8(x.mask_fill(m,v)),
+			(I1(x),B1(m))=>I1(x.mask_fill(m,v)),
+			(I2(x),B2(m))=>I2(x.mask_fill(m,v)),
+			(I3(x),B3(m))=>I3(x.mask_fill(m,v)),
+			(I4(x),B4(m))=>I4(x.mask_fill(m,v)),
+			(I5(x),B5(m))=>I5(x.mask_fill(m,v)),
+			(I6(x),B6(m))=>I6(x.mask_fill(m,v)),
+			(I7(x),B7(m))=>I7(x.mask_fill(m,v)),
+			(I8(x),B8(m))=>I8(x.mask_fill(m,v)),
+			(Value::Incompatible(e),_)=>e.into(),
+			(_,Value::Incompatible(e))=>e.into(),
+			(Value::Multi(x),m)=>broadcast_multi(x,m.into_multi(),|x,m|x.mask_fill(m,v)),
+			(x,Value::Multi(m))=>broadcast_multi(x.into_multi(),m,|x,m|x.mask_fill(m,v)),
+			_=>panic!("internal error")
+		}
+	}
 	/// casts to a multiple tensor if not one
 	pub fn multi(self)->Self{
 		if let Value::Multi(v)=self{v.into()}else{vec![self].into()}
@@ -1188,7 +1223,7 @@ macro_rules! bicop_num{
 		}
 		impl<B:Backend> $trait<Value<B>> for Value<B>{
 			fn $traitfn(self,rhs:Value<B>)->Value<B>{// TODO check shape broadcast compatibility
-				match self.promote(rhs){(B1(l),B1(r))=>I1(l.int().$traitfn(r.int())),(B2(l),B2(r))=>I2(l.int().$traitfn(r.int())),(B3(l),B3(r))=>I3(l.int().$traitfn(r.int())),(B4(l),B4(r))=>I4(l.int().$traitfn(r.int())),(B5(l),B5(r))=>I5(l.int().$traitfn(r.int())),(B6(l),B6(r))=>I6(l.int().$traitfn(r.int())),(B7(l),B7(r))=>I7(l.int().$traitfn(r.int())),(B8(l),B8(r))=>I8(l.int().$traitfn(r.int())),(F1(l),F1(r))=>F1(l.$traitfn(r)),(F2(l),F2(r))=>F2(l.$traitfn(r)),(F3(l),F3(r))=>F3(l.$traitfn(r)),(F4(l),F4(r))=>F4(l.$traitfn(r)),(F5(l),F5(r))=>F5(l.$traitfn(r)),(F6(l),F6(r))=>F6(l.$traitfn(r)),(F7(l),F7(r))=>F7(l.$traitfn(r)),(F8(l),F8(r))=>F8(l.$traitfn(r)),(I1(l),I1(r))=>I1(l.$traitfn(r)),(I2(l),I2(r))=>I2(l.$traitfn(r)),(I3(l),I3(r))=>I3(l.$traitfn(r)),(I4(l),I4(r))=>I4(l.$traitfn(r)),(I5(l),I5(r))=>I5(l.$traitfn(r)),(I6(l),I6(r))=>I6(l.$traitfn(r)),(I7(l),I7(r))=>I7(l.$traitfn(r)),(I8(l),I8(r))=>I8(l.$traitfn(r)),(Value::Multi(l),Value::Multi(r))=>broadcast_multi(l,r,$trait::$traitfn),(Value::Incompatible(e),_)=>e.into(),(_,Value::Incompatible(e))=>e.into(),_=>panic!("couldn't promote types for $traitfn")}
+				match self.promote(rhs){(B1(l),B1(r))=>I1(l.int().$traitfn(r.int())),(B2(l),B2(r))=>I2(l.int().$traitfn(r.int())),(B3(l),B3(r))=>I3(l.int().$traitfn(r.int())),(B4(l),B4(r))=>I4(l.int().$traitfn(r.int())),(B5(l),B5(r))=>I5(l.int().$traitfn(r.int())),(B6(l),B6(r))=>I6(l.int().$traitfn(r.int())),(B7(l),B7(r))=>I7(l.int().$traitfn(r.int())),(B8(l),B8(r))=>I8(l.int().$traitfn(r.int())),(F1(l),F1(r))=>F1(l.$traitfn(r)),(F2(l),F2(r))=>F2(l.$traitfn(r)),(F3(l),F3(r))=>F3(l.$traitfn(r)),(F4(l),F4(r))=>F4(l.$traitfn(r)),(F5(l),F5(r))=>F5(l.$traitfn(r)),(F6(l),F6(r))=>F6(l.$traitfn(r)),(F7(l),F7(r))=>F7(l.$traitfn(r)),(F8(l),F8(r))=>F8(l.$traitfn(r)),(I1(l),I1(r))=>I1(l.$traitfn(r)),(I2(l),I2(r))=>I2(l.$traitfn(r)),(I3(l),I3(r))=>I3(l.$traitfn(r)),(I4(l),I4(r))=>I4(l.$traitfn(r)),(I5(l),I5(r))=>I5(l.$traitfn(r)),(I6(l),I6(r))=>I6(l.$traitfn(r)),(I7(l),I7(r))=>I7(l.$traitfn(r)),(I8(l),I8(r))=>I8(l.$traitfn(r)),(Value::Incompatible(e),_)=>e.into(),(_,Value::Incompatible(e))=>e.into(),(Value::Multi(l),r)=>broadcast_multi(l,r.into_multi(),$trait::$traitfn),(l,Value::Multi(r))=>broadcast_multi(l.into_multi(),r,$trait::$traitfn),_=>panic!("couldn't promote types for $traitfn")}
 			}
 			type Output=Value<B>;
 		}
