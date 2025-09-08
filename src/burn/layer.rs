@@ -66,6 +66,10 @@ fn deserialize_linear<'a,B:Backend,D:Deserializer<'a>>(deserializer:D)->Result<L
 
 	Ok(Linear{bias,weight})
 }
+fn deserialize_max_pool_2d<'a,D:Deserializer<'a>>(deserializer:D)->Result<MaxPool2d,D::Error>{
+	let config=MaxPool2dConfig::deserialize(deserializer)?;
+	Ok(config.init())
+}
 fn deserialize_nothing<'a,D:Deserializer<'a>,T:Default>(_deserializer:D)->Result<T,D::Error>{Ok(T::default())}
 fn deserialize_param<'a,B:Backend,D:Deserializer<'a>,const N:usize>(deserializer:D)->Result<Param<Tensor<B,N>>,D::Error>{
 	let data:Value<B>=Value::deserialize(deserializer)?;
@@ -109,6 +113,9 @@ fn serialize_linear<B:Backend,S:Serializer>(layer:&Linear<B>,serializer:S)->Resu
 
 	LinearRecord{bias,weight}.serialize(serializer)
 }
+fn serialize_max_pool_2d<S:Serializer>(layer:&MaxPool2d,serializer:S)->Result<S::Ok,S::Error>{
+	MaxPool2dConfig{kernel_size:layer.kernel_size,strides:layer.stride,padding:layer.padding.0.clone(),dilation:layer.dilation}.serialize(serializer)
+}
 fn serialize_nothing<S:Serializer,T:Default>(_data:&T,serializer:S)->Result<S::Ok,S::Error>{().serialize(serializer)}
 fn serialize_param<B:Backend,S:Serializer,const N:usize>(data:&Param<Tensor<B,N>>,serializer:S)->Result<S::Ok,S::Error>{
 	if N>8{return Err(serror("tensor rank greater than 8 is not currently supported"))}
@@ -149,12 +156,14 @@ impl Config{
 	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
+		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::MaxPool2d(c)=>Layer::MaxPool2d(c.init()),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(*d),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
 	/// creates a linear config
 	pub fn linear(bias:bool,input:usize,output:usize)->Self{Self::Linear(LinearConfig::new(input,output).with_bias(bias))}
+	/// creates a max pool 2d config
+	pub fn max_pool_2d(kernel:[usize;2],strides:[usize;2])->Self{MaxPool2dConfig::new(kernel).with_strides(strides).into()}
 	/// creates a relu config
 	pub fn relu()->Self{Self::Relu}
 	/// creates a rotary config
@@ -165,7 +174,7 @@ impl Config{
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
 	pub fn w_scale(mut self,r:f32)->Self{
-		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::ScaleShift(c)=>c.initializer.as_mut().into_iter().for_each(|i|w_scale_mut(i,r)),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
+		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::MaxPool2d(_c)=>(),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::ScaleShift(c)=>c.initializer.as_mut().into_iter().for_each(|i|w_scale_mut(i,r)),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
 		self
 	}
 }
@@ -201,6 +210,9 @@ impl From<LayerNormConfig> for Config{
 }
 impl From<LinearConfig> for Config{
 	fn from(value:LinearConfig)->Self{Config::Linear(value)}
+}
+impl From<MaxPool2dConfig> for Config{
+	fn from(value:MaxPool2dConfig)->Self{Config::MaxPool2d(value)}
 }
 impl From<MseLoss> for Config{
 	fn from(_value:MseLoss)->Self{Config::Mse}
@@ -408,6 +420,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::KQV(f)=>f.forward(input),
 			Layer::LayerNorm(f)=>AI::forward(f,input),
 			Layer::Linear(f)=>AI::forward(f,input),
+			Layer::MaxPool2d(f)=>AI::forward(f,input),
 			Layer::Mse(f)=>AI::forward(f,input),
 			Layer::Relu(f)=>AI::forward(f,input),
 			Layer::Rotary(f)=>AI::forward(f,input),
@@ -431,6 +444,7 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::KQV(f)=>f.forward_mut(input),
 			Layer::LayerNorm(f)=>AI::forward_mut(f,input),
 			Layer::Linear(f)=>AI::forward_mut(f,input),
+			Layer::MaxPool2d(f)=>AI::forward_mut(f,input),
 			Layer::Mse(f)=>AI::forward_mut(f,input),
 			Layer::Relu(f)=>AI::forward_mut(f,input),
 			Layer::Rotary(f)=>AI::forward_mut(f,input),
@@ -471,6 +485,9 @@ impl<B:Backend> From<LayerNorm<B>> for Layer<B>{
 impl<B:Backend> From<Linear<B>> for Layer<B>{
 	fn from(value:Linear<B>)->Self{Layer::Linear(value)}
 }
+impl<B:Backend> From<MaxPool2d> for Layer<B>{
+	fn from(value:MaxPool2d)->Self{Layer::MaxPool2d(value)}
+}
 impl<B:Backend> From<MseLoss> for Layer<B>{
 	fn from(value:MseLoss)->Self{Layer::Mse(value)}
 }
@@ -505,6 +522,8 @@ impl<B:Backend> Layer<B>{
 		let l=l.init(&Default::default());
 		Self::Linear(l)
 	}
+	/// creates a max pool 2d layer
+	pub fn max_pool_2d(kernel:[usize;2],strides:[usize;2])->Self{MaxPool2dConfig::new(kernel).with_strides(strides).init().into()}
 	/// creates a relu layer
 	pub fn relu()->Self{Self::Relu(Relu)}
 	/// creates a rotary layer
@@ -521,7 +540,7 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),Mse,Relu,Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Stack(usize),Sum(SumLayer),Tanh}
+pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Stack(usize),Sum(SumLayer),Tanh}
 #[derive(Debug,Deserialize,Module,Serialize)]//TODO more layers
 #[serde(bound="")]
 /// enumerates some burn layers
@@ -554,6 +573,9 @@ pub enum Layer<B:Backend>{
 	#[serde(deserialize_with="deserialize_linear")]
 	#[serde(serialize_with="serialize_linear")]
 	Linear(Linear<B>),
+	#[serde(deserialize_with="deserialize_max_pool_2d")]
+	#[serde(serialize_with="serialize_max_pool_2d")]
+	MaxPool2d(MaxPool2d),
 	#[serde(deserialize_with="deserialize_nothing")]
 	#[serde(serialize_with="serialize_nothing")]
 	Mse(MseLoss),
@@ -696,7 +718,7 @@ struct LinearRecord<B:Backend>{bias:Option<Value<B>>,weight:Value<B>}
 use burn::{
 	module::{Ignored,Param,RunningState},
 	nn::{
-		BatchNorm,BatchNormConfig,Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,PaddingConfig2d,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss}
+		BatchNorm,BatchNormConfig,Dropout,DropoutConfig,Embedding,EmbeddingConfig,Initializer,LayerNorm,LayerNormConfig,Linear,LinearConfig,PaddingConfig2d,Relu,RotaryEncoding,RotaryEncodingConfig,Tanh,conv::{Conv2d,Conv2dConfig},loss::{CrossEntropyLoss,CrossEntropyLossConfig,MseLoss},pool::{MaxPool2d,MaxPool2dConfig}
 	},
 	prelude::*,
 	tensor::activation
