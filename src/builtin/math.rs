@@ -33,14 +33,17 @@ impl AI<f32,f32> for MeanLayer{
 impl AI<f32,f32> for SumLayer{
 	fn forward(&self,input:f32)->f32{input}
 }
-impl<L:OpsAdd<R,Output=Y>,R,Y> AI<(L,R),Y> for AddLayer{
-	fn forward(&self,(left,right):(L,R))->Y{left+right}
+impl<L:OpsAdd<R>,R,Y> AI<(L,R),Y> for AddLayer where L::Output:Into<Y>{
+	fn forward(&self,(left,right):(L,R))->Y{(left+right).into()}
 }
-impl<L:OpsMul<R,Output=Y>,R,Y> AI<(L,R),Y> for MulLayer{
-	fn forward(&self,(left,right):(L,R))->Y{left*right}
+impl<L:OpsMul<R>,R,Y> AI<(L,R),Y> for MulLayer where L::Output:Into<Y>{
+	fn forward(&self,(left,right):(L,R))->Y{(left*right).into()}
 }
-impl<X:OpsAbs<Output=Y>,Y> AI<X,Y> for AbsLayer{
-	fn forward(&self,input:X)->Y{input.abs()}
+impl<X:OpsAbs,Y> AI<X,Y> for AbsLayer where X::Output:Into<Y>{
+	fn forward(&self,input:X)->Y{input.abs().into()}
+}
+impl<X:OpsNeg,Y> AI<X,Y> for NegLayer where X::Output:Into<Y>{
+	fn forward(&self,input:X)->Y{input.neg().into()}
 }
 /// declares layer and wrapper structs and implements accessor functions, decompose and op for binary componentwise operations. ai will still have to be externally implemented for the layer stuct
 macro_rules! bicop_like{// TODO separate parts of this like in one of the other likes and make squared error specifically have vec output
@@ -72,11 +75,11 @@ macro_rules! bicop_like{// TODO separate parts of this like in one of the other 
 			type Output=Y;
 		}
 		impl<A> $wrap<A>{/// references the inner value
-	pub fn inner(&self)->&A{&self.inner}
-	/// references the inner value
-	pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
-	/// converts into the inner value
-	pub fn into_inner(self)->A{self.inner}
+			pub fn inner(&self)->&A{&self.inner}
+			/// references the inner value
+			pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+			/// converts into the inner value
+			pub fn into_inner(self)->A{self.inner}
 			/// creates a new layer
 			pub fn new(inner:A)->Self where Self:Op{
 				Self{inner,layer:$layer::new()}
@@ -148,11 +151,11 @@ macro_rules! sum_like{
 			/// gets the reduction mode
 			pub fn get_reduction_mode(&self)->ReductionMode{self.layer.reductionmode}
 			/// references the inner value
-	pub fn inner(&self)->&A{&self.inner}
-	/// references the inner value
-	pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
-	/// converts into the inner value
-	pub fn into_inner(self)->A{self.inner}
+			pub fn inner(&self)->&A{&self.inner}
+			/// references the inner value
+			pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+			/// converts into the inner value
+			pub fn into_inner(self)->A{self.inner}
 			/// creates a new layer
 			pub fn new(inner:A)->Self where Self:Op{
 				Self{inner,layer:$layer::new()}
@@ -194,14 +197,14 @@ macro_rules! sum_like{
 	}
 }
 /// declares layer and wrapper structs and implements accessor functions, decompose and op for unary componentwise operations. ai will still have to be externally implemented for the layer stuct
-macro_rules! uncop_like{// TODO using op traits with output may better allow type shifting
+macro_rules! uncop_like{
 	($layer:ident,$wrap:ident)=>{
 		impl $layer{
 			/// creates a new layer
 			pub fn new()->Self{Self::default()}
 		}
 		impl<A:AI<X,Y>+Op<Output=Y>,X,Y,Z> AI<X,Z> for $wrap<A> where $layer:AI<Y,Z>{
-			fn forward(&self,input:X)->Z{self.layer.forward(self.inner.forward(input))}// TODO swap operation
+			fn forward(&self,input:X)->Z{self.layer.forward(self.inner.forward(input))}
 			fn forward_mut(&mut self,input:X)->Z{self.layer.forward_mut(self.inner.forward_mut(input))}
 		}
 		impl<A:Decompose> Decompose for $wrap<A>{
@@ -223,11 +226,11 @@ macro_rules! uncop_like{// TODO using op traits with output may better allow typ
 			type Output=Y;
 		}
 		impl<A> $wrap<A>{/// references the inner value
-	pub fn inner(&self)->&A{&self.inner}
-	/// references the inner value
-	pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
-	/// converts into the inner value
-	pub fn into_inner(self)->A{self.inner}
+			pub fn inner(&self)->&A{&self.inner}
+			/// references the inner value
+			pub fn inner_mut(&mut self)->&mut A{&mut self.inner}
+			/// converts into the inner value
+			pub fn into_inner(self)->A{self.inner}
 			/// creates a new layer
 			pub fn new(inner:A)->Self where Self:Op{
 				Self{inner,layer:$layer::new()}
@@ -260,12 +263,13 @@ macro_rules! uncop_like{// TODO using op traits with output may better allow typ
 sum_like!(MeanLayer,Mean);
 sum_like!(SumLayer,Sum);
 uncop_like!(AbsLayer,Abs);
+uncop_like!(NegLayer,Neg);
 use {bicop_like,sum_like};
 use crate::{
 	AI,Decompose,IntoSequence,Op,UnwrapInner,ops::Abs as OpsAbs
 };
 use serde::{Deserialize,Serialize};
 use std::{
-	marker::PhantomData,ops::{Add as OpsAdd,Mul as OpsMul}
+	marker::PhantomData,ops::{Add as OpsAdd,Mul as OpsMul,Neg as OpsNeg}
 };
 use super::{ReductionMode,Sequential};
