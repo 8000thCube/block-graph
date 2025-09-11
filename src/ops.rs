@@ -87,13 +87,6 @@ pub trait Cat{
 	/// the output type
 	type Output;
 }
-/// trait to represent the operation
-pub trait IntoFlat{
-	/// flattens data as much as possible without remixing storage types
-	fn into_flat(self)->Self::Output;
-	/// the output type
-	type Output;
-}
 /// get tensor rank
 pub trait Rank{
 	/// gets the rank
