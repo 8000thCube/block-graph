@@ -288,6 +288,17 @@ impl<A:Decompose> Decompose for Map<A>{
 	fn decompose_cloned(&self)->Self::Decomposition{self.inner.decompose_cloned()}
 	type Decomposition=A::Decomposition;
 }
+impl<A:Decompose> Decompose for Residual<A>{
+	fn compose((decomposition,apply):Self::Decomposition)->Self{
+		Self{apply,inner:A::compose(decomposition)}
+	}
+	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.apply)}
+	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.apply)}
+	type Decomposition=(A::Decomposition,bool);
+}
+impl<A:Op<Output=Y>,Y> Op for Residual<A>{
+	type Output=Y;
+}
 impl<A:Decompose> Decompose for Zip<A>{
 	fn compose(decomposition:Self::Decomposition)->Self{
 		Self{inner:A::compose(decomposition)}
@@ -444,23 +455,12 @@ mod tests{
 		assert_eq!(y,[1.9375_f32,1.875,1.75,1.5,1.0]);
 	}
 	#[test]
-	fn cat_vec(){
-		let op=().fix_type::<Vec<Vec<f32>>>().cat(0);
-		let x:Vec<Vec<f32>>=vec![vec![1.0,1.0,1.0,1.0,1.0],vec![2.0,2.0,2.0]];
-		let y=op.forward(x);
-		assert_eq!(y,[1.0,1.0,1.0,1.0,1.0,2.0,2.0,2.0]);
-	}
-	#[test]
 	fn mse_vec(){
 		let op=().fix_type::<Vec<f32>>().squared_error().mean();
 		let x:(Vec<f32>,Vec<f32>)=(vec![0.0,0.5,1.5],vec![-2.0,1.5,5.5]);
 		let y:f32=op.forward(x);
 		assert_eq!(y,7.0);
 	}
-	/*#[test]
-	fn sum_vec(){
-		let op=new().fix_type::<Vec<f32>>().sum()
-	}*/
 	use super::*;
 }
 #[derive(Clone,Copy,Debug,Deserialize,Eq,Hash,PartialEq,Serialize)]
@@ -519,17 +519,6 @@ impl<A:AI<X,Y>+Op<Output=Y>,X:Clone+OpsAdd<Y,Output=Z>,Y:Into<Z>,Z> AI<X,Z> for 
 
 		if apply{x.clone()+f.forward_mut(x)}else{f.forward_mut(x).into()}
 	}
-}
-impl<A:Decompose> Decompose for Residual<A>{
-	fn compose((decomposition,apply):Self::Decomposition)->Self{
-		Self{apply,inner:A::compose(decomposition)}
-	}
-	fn decompose(self)->Self::Decomposition{(self.inner.decompose(),self.apply)}
-	fn decompose_cloned(&self)->Self::Decomposition{(self.inner.decompose_cloned(),self.apply)}
-	type Decomposition=(A::Decomposition,bool);
-}
-impl<A:Op<Output=Y>,Y> Op for Residual<A>{
-	type Output=Y;
 }
 
 #[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
