@@ -207,8 +207,14 @@ pub trait Op{
 	fn softmax(self,temperature:f32)->Softmax<Self> where Self:Sized,Softmax<Self>:Op{Softmax::new(self,temperature)}
 	/// wraps with a mse operation
 	fn squared_error(self)->SquaredError<Self> where SquaredError<Self>:Op,Self:Sized{SquaredError::new(self)}
+	/// wraps with a squeeze operation
+	fn squeeze(self,dim:i32)->Squeeze<Self> where Squeeze<Self>:Op,Self:Sized{Squeeze::new(dim,self)}
+	/// wraps with a stack operation
+	fn stack(self,dim:i32)->Stack<Self> where Stack<Self>:Op,Self:Sized{Stack::new(dim,self)}
 	/// wraps with a map operation
 	fn to_each(self)->Map<Self> where Map<Self>:Op,Self:Sized{Map::new(self)}
+	/// wraps with a unsqueeze operation
+	fn unsqueeze(self,dim:i32)->Unsqueeze<Self> where Unsqueeze<Self>:Op,Self:Sized{Unsqueeze::new(dim,self)}
 	/// wraps with a sum operation
 	fn sum(self)->Sum<Self> where Sum<Self>:Op,Self:Sized{Sum::new(self)}
 	/// wraps the inner value so it can be unwrapped with unwrap inner
@@ -227,7 +233,7 @@ pub trait UnwrapInner{
 }
 use {op_tuple,decompose_primitive,decompose_tuple};
 use crate::builtin::{
-	Autoregression,Duplicate,Map,Sequential,SetType,Zip,math::{Abs,Mean,SquaredError,Sum},reinforcement::AccQ,soft::{AbnormalSoftmax,Choose,CrossEntropy,LogSoftmax,Softmax},structural::Cat
+	Autoregression,Duplicate,Map,Sequential,SetType,Zip,math::{Abs,Mean,SquaredError,Sum},reinforcement::AccQ,soft::{AbnormalSoftmax,Choose,CrossEntropy,LogSoftmax,Softmax},structural::{Cat,Squeeze,Stack,Unsqueeze}
 };
 use std::{
 	collections::HashMap,cmp::Ord,hash::{BuildHasher,Hash},ops::Range
