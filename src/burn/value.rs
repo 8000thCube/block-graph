@@ -417,9 +417,6 @@ impl<B:Backend> AI<Value<B>,Value<B>> for AccQLayer{
 		match input.float(){F1(x)=>F1(acc_q(dim,gamma,x)),F2(x)=>F2(acc_q(dim,gamma,x)),F3(x)=>F3(acc_q(dim,gamma,x)),F4(x)=>F4(acc_q(dim,gamma,x)),F5(x)=>F5(acc_q(dim,gamma,x)),F6(x)=>F6(acc_q(dim,gamma,x)),F7(x)=>F7(acc_q(dim,gamma,x)),F8(x)=>F8(acc_q(dim,gamma,x)),Value::Incompatible(x)=>x.into(),Value::Multi(x)=>Value::Multi(x.into_iter().map(|x|self.forward(x)).collect()),_=>panic!("unexpected non float value")}
 	}
 }
-impl<B:Backend> AI<Value<B>,Value<B>> for CatLayer{
-	fn forward(&self,input:Value<B>)->Value<B>{input.cat(self.get_dim())}
-}
 impl<B:Backend> AI<Value<B>,u32> for ChooseLayer{
 	fn forward(&self,input:Value<B>)->u32{
 		let (dim,temperature)=(self.get_dim(),self.get_temperature());
@@ -625,6 +622,39 @@ impl<B:Backend> Abs for Value<B>{
 impl<B:Backend> AsRef<Self> for Value<B>{
 	fn as_ref(&self)->&Self{self}
 }
+impl<B:Backend> Cat for Value<B>{
+	/// concatenates the multi tensor along dimension d
+	fn cat(self,d:i32)->Self{
+		fn f<B:Backend,I:Iterator<Item=Tensor<B,N,K>>,K:BasicOps<B>+TensorKind<B>,const N:usize>(d:i32,x0:Tensor<B,N,K>,tensors:I)->Value<B> where Tensor<B,N,K>:Into<Value<B>>{
+			if d>=N as i32||d<(-(N as i32)){return format!("rank {N} is too low to cat along dimension {d}").into()}
+			let d=if d<0{N-((-d) as usize)}else{d as usize};
+			let shape=x0.dims();
+			let tensors:Vec<Tensor<B,N,K>>=once(x0).chain(tensors).collect();
+
+			if let Err(e)=tensors.iter().try_for_each(|x|{
+				let mut xshape=x.dims();
+				xshape[d]=shape[d];
+				if shape==xshape{Ok(())}else{Err("mismatched shapes {shape:?}, {xshape:?}")}
+			}){
+				return e.into()
+			}
+
+			Tensor::cat(tensors,d).into()
+		}
+ 		let v=if let Value::Multi(v)=self{v}else{return self};
+
+		if let Some(n)=v.iter().position(Value::is_incompatible){return v.into_iter().nth(n).unwrap()}
+		if v.iter().all(Value::is_multi){return v.into_iter().map(|x|x.cat(d)).collect()}
+		if v.iter().any(Value::is_multi){return "cannot mix single and multi values in a cat operation".into()}
+		let variant=mem::discriminant(&v[0]);
+
+		if v.iter().any(|x|mem::discriminant(x)!=variant){return "cannot mix variants in a cat operation".into()}
+		let mut v=v.into_iter();
+
+		match v.next().unwrap(){B1(x0)=>f(d,x0,v.map(Value::unwrap_b1)),B2(x0)=>f(d,x0,v.map(Value::unwrap_b2)),B3(x0)=>f(d,x0,v.map(Value::unwrap_b3)),B4(x0)=>f(d,x0,v.map(Value::unwrap_b4)),B5(x0)=>f(d,x0,v.map(Value::unwrap_b5)),B6(x0)=>f(d,x0,v.map(Value::unwrap_b6)),B7(x0)=>f(d,x0,v.map(Value::unwrap_b7)),B8(x0)=>f(d,x0,v.map(Value::unwrap_b8)),F1(x0)=>f(d,x0,v.map(Value::unwrap_f1)),F2(x0)=>f(d,x0,v.map(Value::unwrap_f2)),F3(x0)=>f(d,x0,v.map(Value::unwrap_f3)),F4(x0)=>f(d,x0,v.map(Value::unwrap_f4)),F5(x0)=>f(d,x0,v.map(Value::unwrap_f5)),F6(x0)=>f(d,x0,v.map(Value::unwrap_f6)),F7(x0)=>f(d,x0,v.map(Value::unwrap_f7)),F8(x0)=>f(d,x0,v.map(Value::unwrap_f8)),I1(x0)=>f(d,x0,v.map(Value::unwrap_i1)),I2(x0)=>f(d,x0,v.map(Value::unwrap_i2)),I3(x0)=>f(d,x0,v.map(Value::unwrap_i3)),I4(x0)=>f(d,x0,v.map(Value::unwrap_i4)),I5(x0)=>f(d,x0,v.map(Value::unwrap_i5)),I6(x0)=>f(d,x0,v.map(Value::unwrap_i6)),I7(x0)=>f(d,x0,v.map(Value::unwrap_i7)),I8(x0)=>f(d,x0,v.map(Value::unwrap_i8)),Value::Incompatible(_e)=>panic!("internal error not handled in correct location"),Value::Multi(_e)=>panic!("internal error not handled in correct location")}
+	}
+	type Output=Self;
+}
 impl<B:Backend> Decompose for LossOutput<B>{
 	fn compose((loss,output,target):Self::Decomposition)->Self{Self::new(loss,output,target)}
 	fn decompose(self)->Self::Decomposition{(self.loss(),self.output(),self.target())}
@@ -813,6 +843,11 @@ impl<B:Backend> Module<B> for Value<B>{
 impl<B:Backend> Serialize for Value<B>{
 	fn serialize<S:Serializer>(&self,serializer:S)->Result<S::Ok,S::Error>{ValueData::from(self.clone()).serialize(serializer)}
 }
+impl<B:Backend> Stack for Value<B>{
+	/// stacks the multi tensor, inserting a dimension at d, or N+d+1 if d is negative. for singular tensors this has an unsqueezing effect
+	fn stack(self,d:i32)->Self{self.unsqueeze_dim(d).cat(d)}
+	type Output=Self;
+}
 impl<B:Backend> Value<B>{//TODO scalars
 	/// tests if all values are true
 	pub fn all(self)->Value<B>{
@@ -845,36 +880,6 @@ impl<B:Backend> Value<B>{//TODO scalars
 	/// casts to a bool tensor if not one
 	pub fn bool(self)->Value<B>{
 		match self{B1(x)=>B1(x),B2(x)=>B2(x),B3(x)=>B3(x),B4(x)=>B4(x),B5(x)=>B5(x),B6(x)=>B6(x),B7(x)=>B7(x),B8(x)=>B8(x),F1(x)=>B1(x.bool()),F2(x)=>B2(x.bool()),F3(x)=>B3(x.bool()),F4(x)=>B4(x.bool()),F5(x)=>B5(x.bool()),F6(x)=>B6(x.bool()),F7(x)=>B7(x.bool()),F8(x)=>B8(x.bool()),I1(x)=>B1(x.bool()),I2(x)=>B2(x.bool()),I3(x)=>B3(x.bool()),I4(x)=>B4(x.bool()),I5(x)=>B5(x.bool()),I6(x)=>B6(x.bool()),I7(x)=>B7(x.bool()),I8(x)=>B8(x.bool()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(Value::bool).collect())}
-	}
-	/// concatenates the multi tensor along dimension d
-	pub fn cat(self,d:i32)->Self{
-		fn f<B:Backend,I:Iterator<Item=Tensor<B,N,K>>,K:BasicOps<B>+TensorKind<B>,const N:usize>(d:i32,x0:Tensor<B,N,K>,tensors:I)->Value<B> where Tensor<B,N,K>:Into<Value<B>>{
-			if d>=N as i32||d<(-(N as i32)){return format!("rank {N} is too low to cat along dimension {d}").into()}
-			let d=if d<0{N-((-d) as usize)}else{d as usize};
-			let shape=x0.dims();
-			let tensors:Vec<Tensor<B,N,K>>=once(x0).chain(tensors).collect();
-
-			if let Err(e)=tensors.iter().try_for_each(|x|{
-				let mut xshape=x.dims();
-				xshape[d]=shape[d];
-				if shape==xshape{Ok(())}else{Err("mismatched shapes {shape:?}, {xshape:?}")}
-			}){
-				return e.into()
-			}
-
-			Tensor::cat(tensors,d).into()
-		}
- 		let v=if let Value::Multi(v)=self{v}else{return self};
-
-		if let Some(n)=v.iter().position(Value::is_incompatible){return v.into_iter().nth(n).unwrap()}
-		if v.iter().all(Value::is_multi){return v.into_iter().map(|x|x.cat(d)).collect()}
-		if v.iter().any(Value::is_multi){return "cannot mix single and multi values in a cat operation".into()}
-		let variant=mem::discriminant(&v[0]);
-
-		if v.iter().any(|x|mem::discriminant(x)!=variant){return "cannot mix variants in a cat operation".into()}
-		let mut v=v.into_iter();
-
-		match v.next().unwrap(){B1(x0)=>f(d,x0,v.map(Value::unwrap_b1)),B2(x0)=>f(d,x0,v.map(Value::unwrap_b2)),B3(x0)=>f(d,x0,v.map(Value::unwrap_b3)),B4(x0)=>f(d,x0,v.map(Value::unwrap_b4)),B5(x0)=>f(d,x0,v.map(Value::unwrap_b5)),B6(x0)=>f(d,x0,v.map(Value::unwrap_b6)),B7(x0)=>f(d,x0,v.map(Value::unwrap_b7)),B8(x0)=>f(d,x0,v.map(Value::unwrap_b8)),F1(x0)=>f(d,x0,v.map(Value::unwrap_f1)),F2(x0)=>f(d,x0,v.map(Value::unwrap_f2)),F3(x0)=>f(d,x0,v.map(Value::unwrap_f3)),F4(x0)=>f(d,x0,v.map(Value::unwrap_f4)),F5(x0)=>f(d,x0,v.map(Value::unwrap_f5)),F6(x0)=>f(d,x0,v.map(Value::unwrap_f6)),F7(x0)=>f(d,x0,v.map(Value::unwrap_f7)),F8(x0)=>f(d,x0,v.map(Value::unwrap_f8)),I1(x0)=>f(d,x0,v.map(Value::unwrap_i1)),I2(x0)=>f(d,x0,v.map(Value::unwrap_i2)),I3(x0)=>f(d,x0,v.map(Value::unwrap_i3)),I4(x0)=>f(d,x0,v.map(Value::unwrap_i4)),I5(x0)=>f(d,x0,v.map(Value::unwrap_i5)),I6(x0)=>f(d,x0,v.map(Value::unwrap_i6)),I7(x0)=>f(d,x0,v.map(Value::unwrap_i7)),I8(x0)=>f(d,x0,v.map(Value::unwrap_i8)),Value::Incompatible(_e)=>panic!("internal error not handled in correct location"),Value::Multi(_e)=>panic!("internal error not handled in correct location")}
 	}
 	/// counts the number of components in the tensor
 	pub fn count(&self)->usize{
@@ -1139,8 +1144,6 @@ impl<B:Backend> Value<B>{//TODO scalars
 		}
 		match match self{B1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),B2(x)=>f(x,d).map(B1),B3(x)=>f(x,d).map(B2),B4(x)=>f(x,d).map(B3),B5(x)=>f(x,d).map(B4),B6(x)=>f(x,d).map(B5),B7(x)=>f(x,d).map(B6),B8(x)=>f(x,d).map(B7),F1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),F2(x)=>f(x,d).map(F1),F3(x)=>f(x,d).map(F2),F4(x)=>f(x,d).map(F3),F5(x)=>f(x,d).map(F4),F6(x)=>f(x,d).map(F5),F7(x)=>f(x,d).map(F6),F8(x)=>f(x,d).map(F7),I1(_x)=>Err("currently cannot decrease the number of tensor dimensions below 1".into()),I2(x)=>f(x,d).map(I1),I3(x)=>f(x,d).map(I2),I4(x)=>f(x,d).map(I3),I5(x)=>f(x,d).map(I4),I6(x)=>f(x,d).map(I5),I7(x)=>f(x,d).map(I6),I8(x)=>f(x,d).map(I7),Value::Incompatible(e)=>Err(e),Value::Multi(v)=>Ok(v.into_iter().map(|x|x.squeeze_dim(d)).collect())}{Err(e)=>e.into(),Ok(x)=>x}
 	}
-	/// stacks the multi tensor, inserting a dimension at d, or N+d+1 if d is negative. for singular tensors this has an unsqueezing effect
-	pub fn stack(self,d:i32)->Self{self.unsqueeze_dim(d).cat(d)}
 	/// attempts to unwrap the inner incompatible value
 	pub fn try_incompatible(self)->Result<String,Self>{
 		if let Value::Incompatible(x)=self{Ok(x)}else{Err(self)}
@@ -1274,9 +1277,9 @@ use burn::{
 use crate::{
 	AI,Decompose,Merge,Op,
 	builtin::{
-		Alignment,ReductionMode,math::{MeanLayer,SquaredErrorLayer,SumLayer},reinforcement::AccQLayer,soft::{ChooseLayer,CrossEntropyLayer,SoftmaxLayer},structural::CatLayer
+		Alignment,ReductionMode,math::{MeanLayer,SquaredErrorLayer,SumLayer},reinforcement::AccQLayer,soft::{ChooseLayer,CrossEntropyLayer,SoftmaxLayer}
 	},
-	ops::Abs
+	ops::{Abs,Cat,Stack}
 };
 use rand::random;
 use serde::{Deserialize,Deserializer,Serialize,Serializer};
