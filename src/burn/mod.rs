@@ -511,6 +511,7 @@ use crate::{
 	builtin::{
 		Duplicate,Map,Sequential,SetType,Zip,math::{Abs,Mean,SquaredError},reinforcement::AccQ,soft::{Choose,CrossEntropy},structural::Cat
 	},
+	ops::Stack as OpsStack
 };
 use rand::random;
 use serde::{Deserialize,Serialize};
