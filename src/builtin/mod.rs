@@ -159,6 +159,20 @@ impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J
 		input.into_iter().map(|x|a.forward_mut(x)).collect()
 	}
 }
+impl<A:AI<X,Y>+Op<Output=Y>,X:Clone+OpsAdd<Y,Output=Z>,Y:Into<Z>,Z> AI<X,Z> for Residual<A>{
+	fn forward(&self,x:X)->Z{
+		let apply=self.apply;
+		let f=&self.inner;
+
+		if apply{x.clone()+f.forward(x)}else{f.forward(x).into()}
+	}
+	fn forward_mut(&mut self,x:X)->Z{
+		let apply=self.apply;
+		let f=&mut self.inner;
+
+		if apply{x.clone()+f.forward_mut(x)}else{f.forward_mut(x).into()}
+	}
+}
 impl<A:AI<X,Y>,X,Y:Clone,const N:usize> AI<X,[Y;N]> for Duplicate<A>{
 	fn forward(&self,input:X)->[Y;N]{
 		let y=self.inner().forward(input);
@@ -505,22 +519,6 @@ pub struct Duplicate<A>{inner:A,times:usize}
 #[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// wraps to apply to every element of a vector
 pub struct Map<A>{inner:A}
-
-impl<A:AI<X,Y>+Op<Output=Y>,X:Clone+OpsAdd<Y,Output=Z>,Y:Into<Z>,Z> AI<X,Z> for Residual<A>{
-	fn forward(&self,x:X)->Z{
-		let apply=self.apply;
-		let f=&self.inner;
-
-		if apply{x.clone()+f.forward(x)}else{f.forward(x).into()}
-	}
-	fn forward_mut(&mut self,x:X)->Z{
-		let apply=self.apply;
-		let f=&mut self.inner;
-
-		if apply{x.clone()+f.forward_mut(x)}else{f.forward_mut(x).into()}
-	}
-}
-
 #[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 /// layer to add an optional residual connection
 pub struct Residual<A>{apply:bool,inner:A}
