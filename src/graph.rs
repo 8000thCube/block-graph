@@ -141,6 +141,8 @@ impl<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>ConnectionInfo<'a,C,V>{
 		let connection=self.connection;
 		self.graph.order.iter().position(|label|connection==label).expect("order should contain all connection labels")
 	}
+	/// gets the underlying layer associated with the layer label
+	pub fn get_layer(&self)->Option<&C>{self.graph.layers.get(&self.layer)}
 	/// references the input label
 	pub fn input(&self)->&Label{&self.input}
 	/// checks if clear
@@ -222,9 +224,9 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let (connections,order)=(&self.connections,&self.order);
 		let layers=&self.layers;
 
-		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get(layer){// TODO maybe make no layer just identity
+		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|{
 			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
-			let y=f.forward(x);
+			let y=if let Some(f)=layers.get(layer){f.forward(x)}else{x};
 			map.entry(output.clone()).or_default().merge(y);
 		});
 		map
@@ -233,9 +235,9 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge,S:BuildHasher> AI<HashMap<Labe
 		let (connections,order)=(&self.connections,&self.order);
 		let layers=&mut self.layers;
 
-		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|if let Some(f)=layers.get_mut(layer){
+		order.iter().filter_map(|c|connections.get(c)).for_each(|(clear,input,layer,output)|{
 			let x=if *clear>0{map.remove(input)}else{map.get(input).cloned()}.unwrap_or_default();
-			let y=f.forward_mut(x);
+			let y=if let Some(f)=layers.get_mut(layer){f.forward_mut(x)}else{x};
 			map.entry(output.clone()).or_default().merge(y);
 		});
 		map
@@ -272,6 +274,8 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		let graph=Some(self);
 		ConnectionEditor{clear,connection,graph,index,input,layer,output}
 	}
+	/// returns an iterator over the connections in an arbitrary order
+	pub fn connections<'a>(&'a self)->impl Iterator<Item=ConnectionInfo<'a,C,V>>{self.connections.keys().filter_map(move|k|self.get_connection(k))}
 	/// gets connection information by label
 	pub fn get_connection<'a>(&'a self,label:&Label)->Option<ConnectionInfo<'a,C,V>>{
 		let (connection,(clear,input,layer,output))=self.connections.get_key_value(label)?;
@@ -288,6 +292,8 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 		self.layers.extend(graph.layers.into_iter().map(|(l,a)|(l,a.into())));
 		self.order.extend(graph.order);
 	}
+	/// gets the connection order
+	pub fn order(&self)->&[Label]{&self.order}
 	/// splits the graph according to the predicate(clear, connectionlabel, inputlabel, layer, layerlabel, outputlabel). true will be sent to the returned graph. the resulting graphs will only have the layers they use
 	pub fn split<F:FnMut(bool,&Label,&Label,&C,&Label,&Label)->bool>(&mut self,mut predicate:F)->Self where C:Clone{
 		let (connections,layers,order)=(&mut self.connections,&mut self.layers,&mut self.order);
