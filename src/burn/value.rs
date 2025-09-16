@@ -843,9 +843,17 @@ impl<B:Backend> Module<B> for Value<B>{
 impl<B:Backend> Serialize for Value<B>{
 	fn serialize<S:Serializer>(&self,serializer:S)->Result<S::Ok,S::Error>{ValueData::from(self.clone()).serialize(serializer)}
 }
+impl<B:Backend> Squeeze for Value<B>{
+	fn squeeze(self,d:i32)->Self{self.squeeze_dim(d)}
+	type Output=Self;
+}
 impl<B:Backend> Stack for Value<B>{
 	/// stacks the multi tensor, inserting a dimension at d, or N+d+1 if d is negative. for singular tensors this has an unsqueezing effect
 	fn stack(self,d:i32)->Self{self.unsqueeze_dim(d).cat(d)}
+	type Output=Self;
+}
+impl<B:Backend> Unsqueeze for Value<B>{
+	fn unsqueeze(self,d:i32)->Self{self.unsqueeze_dim(d)}
 	type Output=Self;
 }
 impl<B:Backend> Value<B>{//TODO scalars
@@ -1061,6 +1069,40 @@ impl<B:Backend> Value<B>{//TODO scalars
 	/// returns the number of axes of the tensor, or none if incompatible or multi
 	pub fn rank(&self)->Option<usize>{
 		match self{B1(_x)=>Some(1),B2(_x)=>Some(2),B3(_x)=>Some(3),B4(_x)=>Some(4),B5(_x)=>Some(5),B6(_x)=>Some(6),B7(_x)=>Some(7),B8(_x)=>Some(8),F1(_x)=>Some(1),F2(_x)=>Some(2),F3(_x)=>Some(3),F4(_x)=>Some(4),F5(_x)=>Some(5),F6(_x)=>Some(6),F7(_x)=>Some(7),F8(_x)=>Some(8),I1(_x)=>Some(1),I2(_x)=>Some(2),I3(_x)=>Some(3),I4(_x)=>Some(4),I5(_x)=>Some(5),I6(_x)=>Some(6),I7(_x)=>Some(7),I8(_x)=>Some(8),Value::Incompatible(_x)=>None,Value::Multi(_x)=>None}
+	}
+	/// reshapes the inner value
+	pub fn reshape<const N:usize>(self,dims:[usize;N])->Self{
+		fn f<B:Backend,K:'static+BasicOps<B>+TensorKind<B>,const D:usize,const N:usize>(dims:[usize;D],x:Tensor<B,N,K>)->Value<B>{
+			if dims.into_iter().product::<usize>()==x.dims().into_iter().product::<usize>(){x.reshape(dims).into()}else{"incompatible reshape".into()}
+		}
+		match self{
+			B1(x)=>f(dims,x),
+			B2(x)=>f(dims,x),
+			B3(x)=>f(dims,x),
+			B4(x)=>f(dims,x),
+			B5(x)=>f(dims,x),
+			B6(x)=>f(dims,x),
+			B7(x)=>f(dims,x),
+			B8(x)=>f(dims,x),
+			F1(x)=>f(dims,x),
+			F2(x)=>f(dims,x),
+			F3(x)=>f(dims,x),
+			F4(x)=>f(dims,x),
+			F5(x)=>f(dims,x),
+			F6(x)=>f(dims,x),
+			F7(x)=>f(dims,x),
+			F8(x)=>f(dims,x),
+			I1(x)=>f(dims,x),
+			I2(x)=>f(dims,x),
+			I3(x)=>f(dims,x),
+			I4(x)=>f(dims,x),
+			I5(x)=>f(dims,x),
+			I6(x)=>f(dims,x),
+			I7(x)=>f(dims,x),
+			I8(x)=>f(dims,x),
+			Value::Incompatible(e)=>e.into(),
+			Value::Multi(v)=>v.into_iter().map(|x|x.reshape(dims)).collect()
+		}
 	}
 	/// gets the shape of the tensor. Use the recursive version to recursively get the multi shape
 	pub fn shape(&self)->Shape{
@@ -1279,7 +1321,7 @@ use crate::{
 	builtin::{
 		Alignment,ReductionMode,math::{MeanLayer,SquaredErrorLayer,SumLayer},reinforcement::AccQLayer,soft::{ChooseLayer,CrossEntropyLayer,SoftmaxLayer}
 	},
-	ops::{Abs,Cat,Stack}
+	ops::{Abs,Cat,Stack,Squeeze,Unsqueeze}
 };
 use rand::random;
 use serde::{Deserialize,Deserializer,Serialize,Serializer};
