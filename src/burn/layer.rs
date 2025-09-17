@@ -156,7 +156,7 @@ impl Config{
 	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::MaxPool2d(c)=>Layer::MaxPool2d(c.init()),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(Ignored(*d)),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new())}
+		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::MaxPool2d(c)=>Layer::MaxPool2d(c.init()),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(Ignored(*d)),Config::Squeeze(c)=>Layer::Squeeze(Ignored(*c)),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new()),Config::Unsqueeze(c)=>Layer::Unsqueeze(Ignored(*c))}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
@@ -174,7 +174,7 @@ impl Config{
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
 	pub fn w_scale(mut self,r:f32)->Self{
-		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::MaxPool2d(_c)=>(),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::ScaleShift(c)=>c.initializer.as_mut().into_iter().for_each(|i|w_scale_mut(i,r)),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>()}
+		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::MaxPool2d(_c)=>(),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::ScaleShift(c)=>c.initializer.as_mut().into_iter().for_each(|i|w_scale_mut(i,r)),Config::Squeeze(_d)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>(),Config::Unsqueeze(_c)=>()}
 		self
 	}
 }
@@ -223,6 +223,9 @@ impl From<Relu> for Config{
 impl From<RotaryEncodingConfig> for Config{
 	fn from(value:RotaryEncodingConfig)->Self{Config::Rotary(value)}
 }
+impl From<SqueezeLayer> for Config{
+	fn from(value:SqueezeLayer)->Self{Config::Squeeze(value)}
+}
 impl From<StackLayer> for Config{
 	fn from(value:StackLayer)->Self{Config::Stack(value)}
 }
@@ -231,6 +234,9 @@ impl From<SumLayer> for Config{
 }
 impl From<Tanh> for Config{
 	fn from(_value:Tanh)->Self{Config::Tanh}
+}
+impl From<UnsqueezeLayer> for Config{
+	fn from(value:UnsqueezeLayer)->Self{Config::Unsqueeze(value)}
 }
 impl KQVConfig{
 	pub fn init<B:Backend>(&self,device:&B::Device)->KQV<B>{
@@ -428,9 +434,11 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::Relu(f)=>AI::forward(f,input),
 			Layer::Rotary(f)=>AI::forward(f,input),
 			Layer::ScaleShift(f)=>f.forward(input),
+			Layer::Squeeze(f)=>f.forward(input),
 			Layer::Stack(f)=>f.forward(input),
 			Layer::Sum(f)=>f.forward(input),
 			Layer::Tanh(f)=>AI::forward(f,input),
+			Layer::Unsqueeze(f)=>f.forward(input),
 		}
 	}
 	fn forward_mut(&mut self,input:Value<B>)->Value<B>{
@@ -452,9 +460,11 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::Relu(f)=>AI::forward_mut(f,input),
 			Layer::Rotary(f)=>AI::forward_mut(f,input),
 			Layer::ScaleShift(f)=>f.forward_mut(input),
+			Layer::Squeeze(f)=>f.0.forward_mut(input),
 			Layer::Stack(f)=>f.0.forward_mut(input),
 			Layer::Sum(f)=>f.0.forward_mut(input),
 			Layer::Tanh(f)=>AI::forward_mut(f,input),
+			Layer::Unsqueeze(f)=>f.0.forward_mut(input),
 		}
 	}
 }
@@ -500,11 +510,20 @@ impl<B:Backend> From<Relu> for Layer<B>{
 impl<B:Backend> From<RotaryEncoding<B>> for Layer<B>{
 	fn from(value:RotaryEncoding<B>)->Self{Layer::Rotary(value)}
 }
+impl<B:Backend> From<SqueezeLayer> for Layer<B>{
+	fn from(value:SqueezeLayer)->Self{Layer::Squeeze(Ignored(value))}
+}
+impl<B:Backend> From<StackLayer> for Layer<B>{
+	fn from(value:StackLayer)->Self{Layer::Stack(Ignored(value))}
+}
 impl<B:Backend> From<SumLayer> for Layer<B>{
 	fn from(value:SumLayer)->Self{Layer::Sum(Ignored(value))}
 }
 impl<B:Backend> From<Tanh> for Layer<B>{
 	fn from(value:Tanh)->Self{Layer::Tanh(value)}
+}
+impl<B:Backend> From<UnsqueezeLayer> for Layer<B>{
+	fn from(value:UnsqueezeLayer)->Self{Layer::Unsqueeze(Ignored(value))}
 }
 impl<B:Backend> Layer<B>{
 	/// creates a batch norm layer
@@ -543,7 +562,7 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Stack(StackLayer),Sum(SumLayer),Tanh}
+pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Squeeze(SqueezeLayer),Stack(StackLayer),Sum(SumLayer),Tanh,Unsqueeze(UnsqueezeLayer)}
 #[derive(Debug,Deserialize,Module,Serialize)]//TODO more layers
 #[serde(bound="")]
 /// enumerates some burn layers
@@ -591,13 +610,19 @@ pub enum Layer<B:Backend>{
 	ScaleShift(ScaleShift<B>),
 	#[serde(deserialize_with="deserialize_ignored")]
 	#[serde(serialize_with="serialize_ignored")]
+	Squeeze(Ignored<SqueezeLayer>),
+	#[serde(deserialize_with="deserialize_ignored")]
+	#[serde(serialize_with="serialize_ignored")]
 	Stack(Ignored<StackLayer>),
 	#[serde(deserialize_with="deserialize_ignored")]
 	#[serde(serialize_with="serialize_ignored")]
 	Sum(Ignored<SumLayer>),
 	#[serde(deserialize_with="deserialize_nothing")]
 	#[serde(serialize_with="serialize_nothing")]
-	Tanh(Tanh)
+	Tanh(Tanh),
+	#[serde(deserialize_with="deserialize_ignored")]
+	#[serde(serialize_with="serialize_ignored")]
+	Unsqueeze(Ignored<UnsqueezeLayer>),
 }
 /// scales the initializer
 pub fn w_scale(initializer:Initializer,r:f32)->Initializer{
@@ -731,7 +756,7 @@ use burn::{
 use crate::{
 	ai::{AI,Decompose,IntoSequence,Op},
 	builtin::{
-		Sequential,math::SumLayer,structural::{CatLayer,StackLayer}
+		Sequential,math::SumLayer,structural::{CatLayer,SqueezeLayer,StackLayer,UnsqueezeLayer}
 	},
 	burn::Value,
 	ops::Cat as OpsCat
