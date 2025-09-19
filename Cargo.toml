@@ -1,7 +1,12 @@
 [package]
-name = "block-graph"
-version = "0.1.0"
+authors = ["Aili Nierengarten <aili.nierengarten@gmail.com>"]
+description = "Uses the Burn library to provide block level graph neural network structure"
+documentation = "https://docs.rs/block_graph"
 edition = "2024"
+license = "MIT"
+name = "block-graph"
+repository = "https://github.com/8000thCube/block-graph"
+version = "0.1.0"
 
 [dependencies]
 burn = { version = "0.18", features = ["fusion","ndarray","train"]}
