@@ -170,9 +170,9 @@ impl<B:Backend,E:Into<(Value<B>,Value<B>)>> Batcher<B,E,(Value<B>,Value<B>)> for
 	fn batch(&self,items:Vec<E>,_device:&<B as Backend>::Device)->(Value<B>,Value<B>){
 		let items=items.into_iter().map(Into::into);
 		let (input,target):(Vec<Value<B>>,Vec<Value<B>>)=items.unzip();
-
 		let (input,target)=(Value::Multi(input),Value::Multi(target));
-		(input.stack(0),target.stack(0))
+
+		(input.zip().stack(0),target.zip().stack(0))
 	}
 }
 impl<B:Backend,W:AI<X,LossOutput<B>>+Wrappable<B=B>,X> ValidStep<X,ClassificationOutput<B>> for Wrapped<Classification<W>> where W::Decomposition:Module<B>{
