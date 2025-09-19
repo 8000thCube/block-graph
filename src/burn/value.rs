@@ -922,9 +922,36 @@ impl<B:Backend> Value<B>{//TODO scalars
 	}
 	/// creates a new empty value
 	pub fn empty()->Self{Self::Multi(Vec::new())}
+	/// flattens depth first into a list of tensors
+	pub fn flatten_values(self)->Self{
+		fn f<B:Backend>(mut acc:Vec<Value<B>>,x:Value<B>)->Vec<Value<B>>{
+			if x.is_multi(){acc=x.into_iter().fold(acc,|acc,x|f(acc,x))}else{acc.push(x)}
+			acc
+		}
+		f(Vec::new(),self).into()
+	}
 	/// casts to a float tensor if not one
 	pub fn float(self)->Value<B>{
 		match self{B1(x)=>F1(x.float()),B2(x)=>F2(x.float()),B3(x)=>F3(x.float()),B4(x)=>F4(x.float()),B5(x)=>F5(x.float()),B6(x)=>F6(x.float()),B7(x)=>F7(x.float()),B8(x)=>F8(x.float()),F1(x)=>F1(x),F2(x)=>F2(x),F3(x)=>F3(x),F4(x)=>F4(x),F5(x)=>F5(x),F6(x)=>F6(x),F7(x)=>F7(x),F8(x)=>F8(x),I1(x)=>F1(x.float()),I2(x)=>F2(x.float()),I3(x)=>F3(x.float()),I4(x)=>F4(x.float()),I5(x)=>F5(x.float()),I6(x)=>F6(x.float()),I7(x)=>F7(x.float()),I8(x)=>F8(x.float()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>Value::Multi(v.into_iter().map(Value::float).collect())}
+	}
+	/// creates a value from the inner values and recursive shape. Doesn't check actual dimension values, the shape is just used for recursion data
+	pub fn from_values<I:IntoIterator<Item=Self>,S:Into<Shape>>(inner:I,shape:S)->Self{
+		fn f<B:Backend,I:Iterator<Item=Value<B>>,S:Into<Shape>>(inner:&mut I,shape:S)->Value<B>{
+			match shape.into(){
+				Shape::Incompatible(e)=>e.into(),
+				Shape::Multi(_l)=>inner.collect(),
+				Shape::Recursive(v)=>v.into_iter().map(|s|f(&mut *inner,s)).collect(),
+				X1(_s)=>inner.next().unwrap_or_default(),
+				X2(_s)=>inner.next().unwrap_or_default(),
+				X3(_s)=>inner.next().unwrap_or_default(),
+				X4(_s)=>inner.next().unwrap_or_default(),
+				X5(_s)=>inner.next().unwrap_or_default(),
+				X6(_s)=>inner.next().unwrap_or_default(),
+				X7(_s)=>inner.next().unwrap_or_default(),
+				X8(_s)=>inner.next().unwrap_or_default(),
+			}
+		}
+		f(&mut inner.into_iter(),shape)
 	}
 	/// gather
 	pub fn gather(self,dim:i32,indices:Value<B>)->Self{
@@ -1216,6 +1243,21 @@ impl<B:Backend> Value<B>{//TODO scalars
 	/// zeros like
 	pub fn zeros_like(&self)->Value<B>{// TODO this could be more efficient for bool
 		match self{B1(x)=>B1(x.clone().int().zeros_like().bool()),B2(x)=>B2(x.clone().int().zeros_like().bool()),B3(x)=>B3(x.clone().int().zeros_like().bool()),B4(x)=>B4(x.clone().int().zeros_like().bool()),B5(x)=>B5(x.clone().int().zeros_like().bool()),B6(x)=>B6(x.clone().int().zeros_like().bool()),B7(x)=>B7(x.clone().int().zeros_like().bool()),B8(x)=>B8(x.clone().int().zeros_like().bool()),F1(x)=>F1(x.zeros_like()),F2(x)=>F2(x.zeros_like()),F3(x)=>F3(x.zeros_like()),F4(x)=>F4(x.zeros_like()),F5(x)=>F5(x.zeros_like()),F6(x)=>F6(x.zeros_like()),F7(x)=>F7(x.zeros_like()),F8(x)=>F8(x.zeros_like()),I1(x)=>I1(x.zeros_like()),I2(x)=>I2(x.zeros_like()),I3(x)=>I3(x.zeros_like()),I4(x)=>I4(x.zeros_like()),I5(x)=>I5(x.zeros_like()),I6(x)=>I6(x.zeros_like()),I7(x)=>I7(x.zeros_like()),I8(x)=>I8(x.zeros_like()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.iter().map(Value::zeros_like).collect()}
+	}
+	/// attempts to zip the values together so that if they have the same recursive shape each
+	pub fn zip(self)->Self{// TODO unzip // TODO test
+		if self.len()<=1||self.iter().all(|v|v.len()<=1){return self}
+
+		let mut iters:Vec<_>=self.into_iter().map(Value::into_iter).collect();
+
+		let cols=iters.len();
+		let rows=iters.iter().map(ExactSizeIterator::len).max().expect("should not be empty at this point");
+		let transposed:Vec<Value<B>>=(0..rows).map(|_|{
+			let v:Value<B>=(0..cols).map(|c|iters[c].next().unwrap_or_default()).collect();
+			v.zip()
+		}).collect();
+
+		Value::Multi(transposed)
 	}
 	try_unwrap!(Tensor<B,1,Bool>,try_b1,unwrap_b1);
 	try_unwrap!(Tensor<B,2,Bool>,try_b2,unwrap_b2);
