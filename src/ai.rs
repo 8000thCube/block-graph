@@ -159,7 +159,7 @@ pub trait IntoSequence<M:AI<M::Output,M::Output>+Op>{
 	/// converts into a sequential module list
 	fn into_sequence(self)->Sequential<Vec<M>>;
 }
-/// composition trait
+/// composition trait// TODO comp op
 pub trait Op{
 	/// wraps with a softmax operation
 	fn abnormal_softmax(self,temperature:f32)->AbnormalSoftmax<Self> where Self:Sized,AbnormalSoftmax<Self>:Op{AbnormalSoftmax::new(self,temperature)}
