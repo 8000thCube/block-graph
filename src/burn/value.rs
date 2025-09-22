@@ -671,7 +671,46 @@ impl<B:Backend> Default for Value<B>{
 	fn default()->Self{Self::Multi(Vec::new())}
 }
 impl<B:Backend> Display for Value<B>{
-    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->FmtResult{write!(f,"todo")}
+    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->FmtResult{
+		match self{
+			B1(x)=>x.fmt(f),
+			B2(x)=>x.fmt(f),
+			B3(x)=>x.fmt(f),
+			B4(x)=>x.fmt(f),
+			B5(x)=>x.fmt(f),
+			B6(x)=>x.fmt(f),
+			B7(x)=>x.fmt(f),
+			B8(x)=>x.fmt(f),
+			F1(x)=>x.fmt(f),
+			F2(x)=>x.fmt(f),
+			F3(x)=>x.fmt(f),
+			F4(x)=>x.fmt(f),
+			F5(x)=>x.fmt(f),
+			F6(x)=>x.fmt(f),
+			F7(x)=>x.fmt(f),
+			F8(x)=>x.fmt(f),
+			I1(x)=>x.fmt(f),
+			I2(x)=>x.fmt(f),
+			I3(x)=>x.fmt(f),
+			I4(x)=>x.fmt(f),
+			I5(x)=>x.fmt(f),
+			I6(x)=>x.fmt(f),
+			I7(x)=>x.fmt(f),
+			I8(x)=>x.fmt(f),
+			Value::Incompatible(e)=>e.fmt(f),
+			Value::Multi(v)=>{
+				write!(f,"[")?;
+				v.iter().take(v.len().saturating_sub(1)).try_for_each(|x|{
+					x.fmt(f)?;
+					write!(f,", ")
+				})?;
+				if let Some(x)=v.last(){
+					x.fmt(f)?;
+				}
+				write!(f,"]")
+			}
+		}
+	}
 }
 impl<B:Backend> From<Vec<bool>> for Value<B>{
 	fn from(value:Vec<bool>)->Self{
