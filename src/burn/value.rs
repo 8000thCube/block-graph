@@ -1016,6 +1016,16 @@ impl<B:Backend> Value<B>{//TODO scalars
 
 		match self.float(){F1(x)=>to_vec(x),F2(x)=>to_vec(x),F3(x)=>to_vec(x),F4(x)=>to_vec(x),F5(x)=>to_vec(x),F6(x)=>to_vec(x),F7(x)=>to_vec(x),F8(x)=>to_vec(x),Value::Incompatible(_e)=>Vec::new(),Value::Multi(v)=>v.into_iter().map(Value::into_float_vec).reduce(cat_vec).unwrap_or_default(),_=>panic!("internal error")}
 	}
+	/// converts to a flattened vector of ints, ignoring incompatibility errors
+	pub fn into_int_vec(self)->Vec<i32>{
+		fn cat_vec<T>(mut a:Vec<T>,b:Vec<T>)->Vec<T>{
+			a.extend(b);
+			a
+		}
+		fn to_vec<B:Backend,const N:usize>(x:Tensor<B,N>)->Vec<i32>{x.into_data().to_vec().unwrap_or_default()}
+
+		match self.int(){I1(x)=>to_vec(x),I2(x)=>to_vec(x),I3(x)=>to_vec(x),I4(x)=>to_vec(x),I5(x)=>to_vec(x),I6(x)=>to_vec(x),I7(x)=>to_vec(x),I8(x)=>to_vec(x),Value::Incompatible(_e)=>Vec::new(),Value::Multi(v)=>v.into_iter().map(Value::into_int_vec).reduce(cat_vec).unwrap_or_default(),_=>panic!("internal error")}
+	}
 	/// tests if the tensor is empty. incompatible isn't considered empty for the purposes of this function
 	pub fn is_empty(&self)->bool{self.len()==0}
 	/// tests if the tensor represents the result of an incompatible input and operation
