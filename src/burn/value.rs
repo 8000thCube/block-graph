@@ -1022,7 +1022,7 @@ impl<B:Backend> Value<B>{//TODO scalars
 			a.extend(b);
 			a
 		}
-		fn to_vec<B:Backend,const N:usize>(x:Tensor<B,N>)->Vec<i32>{x.into_data().to_vec().unwrap_or_default()}
+		fn to_vec<B:Backend,const N:usize>(x:Tensor<B,N,Int>)->Vec<i32>{x.into_data().to_vec().unwrap_or_default()}
 
 		match self.int(){I1(x)=>to_vec(x),I2(x)=>to_vec(x),I3(x)=>to_vec(x),I4(x)=>to_vec(x),I5(x)=>to_vec(x),I6(x)=>to_vec(x),I7(x)=>to_vec(x),I8(x)=>to_vec(x),Value::Incompatible(_e)=>Vec::new(),Value::Multi(v)=>v.into_iter().map(Value::into_int_vec).reduce(cat_vec).unwrap_or_default(),_=>panic!("internal error")}
 	}
