@@ -1,4 +1,3 @@
-
 impl AI<(Vec<f32>,Vec<f32>),f32> for CrossEntropyLayer{
 	fn forward(&self,(_output,_target):(Vec<f32>,Vec<f32>))->f32{
 		//let t=self.temperature;
