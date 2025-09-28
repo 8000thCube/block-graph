@@ -319,7 +319,7 @@ impl<C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge> Graph<C>{
 
 		Self{connections:newconnections,layers:newlayers,order:neworder}
 	}
-	/// topologically sorts the graph. Inputs to the same node will retain their relative order. // TODO a output splitter might be helpful if output order must be maintained somewhere
+	/// topologically sorts the graph. Inputs to the same node will retain their relative order.
 	pub fn sort(&mut self){
 		let connections=&mut self.connections;
 		let mut dedup=HashSet::with_capacity(connections.len());
@@ -392,6 +392,9 @@ impl<C:Decompose> Decompose for Graph<C>{// TODO ideally this would preserve unc
 impl<C:Op> Op for Graph<C>{
 	type Output=Vec<C::Output>;
 }
+impl<E,V:Extend<E>+IntoIterator<Item=E>> Merge for Extendable<V>{
+	fn merge(&mut self,other:Self){self.0.extend(other.0)}
+}
 impl<E:Merge> Merge for Option<E>{
 	fn merge(&mut self,other:Self){
 		match (self,other){(Some(this),Some(other))=>this.merge(other),(this,Some(other))=>*this=Some(other),_=>()}
@@ -453,6 +456,10 @@ mod tests{
 	use rand::seq::SliceRandom;
 	use super::*;
 }
+#[derive(Clone,Debug,Default,Eq,Hash,Ord,PartialEq,PartialOrd)]
+#[repr(transparent)]
+/// wraps collections so that merging concatenates them using the Extend trait
+pub struct Extendable<V>(pub V);
 /*#[derive(Clone,Debug)]
 /// allows configuring a connection to add to the graph
 pub struct ConnectionConfig{clear:bool,connection:Label,index:usize,input:Label,layer:Label,output:Label}*/
@@ -469,14 +476,16 @@ pub struct Graph<C>{connections:HashMap<Label,(u64,Label,Label,Label),H>,layers:
 /// label for graph connections or layers or nodes. format is id: name where id is a hex number or simply id if there is no name. name without a number will be parse as a name with a 0 id
 pub struct Label{id:u64,name:Option<Arc<str>>}
 #[derive(Clone,Copy,Debug,Default)]
+#[repr(transparent)]
 /// wraps the graph so it can take singular io
 pub struct Unvec<A>(pub A);
 /// trait to allow merging multiple outputs into one graph node
-pub trait Merge{// TODO wrapper to implement in terms of intoiterator and from iterator might be useful
+pub trait Merge{
 	/// merges the other into self, taking out of other if convenient
 	fn merge(&mut self,other:Self);
 }
 #[derive(Clone,Copy,Debug,Default)]
+#[repr(transparent)]
 struct H(u64);
 use crate::{AI,Decompose,Op};
 use std::{
