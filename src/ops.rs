@@ -1,3 +1,4 @@
+				// TODO macro primitive implementations
 impl Abs for f32{// TODO implement operations for result types
 	fn abs(self)->Self::Output{f32::abs(self)}
 	type Output=f32;
