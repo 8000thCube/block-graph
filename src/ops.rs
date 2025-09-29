@@ -97,6 +97,13 @@ pub trait Rank{
 	/// gets the rank at a type level. this may be some kind of default if there isn't a clear rank associated with the type
 	fn type_rank()->usize where Self:Sized;
 }
+// reshape
+pub trait Reshape<R>{
+	/// reshapes
+	fn reshape(self,args:R)->Self::Output;
+	/// the output type
+	type Output;
+}
 /// trait to represent the operation
 pub trait Squeeze{
 	/// macro convenience version of the primary method
