@@ -74,39 +74,6 @@ fn soft_choose_burn_tensor<B:Backend,const N:usize>(dim:i32,logits:Tensor<B,N>,t
 	let r:Tensor<B,N,Int>=Tensor::from_data(TensorData::new(soft_choose_burn_multi(dim as i32,logits,temperature),dims),&device);
 	r.movedim(N-1,dim)
 }
-impl AsRef<Self> for Shape{//TODO more reref stuff
-	fn as_ref(&self)->&Self{self}
-}
-impl Shape{
-	/// counts the number of components if possible. returns none if incompatible or if a non recursive multi shape of more than 0 tensors
-	pub fn count(&self)->Option<usize>{
-		match self{
-			Shape::Incompatible(_e)=>None,
-			Shape::Multi(n)=>if *n==0{Some(0)}else{None},
-			Shape::Recursive(v)=>{
-				let mut s=0;
-				for v in v{s+=v.count()?}
-				Some(s)
-			},
-			X1(x)=>Some(x.iter().product()),
-			X2(x)=>Some(x.iter().product()),
-			X3(x)=>Some(x.iter().product()),
-			X4(x)=>Some(x.iter().product()),
-			X5(x)=>Some(x.iter().product()),
-			X6(x)=>Some(x.iter().product()),
-			X7(x)=>Some(x.iter().product()),
-			X8(x)=>Some(x.iter().product())
-		}
-	}
-	/// converts to the eight dimensional array type by extending with ones. The original data will be placed according to the alignment. Multi and incompatible types will be all ones
-	pub fn to_array(self,alignment:Alignment)->[usize;8]{
-		let mut result=[1;8];
-		let slice=match &self{Shape::Incompatible(_e)=>return result,Shape::Multi(_v)=>return result,Shape::Recursive(_r)=>return result,X1(x)=>x.as_slice(),X2(x)=>x.as_slice(),X3(x)=>x.as_slice(),X4(x)=>x.as_slice(),X5(x)=>x.as_slice(),X6(x)=>x.as_slice(),X7(x)=>x.as_slice(),X8(x)=>x.as_slice()};
-		let l=slice.len();
-		match alignment{Alignment::Center=>result[4-l/2..][..l].copy_from_slice(slice),Alignment::Left=>result[..l].copy_from_slice(slice),Alignment::Right=>result[8-l..].copy_from_slice(slice)}
-		result
-	}
-}
 impl<'a,B:Backend> Deserialize<'a> for Value<B>{
 	fn deserialize<D:Deserializer<'a>>(deserializer:D)->Result<Self,D::Error>{ValueData::deserialize(deserializer).map(Into::into)}
 }
@@ -219,14 +186,14 @@ impl<B:Backend> AI<(Value<B>,Value<B>),Value<B>> for CrossEntropyLayer{// TODO m
 			(F6(y),F6(t))=>ff(dim,y,t,temp).map(Into::into),
 			(F7(y),F7(t))=>ff(dim,y,t,temp).map(Into::into),
 			(F8(y),F8(t))=>ff(dim,y,t,temp).map(Into::into),
-			(F1(y),I1(t))=>fi(dim,y.unsqueeze::<2>(),t,temp).map(Into::into),
+			(F1(y),I1(t))=>fi(dim,y.unsqueeze::<2>(),t,temp).map(Into::into),// TODO ok this needs scalar
 			(F2(y),I1(t))=>fi(dim,y,t,temp).map(Into::into),
 			(F3(y),I2(t))=>fi(dim,y,t,temp).map(Into::into),
 			(F4(y),I3(t))=>fi(dim,y,t,temp).map(Into::into),
 			(F5(y),I4(t))=>fi(dim,y,t,temp).map(Into::into),
 			(F6(y),I5(t))=>fi(dim,y,t,temp).map(Into::into),
 			(F7(y),I6(t))=>fi(dim,y,t,temp).map(Into::into),
-			(F7(y),I7(t))=>fi(dim,y,t,temp).map(Into::into),
+			(F8(y),I7(t))=>fi(dim,y,t,temp).map(Into::into),
 			(Value::Incompatible(y),_)=>Err(y),
 			(_,Value::Incompatible(t))=>Err(t),// TODO broadcast multi
 			(Value::Multi(y),Value::Multi(t))=>if y.len()==t.len(){Ok(Value::Multi(y.into_iter().zip(t).map(|x|self.forward_typed::<_,Value<B>>(x)).collect()))}else{Err("mismatched lengths".into())},
@@ -961,6 +928,8 @@ impl<B:Backend> Value<B>{//TODO scalars
 	}
 	/// creates a new empty value
 	pub fn empty()->Self{Self::Multi(Vec::new())}
+	// flattens the range of dimensions
+	//pub fn flatten_dims<>
 	/// flattens depth first into a list of tensors
 	pub fn flatten_values(self)->Self{
 		fn f<B:Backend>(mut acc:Vec<Value<B>>,x:Value<B>)->Vec<Value<B>>{
@@ -1374,13 +1343,6 @@ macro_rules! try_unwrap{
 		pub fn $unwrap(self)->$tensor{self.try_into().unwrap()}
 	}
 }
-
-#[derive(Clone,Copy,Debug,Eq,PartialEq,Deserialize,Serialize)]
-/// enumerates kinds for values
-pub enum Kind{Bool,Float,Incompatible,Int,Multi}
-#[derive(Clone,Debug,Deserialize,Serialize)]// TODO eq that doesn't include the payload of incompatible
-/// tensor shapes for Value
-pub enum Shape{Incompatible(String),Multi(usize),Recursive(Vec<Shape>),X1([usize;1]),X2([usize;2]),X3([usize;3]),X4([usize;4]),X5([usize;5]),X6([usize;6]),X7([usize;7]),X8([usize;8])}
 #[derive(Clone,Debug)]
 /// enumerates burn tensors up to 8 dimensions, along with a variant to represent operation compatibility errors, and a variant for multiple tensors. An empty multi variant can be used to represent a lack of data. Once a the depth of a multi variant is enough for an operation to take full effect, further nesting should result in the same as applying separately
 pub enum Value<B:Backend>{B1(Tensor<B,1,Bool>),B2(Tensor<B,2,Bool>),B3(Tensor<B,3,Bool>),B4(Tensor<B,4,Bool>),B5(Tensor<B,5,Bool>),B6(Tensor<B,6,Bool>),B7(Tensor<B,7,Bool>),B8(Tensor<B,8,Bool>),F1(Tensor<B,1,Float>),F2(Tensor<B,2,Float>),F3(Tensor<B,3,Float>),F4(Tensor<B,4,Float>),F5(Tensor<B,5,Float>),F6(Tensor<B,6,Float>),F7(Tensor<B,7,Float>),F8(Tensor<B,8,Float>),I1(Tensor<B,1,Int>),I2(Tensor<B,2,Int>),I3(Tensor<B,3,Int>),I4(Tensor<B,4,Int>),I5(Tensor<B,5,Int>),I6(Tensor<B,6,Int>),I7(Tensor<B,7,Int>),I8(Tensor<B,8,Int>),Incompatible(String),Multi(Vec<Self>)}
@@ -1419,3 +1381,4 @@ use serde::{Deserialize,Deserializer,Serialize,Serializer};
 use std::{
 	any::TypeId,fmt::{Display,Result as FmtResult},iter::{FromIterator,once},mem,ops::{Add,Bound,Div,Mul,RangeBounds,Range,Rem,Sub},path::PathBuf,slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
 };
+use super::{Kind,Shape};

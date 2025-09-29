@@ -399,6 +399,7 @@ mod tests{
 	use super::*;
 }
 mod layer;
+mod shape;
 mod value;
 /// helper function for applying operations that apply to a specific depth of multiple structure such that wrapping multiple appropriate inputs with a multi outputs the output of the function applied to all inputs.
 pub fn apply_depthwise<B:Backend,F:FnMut(Value<B>)->Value<B>>(depth:usize,mut op:F,value:Value<B>)->Value<B>{
@@ -490,7 +491,8 @@ pub trait Wrappable:Clone+Debug+Decompose+Send{
 }
 pub use burn as lib;
 pub use layer::{Attention,AttentionConfig,AttentionMask,BiasConfig,CacheKV,Config,Layer,KQV,KQVConfig};
-pub use value::{Kind,LossOutput,Shape,Value};
+pub use shape::{Kind,Shape};
+pub use value::{LossOutput,Value};
 use burn::{
 	backend::NdArray,
 	data::{
