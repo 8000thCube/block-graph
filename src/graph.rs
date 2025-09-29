@@ -31,6 +31,9 @@ impl From<Option<String>> for Label{
 impl From<String> for Label{
 	fn from(value:String)->Self{Self::from_str(&value).unwrap()}
 }
+impl From<i32> for Label{
+	fn from(value:i32)->Self{(value as u64).into()}
+}
 impl From<u64> for Label{
 	fn from(value:u64)->Self{
 		Self{id:value,name:None}
