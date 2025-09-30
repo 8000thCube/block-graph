@@ -472,10 +472,10 @@ pub struct ConnectionEditor<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>{cle
 #[derive(Clone,Debug)]
 /// information about a connection
 pub struct ConnectionInfo<'a,C:AI<V,V>+Op<Output=V>,V:Clone+Default+Merge>{clear:bool,connection:&'a Label,graph:&'a Graph<C>,input:&'a Label,layer:&'a Label,output:&'a Label}
-#[derive(Clone,Debug,Eq,PartialEq)]
+#[derive(Clone,Debug,Deserialize,Eq,PartialEq,Serialize)]
 /// graph like ai operation structure
 pub struct Graph<C>{connections:HashMap<Label,(u64,Label,Label,Label),H>,layers:HashMap<Label,C,H>,order:Vec<Label>}
-#[derive(Clone,Debug,Eq,Hash,PartialEq)]
+#[derive(Clone,Debug,Deserialize,Eq,Hash,PartialEq,Serialize)]
 /// label for graph connections or layers or nodes. format is id: name where id is a hex number or simply id if there is no name. name without a number will be parse as a name with a 0 id
 pub struct Label{id:u64,name:Option<Arc<str>>}
 #[derive(Clone,Copy,Debug,Default)]
@@ -491,6 +491,7 @@ pub trait Merge{
 #[repr(transparent)]
 struct H(u64);
 use crate::{AI,Decompose,Op};
+use serde::{Deserialize,Serialize};
 use std::{
 	collections::{HashMap,HashSet},fmt::{Display,Formatter,UpperHex,Result as FmtResult},hash::{BuildHasher,Hasher,Hash},iter::{FromIterator,Extend},mem,str::FromStr,sync::Arc
 };
