@@ -11,6 +11,6 @@ version = "0.1.2"
 [dependencies]
 burn = { version = "0.18", features = ["fusion","ndarray","train"]}
 rand = "0.9"
-serde = { version = "1", features = ["derive"]}
+serde = { version = "1", features = ["derive","rc"]}
 [profile.test]
 opt-level = 3
