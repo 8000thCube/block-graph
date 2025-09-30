@@ -88,6 +88,13 @@ pub trait Cat{
 	/// the output type
 	type Output;
 }
+// flatten
+pub trait Flatten<R>{
+	/// flattens
+	fn flatten(self,args:R)->Self::Output;
+	/// the output type
+	type Output;
+}
 /// get tensor rank
 pub trait Rank{
 	/// gets the rank
