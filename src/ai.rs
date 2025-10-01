@@ -177,6 +177,8 @@ pub trait Op{
 	fn duplicate(self)->Duplicate<Self> where Duplicate<Self>:Op,Self:Sized{Duplicate::new(self)}
 	/// set type but with the same input and output
 	fn fix_type<Z>(self)->SetType<Self,Z,Z> where Self:AI<Z,Z>+Sized{self.set_type()}
+	/// wraps with a flatten layer
+	fn flatten<R:Clone>(self,args:R)->Flatten<Self,R> where Flatten<Self,R>:Op,Self:Sized{Flatten::new(args,self)}
 	/// applies to the input
 	fn forward_fixed<Z>(&self,input:Z)->Z where Self:AI<Z,Z>+Sized{self.forward(input)}
 	/// applies to the input
@@ -195,6 +197,10 @@ pub trait Op{
 	fn mean(self)->Mean<Self> where Mean<Self>:Op,Self:Sized{Mean::new(self)}
 	/// creates an optional operation
 	fn optional(self)->Option<Self> where Self:Sized{Some(self)}
+	/// wraps with a reshape layer
+	fn reshape<R:Clone>(self,args:R)->Reshape<Self,R> where Reshape<Self,R>:Op,Self:Sized{Reshape::new(args,self)}
+	/// wraps in a residual layer
+	fn residual(self)->Residual<Self> where Residual<Self>:Op,Self:Sized{Residual::new(self)}
 	/// produces a zip module
 	fn separately(self)->Zip<Self> where Self:Sized,Zip<Self>:Op{Zip::new(self)}
 	/// produces a sequential module
@@ -233,7 +239,7 @@ pub trait UnwrapInner{
 }
 use {op_tuple,decompose_primitive,decompose_tuple};
 use crate::builtin::{
-	Autoregression,Duplicate,Map,Sequential,SetType,Zip,math::{Abs,Mean,SquaredError,Sum},reinforcement::AccQ,soft::{AbnormalSoftmax,Choose,CrossEntropy,LogSoftmax,Softmax},structural::{Cat,Squeeze,Stack,Unsqueeze}
+	Autoregression,Duplicate,Map,Residual,Sequential,SetType,Zip,math::{Abs,Mean,SquaredError,Sum},reinforcement::AccQ,soft::{AbnormalSoftmax,Choose,CrossEntropy,LogSoftmax,Softmax},structural::{Cat,Flatten,Reshape,Squeeze,Stack,Unsqueeze}
 };
 use std::{
 	collections::HashMap,cmp::Ord,hash::{BuildHasher,Hash},ops::Range
