@@ -117,6 +117,92 @@ impl<B:Backend,K:'static+TensorKind<B>,const N:usize> TryFrom<Value<B>> for Tens
 	}
 	type Error=Value<B>;
 }
+impl<B:Backend> Flatten<Range<usize>> for Value<B>{
+	fn flatten(self,args:Range<usize>)->Self::Output{
+		match self{
+			B1(x)=>B1(x.flatten(args.start,args.end)),
+			B2(x)=>B2(x.flatten(args.start,args.end)),
+			B3(x)=>B3(x.flatten(args.start,args.end)),
+			B4(x)=>B4(x.flatten(args.start,args.end)),
+			B5(x)=>B5(x.flatten(args.start,args.end)),
+			B6(x)=>B6(x.flatten(args.start,args.end)),
+			B7(x)=>B7(x.flatten(args.start,args.end)),
+			B8(x)=>B8(x.flatten(args.start,args.end)),
+			F1(x)=>F1(x.flatten(args.start,args.end)),
+			F2(x)=>F2(x.flatten(args.start,args.end)),
+			F3(x)=>F3(x.flatten(args.start,args.end)),
+			F4(x)=>F4(x.flatten(args.start,args.end)),
+			F5(x)=>F5(x.flatten(args.start,args.end)),
+			F6(x)=>F6(x.flatten(args.start,args.end)),
+			F7(x)=>F7(x.flatten(args.start,args.end)),
+			F8(x)=>F8(x.flatten(args.start,args.end)),
+			I1(x)=>I1(x.flatten(args.start,args.end)),
+			I2(x)=>I2(x.flatten(args.start,args.end)),
+			I3(x)=>I3(x.flatten(args.start,args.end)),
+			I4(x)=>I4(x.flatten(args.start,args.end)),
+			I5(x)=>I5(x.flatten(args.start,args.end)),
+			I6(x)=>I6(x.flatten(args.start,args.end)),
+			I7(x)=>I7(x.flatten(args.start,args.end)),
+			I8(x)=>I8(x.flatten(args.start,args.end)),
+			Value::Incompatible(e)=>e.into(),
+			Value::Multi(v)=>v.into_iter().map(|x|x.flatten(args.clone())).collect()
+		}
+	}
+	type Output=Self;
+}
+impl<B:Backend,R:Into<Reshape>> OpsReshape<R> for Value<B>{// TODO test
+	fn reshape(self,args:R)->Self::Output{
+		fn f<B:Backend,K:'static+BasicOps<B>+TensorKind<B>,const N:usize>(args:Reshape,x:Tensor<B,N,K>)->Value<B>{
+			match args{
+				R1(r)=>x.reshape(r.map(|x|x as i32)).into(),
+				R2(r)=>x.reshape(r.map(|x|x as i32)).into(),
+				R3(r)=>x.reshape(r.map(|x|x as i32)).into(),
+				R4(r)=>x.reshape(r.map(|x|x as i32)).into(),
+				R5(r)=>x.reshape(r.map(|x|x as i32)).into(),
+				R6(r)=>x.reshape(r.map(|x|x as i32)).into(),
+				R7(r)=>x.reshape(r.map(|x|x as i32)).into(),
+				R8(r)=>x.reshape(r.map(|x|x as i32)).into(),
+				Reshape::Recursive(_v)=>"reshaping a single tensor into multiple tensors is currently not supported".into()
+			}
+		}
+
+		let args=args.into();
+		let depth=args.depth();
+
+		apply_depthwise(depth,|value|{
+			let args=args.clone();
+			match value{
+				B1(x)=>f(args,x),
+				B2(x)=>f(args,x),
+				B3(x)=>f(args,x),
+				B4(x)=>f(args,x),
+				B5(x)=>f(args,x),
+				B6(x)=>f(args,x),
+				B7(x)=>f(args,x),
+				B8(x)=>f(args,x),
+				F1(x)=>f(args,x),
+				F2(x)=>f(args,x),
+				F3(x)=>f(args,x),
+				F4(x)=>f(args,x),
+				F5(x)=>f(args,x),
+				F6(x)=>f(args,x),
+				F7(x)=>f(args,x),
+				F8(x)=>f(args,x),
+				I1(x)=>f(args,x),
+				I2(x)=>f(args,x),
+				I3(x)=>f(args,x),
+				I4(x)=>f(args,x),
+				I5(x)=>f(args,x),
+				I6(x)=>f(args,x),
+				I7(x)=>f(args,x),
+				I8(x)=>f(args,x),
+				Value::Incompatible(e)=>e.into(),
+				Value::Multi(v)=>if let Reshape::Recursive(r)=args{r.into_iter().zip(v).map(|(r,v)|v.reshape(r)).collect()}else{"reshaping multiple tensors into a single tensor is currently not supported".into()}
+			}
+		},self)
+	}
+	type Output=Self;
+}
 impl<B:Backend,S:?Sized+AsRef<str>> From<&S> for Value<B>{
 	fn from(value:&S)->Self{Self::Incompatible(value.as_ref().to_string())}
 }
@@ -1115,40 +1201,6 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn rank(&self)->Option<usize>{
 		match self{B1(_x)=>Some(1),B2(_x)=>Some(2),B3(_x)=>Some(3),B4(_x)=>Some(4),B5(_x)=>Some(5),B6(_x)=>Some(6),B7(_x)=>Some(7),B8(_x)=>Some(8),F1(_x)=>Some(1),F2(_x)=>Some(2),F3(_x)=>Some(3),F4(_x)=>Some(4),F5(_x)=>Some(5),F6(_x)=>Some(6),F7(_x)=>Some(7),F8(_x)=>Some(8),I1(_x)=>Some(1),I2(_x)=>Some(2),I3(_x)=>Some(3),I4(_x)=>Some(4),I5(_x)=>Some(5),I6(_x)=>Some(6),I7(_x)=>Some(7),I8(_x)=>Some(8),Value::Incompatible(_x)=>None,Value::Multi(_x)=>None}
 	}
-	/// reshapes the inner value
-	pub fn reshape<const N:usize>(self,dims:[usize;N])->Self{
-		fn f<B:Backend,K:'static+BasicOps<B>+TensorKind<B>,const D:usize,const N:usize>(dims:[usize;D],x:Tensor<B,N,K>)->Value<B>{
-			if dims.into_iter().product::<usize>()==x.dims().into_iter().product::<usize>(){x.reshape(dims).into()}else{"incompatible reshape".into()}
-		}
-		match self{
-			B1(x)=>f(dims,x),
-			B2(x)=>f(dims,x),
-			B3(x)=>f(dims,x),
-			B4(x)=>f(dims,x),
-			B5(x)=>f(dims,x),
-			B6(x)=>f(dims,x),
-			B7(x)=>f(dims,x),
-			B8(x)=>f(dims,x),
-			F1(x)=>f(dims,x),
-			F2(x)=>f(dims,x),
-			F3(x)=>f(dims,x),
-			F4(x)=>f(dims,x),
-			F5(x)=>f(dims,x),
-			F6(x)=>f(dims,x),
-			F7(x)=>f(dims,x),
-			F8(x)=>f(dims,x),
-			I1(x)=>f(dims,x),
-			I2(x)=>f(dims,x),
-			I3(x)=>f(dims,x),
-			I4(x)=>f(dims,x),
-			I5(x)=>f(dims,x),
-			I6(x)=>f(dims,x),
-			I7(x)=>f(dims,x),
-			I8(x)=>f(dims,x),
-			Value::Incompatible(e)=>e.into(),
-			Value::Multi(v)=>v.into_iter().map(|x|x.reshape(dims)).collect()
-		}
-	}
 	/// gets the shape of the tensor. Use the recursive version to recursively get the multi shape
 	pub fn shape(&self)->Shape{
 		match self{B1(x)=>Shape::X1(x.dims()),B2(x)=>Shape::X2(x.dims()),B3(x)=>Shape::X3(x.dims()),B4(x)=>Shape::X4(x.dims()),B5(x)=>Shape::X5(x.dims()),B6(x)=>Shape::X6(x.dims()),B7(x)=>Shape::X7(x.dims()),B8(x)=>Shape::X8(x.dims()),F1(x)=>Shape::X1(x.dims()),F2(x)=>Shape::X2(x.dims()),F3(x)=>Shape::X3(x.dims()),F4(x)=>Shape::X4(x.dims()),F5(x)=>Shape::X5(x.dims()),F6(x)=>Shape::X6(x.dims()),F7(x)=>Shape::X7(x.dims()),F8(x)=>Shape::X8(x.dims()),I1(x)=>Shape::X1(x.dims()),I2(x)=>Shape::X2(x.dims()),I3(x)=>Shape::X3(x.dims()),I4(x)=>Shape::X4(x.dims()),I5(x)=>Shape::X5(x.dims()),I6(x)=>Shape::X6(x.dims()),I7(x)=>Shape::X7(x.dims()),I8(x)=>Shape::X8(x.dims()),Value::Incompatible(x)=>Shape::Incompatible(x.clone()),Value::Multi(x)=>Shape::Multi(x.len())}
@@ -1355,6 +1407,7 @@ pub enum ValueData{BX(TensorData),FX(TensorData),IX(TensorData),Incompatible(Str
 pub struct LossOutput<B:Backend>{loss:Value<B>,output:Value<B>,target:Value<B>}
 use {bicop_num,try_unwrap};
 use Bound::{Excluded,Included,Unbounded};
+use Reshape::{R1,R2,R3,R4,R5,R6,R7,R8};
 use Shape::{X1,X2,X3,X4,X5,X6,X7,X8};
 use Value::{B1,B2,B3,B4,B5,B6,B7,B8,F1,F2,F3,F4,F5,F6,F7,F8,I1,I2,I3,I4,I5,I6,I7,I8};
 use ValueData::{BX,FX,IX};
@@ -1374,11 +1427,11 @@ use crate::{
 	builtin::{
 		Alignment,ReductionMode,math::{MeanLayer,SquaredErrorLayer,SumLayer},reinforcement::AccQLayer,soft::{ChooseLayer,CrossEntropyLayer,SoftmaxLayer}
 	},
-	ops::{Abs,Cat,Stack,Squeeze,Unsqueeze}
+	ops::{Abs,Cat,Flatten,Reshape as OpsReshape,Stack,Squeeze,Unsqueeze}
 };
 use rand::random;
 use serde::{Deserialize,Deserializer,Serialize,Serializer};
 use std::{
 	any::TypeId,fmt::{Display,Result as FmtResult},iter::{FromIterator,once},mem,ops::{Add,Bound,Div,Mul,RangeBounds,Range,Rem,Sub},path::PathBuf,slice::{Iter as SliceIter,self},vec::IntoIter as VecIntoIter
 };
-use super::{Kind,Shape};
+use super::{Kind,Reshape,Shape,apply_depthwise};
