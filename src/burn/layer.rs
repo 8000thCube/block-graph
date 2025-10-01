@@ -154,9 +154,11 @@ impl Config{
 	pub fn bias(dim:usize)->Self{Self::Bias(BiasConfig::new(dim))}
 	/// creates a embedding config
 	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
+	/// creates a flatten config
+	pub fn flatten(dims:Range<usize>)->Self{Self::Flatten(FlattenLayer::new(dims))}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::MaxPool2d(c)=>Layer::MaxPool2d(c.init()),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(Ignored(*d)),Config::Squeeze(c)=>Layer::Squeeze(Ignored(*c)),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new()),Config::Unsqueeze(c)=>Layer::Unsqueeze(Ignored(*c))}
+		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::Flatten(c)=>Layer::Flatten(Ignored(c.clone())),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::MaxPool2d(c)=>Layer::MaxPool2d(c.init()),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Reshape(c)=>Layer::Reshape(Ignored(c.clone())),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(Ignored(*d)),Config::Squeeze(c)=>Layer::Squeeze(Ignored(*c)),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new()),Config::Unsqueeze(c)=>Layer::Unsqueeze(Ignored(*c))}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
@@ -166,6 +168,8 @@ impl Config{
 	pub fn max_pool_2d(kernel:[usize;2],strides:[usize;2])->Self{MaxPool2dConfig::new(kernel).with_strides(strides).into()}
 	/// creates a relu config
 	pub fn relu()->Self{Self::Relu}
+	/// creates a reshape config
+	pub fn reshape<R:Into<Reshape>>(args:R)->Self{Self::Reshape(ReshapeLayer::new(args.into()))}
 	/// creates a rotary config
 	pub fn rotary(distance:usize,head:usize)->Self{Self::Rotary(RotaryEncodingConfig::new(distance,head))}
 	/// creates a scale shift config
@@ -174,7 +178,7 @@ impl Config{
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
 	pub fn w_scale(mut self,r:f32)->Self{
-		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::MaxPool2d(_c)=>(),Config::Mse=>(),Config::Relu=>(),Config::Rotary(_c)=>(),Config::ScaleShift(c)=>c.initializer.as_mut().into_iter().for_each(|i|w_scale_mut(i,r)),Config::Squeeze(_d)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>(),Config::Unsqueeze(_c)=>()}
+		match &mut self{Config::Attention(_c)=>(),Config::BatchNorm(_c)=>(),Config::Bias(c)=>w_scale_mut(&mut c.initializer,r),Config::CacheKV=>(),Config::Cat(_c)=>(),Config::Conv2d(c)=>w_scale_mut(&mut c.initializer,r),Config::CrossEntropy(_c)=>(),Config::Dropout(_c)=>(),Config::Embedding(c)=>w_scale_mut(&mut c.initializer,r),Config::Flatten(_c)=>(),Config::KQV(c)=>w_scale_mut(&mut c.initializer,r),Config::LayerNorm(_c)=>(),Config::Linear(c)=>w_scale_mut(&mut c.initializer,r),Config::MaxPool2d(_c)=>(),Config::Mse=>(),Config::Relu=>(),Config::Reshape(_c)=>(),Config::Rotary(_c)=>(),Config::ScaleShift(c)=>c.initializer.as_mut().into_iter().for_each(|i|w_scale_mut(i,r)),Config::Squeeze(_d)=>(),Config::Stack(_d)=>(),Config::Sum(_c)=>(),Config::Tanh=>(),Config::Unsqueeze(_c)=>()}
 		self
 	}
 }
@@ -205,6 +209,9 @@ impl From<DropoutConfig> for Config{
 impl From<EmbeddingConfig> for Config{
 	fn from(value:EmbeddingConfig)->Self{Config::Embedding(value)}
 }
+impl From<FlattenLayer<Range<usize>>> for Config{
+	fn from(value:FlattenLayer<Range<usize>>)->Self{Config::Flatten(value)}
+}
 impl From<LayerNormConfig> for Config{
 	fn from(value:LayerNormConfig)->Self{Config::LayerNorm(value)}
 }
@@ -219,6 +226,9 @@ impl From<MseLoss> for Config{
 }
 impl From<Relu> for Config{
 	fn from(_value:Relu)->Self{Config::Relu}
+}
+impl From<ReshapeLayer<Reshape>> for Config{
+	fn from(value:ReshapeLayer<Reshape>)->Self{Config::Reshape(value)}
 }
 impl From<RotaryEncodingConfig> for Config{
 	fn from(value:RotaryEncodingConfig)->Self{Config::Rotary(value)}
@@ -426,12 +436,14 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::CrossEntropy(f)=>AI::forward(f,input),
 			Layer::Dropout(f)=>AI::forward(f,input),
 			Layer::Embedding(f)=>AI::forward(f,input),
+			Layer::Flatten(f)=>f.0.forward(input),
 			Layer::KQV(f)=>f.forward(input),
 			Layer::LayerNorm(f)=>AI::forward(f,input),
 			Layer::Linear(f)=>AI::forward(f,input),
 			Layer::MaxPool2d(f)=>AI::forward(f,input),
 			Layer::Mse(f)=>AI::forward(f,input),
 			Layer::Relu(f)=>AI::forward(f,input),
+			Layer::Reshape(f)=>f.0.forward(input),
 			Layer::Rotary(f)=>AI::forward(f,input),
 			Layer::ScaleShift(f)=>f.forward(input),
 			Layer::Squeeze(f)=>f.forward(input),
@@ -452,12 +464,14 @@ impl<B:Backend> AI<Value<B>,Value<B>> for Layer<B>{
 			Layer::CrossEntropy(f)=>AI::forward_mut(f,input),
 			Layer::Dropout(f)=>AI::forward_mut(f,input),
 			Layer::Embedding(f)=>AI::forward_mut(f,input),
+			Layer::Flatten(f)=>f.0.forward_mut(input),
 			Layer::KQV(f)=>f.forward_mut(input),
 			Layer::LayerNorm(f)=>AI::forward_mut(f,input),
 			Layer::Linear(f)=>AI::forward_mut(f,input),
 			Layer::MaxPool2d(f)=>AI::forward_mut(f,input),
 			Layer::Mse(f)=>AI::forward_mut(f,input),
 			Layer::Relu(f)=>AI::forward_mut(f,input),
+			Layer::Reshape(f)=>f.0.forward_mut(input),
 			Layer::Rotary(f)=>AI::forward_mut(f,input),
 			Layer::ScaleShift(f)=>f.forward_mut(input),
 			Layer::Squeeze(f)=>f.0.forward_mut(input),
@@ -492,6 +506,9 @@ impl<B:Backend> From<Dropout> for Layer<B>{
 impl<B:Backend> From<Embedding<B>> for Layer<B>{
 	fn from(value:Embedding<B>)->Self{Layer::Embedding(value)}
 }
+impl<B:Backend> From<FlattenLayer<Range<usize>>> for Layer<B>{
+	fn from(value:FlattenLayer<Range<usize>>)->Self{Layer::Flatten(Ignored(value))}
+}
 impl<B:Backend> From<LayerNorm<B>> for Layer<B>{
 	fn from(value:LayerNorm<B>)->Self{Layer::LayerNorm(value)}
 }
@@ -506,6 +523,9 @@ impl<B:Backend> From<MseLoss> for Layer<B>{
 }
 impl<B:Backend> From<Relu> for Layer<B>{
 	fn from(value:Relu)->Self{Layer::Relu(value)}
+}
+impl<B:Backend> From<ReshapeLayer<Reshape>> for Layer<B>{
+	fn from(value:ReshapeLayer<Reshape>)->Self{Layer::Reshape(Ignored(value))}
 }
 impl<B:Backend> From<RotaryEncoding<B>> for Layer<B>{
 	fn from(value:RotaryEncoding<B>)->Self{Layer::Rotary(value)}
@@ -535,6 +555,8 @@ impl<B:Backend> Layer<B>{
 		let l=l.init(&Default::default());
 		Self::Embedding(l)
 	}
+	/// creates a flatten layer
+	pub fn flatten(dims:Range<usize>)->Self{Self::Flatten(Ignored(FlattenLayer::new(dims)))}
 	/// creates a layer norm layer
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim).init(&Default::default()))}
 	/// creates a linear layer
@@ -548,6 +570,8 @@ impl<B:Backend> Layer<B>{
 	pub fn max_pool_2d(kernel:[usize;2],strides:[usize;2])->Self{MaxPool2dConfig::new(kernel).with_strides(strides).init().into()}
 	/// creates a relu layer
 	pub fn relu()->Self{Self::Relu(Relu)}
+	/// creates a reshape layer
+	pub fn reshape<R:Into<Reshape>>(args:R)->Self{Self::Reshape(Ignored(ReshapeLayer::new(args.into())))}
 	/// creates a rotary layer
 	pub fn rotary(distance:usize,head:usize)->Self{Self::Rotary(RotaryEncodingConfig::new(distance,head).init(&Default::default()))}
 	/// creates a scale shift layer
@@ -562,7 +586,7 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Squeeze(SqueezeLayer),Stack(StackLayer),Sum(SumLayer),Tanh,Unsqueeze(UnsqueezeLayer)}
+pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),Flatten(FlattenLayer<Range<usize>>),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Reshape(ReshapeLayer<Reshape>),Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Squeeze(SqueezeLayer),Stack(StackLayer),Sum(SumLayer),Tanh,Unsqueeze(UnsqueezeLayer)}
 #[derive(Debug,Deserialize,Module,Serialize)]//TODO more layers
 #[serde(bound="")]
 /// enumerates some burn layers
@@ -588,6 +612,9 @@ pub enum Layer<B:Backend>{
 	#[serde(deserialize_with="deserialize_embedding")]
 	#[serde(serialize_with="serialize_embedding")]
 	Embedding(Embedding<B>),
+	#[serde(deserialize_with="deserialize_ignored")]
+	#[serde(serialize_with="serialize_ignored")]
+	Flatten(Ignored<FlattenLayer<Range<usize>>>),
 	KQV(KQV<B>),
 	#[serde(deserialize_with="deserialize_layer_norm")]
 	#[serde(serialize_with="serialize_layer_norm")]
@@ -604,6 +631,9 @@ pub enum Layer<B:Backend>{
 	#[serde(deserialize_with="deserialize_nothing")]
 	#[serde(serialize_with="serialize_nothing")]
 	Relu(Relu),
+	#[serde(deserialize_with="deserialize_ignored")]
+	#[serde(serialize_with="serialize_ignored")]
+	Reshape(Ignored<ReshapeLayer<Reshape>>),
 	#[serde(deserialize_with="deserialize_rotary")]
 	#[serde(serialize_with="serialize_rotary")]
 	Rotary(RotaryEncoding<B>),
@@ -756,10 +786,10 @@ use burn::{
 use crate::{
 	ai::{AI,Decompose,IntoSequence,Op},
 	builtin::{
-		Sequential,math::SumLayer,structural::{CatLayer,SqueezeLayer,StackLayer,UnsqueezeLayer}
+		Sequential,math::SumLayer,structural::{FlattenLayer,CatLayer,ReshapeLayer,SqueezeLayer,StackLayer,UnsqueezeLayer}
 	},
-	burn::Value,
+	burn::{Reshape,Value},
 	ops::Cat as OpsCat
 };
 use serde::{Deserialize,Deserializer,Serialize,Serializer,de::Error as Derror,ser::Error as Serror};
-use std::{fmt::Display,marker::PhantomData,mem};
+use std::{fmt::Display,marker::PhantomData,mem,ops::Range};
