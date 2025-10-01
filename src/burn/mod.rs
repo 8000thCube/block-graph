@@ -406,7 +406,7 @@ pub fn apply_depthwise<B:Backend,F:FnMut(Value<B>)->Value<B>>(depth:usize,mut op
 	fn inner<B:Backend,F:FnMut(Value<B>)->Value<B>>(depth:usize,op:&mut F,value:Value<B>)->(Value<B>,usize){
 		let mut height=1;
 		let value=if value.is_multi(){
-			let value=value.into_iter().map(|v|{
+			let value:Value<B>=value.into_iter().map(|v|{
 				let (v,h)=inner(depth,op,v);
 				height=height.max(h);
 				v
