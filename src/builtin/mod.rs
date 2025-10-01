@@ -159,6 +159,17 @@ impl<A:AI<X,Y>+Op<Output=Y>,I:IntoIterator<Item=X>,J:FromIterator<Y>,X,Y> AI<I,J
 		input.into_iter().map(|x|a.forward_mut(x)).collect()
 	}
 }
+impl<A> Residual<A>{
+	/// creates a new residual wrapped layer
+	pub fn new(inner:A)->Self{
+		Self{apply:true,inner}
+	}
+	/// sets whether residual should be applied (true by default)
+	pub fn with_apply(mut self,apply:bool)->Self{
+		self.apply=apply;
+		self
+	}
+}
 impl<A:AI<X,Y>+Op<Output=Y>,X:Clone+OpsAdd<Y,Output=Z>,Y:Into<Z>,Z> AI<X,Z> for Residual<A>{
 	fn forward(&self,x:X)->Z{
 		let apply=self.apply;
