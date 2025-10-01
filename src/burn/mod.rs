@@ -491,7 +491,7 @@ pub trait Wrappable:Clone+Debug+Decompose+Send{
 }
 pub use burn as lib;
 pub use layer::{Attention,AttentionConfig,AttentionMask,BiasConfig,CacheKV,Config,Layer,KQV,KQVConfig};
-pub use shape::{Kind,Shape};
+pub use shape::{Kind,Reshape,Shape};
 pub use value::{LossOutput,Value};
 use burn::{
 	backend::NdArray,
