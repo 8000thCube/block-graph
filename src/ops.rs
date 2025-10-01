@@ -90,6 +90,8 @@ pub trait Cat{
 }
 // flatten
 pub trait Flatten<R>{
+	/// macro convenience version of the primary method
+	fn _apply(self,args:R)->Self::Output where Self:Sized{self.flatten(args)}
 	/// flattens
 	fn flatten(self,args:R)->Self::Output;
 	/// the output type
@@ -106,6 +108,8 @@ pub trait Rank{
 }
 // reshape
 pub trait Reshape<R>{
+	/// macro convenience version of the primary method
+	fn _apply(self,args:R)->Self::Output where Self:Sized{self.reshape(args)}
 	/// reshapes
 	fn reshape(self,args:R)->Self::Output;
 	/// the output type
