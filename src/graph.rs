@@ -478,7 +478,7 @@ pub struct Graph<C>{connections:HashMap<Label,(u64,Label,Label,Label),H>,layers:
 #[derive(Clone,Debug,Deserialize,Eq,Hash,PartialEq,Serialize)]
 /// label for graph connections or layers or nodes. format is id: name where id is a hex number or simply id if there is no name. name without a number will be parse as a name with a 0 id
 pub struct Label{id:u64,name:Option<Arc<str>>}
-#[derive(Clone,Copy,Debug,Default)]
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize)]
 #[repr(transparent)]
 /// wraps the graph so it can take singular io
 pub struct Unvec<A>(pub A);
