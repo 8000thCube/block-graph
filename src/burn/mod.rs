@@ -401,17 +401,17 @@ mod tests{
 mod layer;
 mod shape;
 mod value;
-/// helper function for applying operations that apply to a specific depth of multiple structure such that wrapping multiple appropriate inputs with a multi outputs the output of the function applied to all inputs.
+/// helper function for applying operations that apply to a specific depth of multiple structure such that wrapping multiple appropriate inputs with a multi outputs the output of the function applied to all inputs. 0 depth for empty, 1 for single, 2+ for multi
 pub fn apply_depthwise<B:Backend,F:FnMut(Value<B>)->Value<B>>(depth:usize,mut op:F,value:Value<B>)->Value<B>{
 	fn inner<B:Backend,F:FnMut(Value<B>)->Value<B>>(depth:usize,op:&mut F,value:Value<B>)->(Value<B>,usize){
-		let mut height=0;
+		let mut height=1;
 		let value=if value.is_multi(){
 			let value=value.into_iter().map(|v|{
 				let (v,h)=inner(depth,op,v);
 				height=height.max(h);
 				v
 			}).collect();
-			height+=1;
+			if value.len()==0{height=0}else{height+=1}
 			value
 		}else{
 			value
