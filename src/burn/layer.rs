@@ -155,7 +155,11 @@ impl Config{
 	/// creates a embedding config
 	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
 	/// creates a flatten config
-	pub fn flatten(dims:Range<usize>)->Self{Self::Flatten(FlattenLayer::new(dims))}
+	pub fn flatten<R:RangeBounds<isize>>(dims:R)->Self{
+		let a=match dims.start_bound(){Excluded(&n)=>n+1,Included(&n)=>n,Unbounded=>0};
+		let b=match dims.end_bound(){Excluded(&n)=>n,Included(n)=>n+1,Unbounded=>0};
+		Self::Flatten(FlattenLayer::new(a..b))
+	}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
 		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::CacheKV=>Layer::CacheKV(CacheKV::default()),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::Flatten(c)=>Layer::Flatten(Ignored(c.clone())),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::MaxPool2d(c)=>Layer::MaxPool2d(c.init()),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Reshape(c)=>Layer::Reshape(Ignored(c.clone())),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(Ignored(*d)),Config::Squeeze(c)=>Layer::Squeeze(Ignored(*c)),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new()),Config::Unsqueeze(c)=>Layer::Unsqueeze(Ignored(*c))}
@@ -209,8 +213,8 @@ impl From<DropoutConfig> for Config{
 impl From<EmbeddingConfig> for Config{
 	fn from(value:EmbeddingConfig)->Self{Config::Embedding(value)}
 }
-impl From<FlattenLayer<Range<usize>>> for Config{
-	fn from(value:FlattenLayer<Range<usize>>)->Self{Config::Flatten(value)}
+impl From<FlattenLayer<Range<isize>>> for Config{
+	fn from(value:FlattenLayer<Range<isize>>)->Self{Config::Flatten(value)}
 }
 impl From<LayerNormConfig> for Config{
 	fn from(value:LayerNormConfig)->Self{Config::LayerNorm(value)}
@@ -506,8 +510,8 @@ impl<B:Backend> From<Dropout> for Layer<B>{
 impl<B:Backend> From<Embedding<B>> for Layer<B>{
 	fn from(value:Embedding<B>)->Self{Layer::Embedding(value)}
 }
-impl<B:Backend> From<FlattenLayer<Range<usize>>> for Layer<B>{
-	fn from(value:FlattenLayer<Range<usize>>)->Self{Layer::Flatten(Ignored(value))}
+impl<B:Backend> From<FlattenLayer<Range<isize>>> for Layer<B>{
+	fn from(value:FlattenLayer<Range<isize>>)->Self{Layer::Flatten(Ignored(value))}
 }
 impl<B:Backend> From<LayerNorm<B>> for Layer<B>{
 	fn from(value:LayerNorm<B>)->Self{Layer::LayerNorm(value)}
@@ -556,7 +560,11 @@ impl<B:Backend> Layer<B>{
 		Self::Embedding(l)
 	}
 	/// creates a flatten layer
-	pub fn flatten(dims:Range<usize>)->Self{Self::Flatten(Ignored(FlattenLayer::new(dims)))}
+	pub fn flatten<R:RangeBounds<isize>>(dims:R)->Self{
+		let a=match dims.start_bound(){Excluded(&n)=>n+1,Included(&n)=>n,Unbounded=>0};
+		let b=match dims.end_bound(){Excluded(&n)=>n,Included(n)=>n+1,Unbounded=>0};
+		Self::Flatten(Ignored(FlattenLayer::new(a..b)))
+	}
 	/// creates a layer norm layer
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim).init(&Default::default()))}
 	/// creates a linear layer
@@ -586,7 +594,7 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),Flatten(FlattenLayer<Range<usize>>),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Reshape(ReshapeLayer<Reshape>),Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Squeeze(SqueezeLayer),Stack(StackLayer),Sum(SumLayer),Tanh,Unsqueeze(UnsqueezeLayer)}
+pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),CacheKV,Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),Flatten(FlattenLayer<Range<isize>>),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Reshape(ReshapeLayer<Reshape>),Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Squeeze(SqueezeLayer),Stack(StackLayer),Sum(SumLayer),Tanh,Unsqueeze(UnsqueezeLayer)}
 #[derive(Debug,Deserialize,Module,Serialize)]//TODO more layers
 #[serde(bound="")]
 /// enumerates some burn layers
@@ -614,7 +622,7 @@ pub enum Layer<B:Backend>{
 	Embedding(Embedding<B>),
 	#[serde(deserialize_with="deserialize_ignored")]
 	#[serde(serialize_with="serialize_ignored")]
-	Flatten(Ignored<FlattenLayer<Range<usize>>>),
+	Flatten(Ignored<FlattenLayer<Range<isize>>>),
 	KQV(KQV<B>),
 	#[serde(deserialize_with="deserialize_layer_norm")]
 	#[serde(serialize_with="serialize_layer_norm")]
@@ -775,6 +783,7 @@ struct LayerNormRecord<B:Backend>{beta:Value<B>,gamma:Value<B>}
 #[derive(Deserialize,Serialize)]
 #[serde(bound="")]
 struct LinearRecord<B:Backend>{bias:Option<Value<B>>,weight:Value<B>}
+use Bound::{Excluded,Included,Unbounded};
 use burn::{
 	module::{Ignored,Param,RunningState},
 	nn::{
@@ -792,4 +801,6 @@ use crate::{
 	ops::Cat as OpsCat
 };
 use serde::{Deserialize,Deserializer,Serialize,Serializer,de::Error as Derror,ser::Error as Serror};
-use std::{fmt::Display,marker::PhantomData,mem,ops::Range};
+use std::{
+	fmt::Display,marker::PhantomData,mem,ops::{Bound,Range,RangeBounds}
+};

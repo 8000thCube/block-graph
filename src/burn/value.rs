@@ -117,20 +117,29 @@ impl<B:Backend,K:'static+TensorKind<B>,const N:usize> TryFrom<Value<B>> for Tens
 	}
 	type Error=Value<B>;
 }
-impl<B:Backend> Flatten<Range<usize>> for Value<B>{
-	fn flatten(self,args:Range<usize>)->Self::Output{
-		fn f<B:Backend,K:'static+BasicOps<B>+TensorKind<B>,const N:usize>(args:Range<usize>,x:Tensor<B,N,K>)->Value<B>{
-			let a=args.start;
-			let b=args.end-1;
+impl<B:Backend,R:Clone+RangeBounds<isize>> Flatten<R> for Value<B>{
+	fn flatten(self,args:R)->Self::Output{
+		fn f<B:Backend,K:'static+BasicOps<B>+TensorKind<B>,R:RangeBounds<isize>,const N:usize>(args:R,x:Tensor<B,N,K>)->Value<B>{
+			let a=match args.start_bound(){
+				Excluded(&n)=>(if n<0{N-((-n) as usize)}else{n as usize})+1,
+				Included(&n)=>if n<0{N-((-n) as usize)}else{n as usize},
+				Unbounded=>0
+			};
+			let b=match args.end_bound(){
+				Excluded(&n)=>if n<0{N-((-n) as usize)}else if n==0{N}else{n as usize},
+				Included(&n)=>(if n<0{N-((-n) as usize)}else{n as usize})+1,
+				Unbounded=>N
+			};
+			let flattenedlen=b-a;
 
-			match x.dims().len()-args.len()+1{
-				1=>x.flatten::<1>(a,b).into(),
-				2=>x.flatten::<2>(a,b).into(),
-				3=>x.flatten::<3>(a,b).into(),
-				4=>x.flatten::<4>(a,b).into(),
-				5=>x.flatten::<5>(a,b).into(),
-				6=>x.flatten::<6>(a,b).into(),
-				7=>x.flatten::<7>(a,b).into(),
+			match N-flattenedlen+1{
+				1=>x.flatten::<1>(a,b-1).into(),
+				2=>x.flatten::<2>(a,b-1).into(),
+				3=>x.flatten::<3>(a,b-1).into(),
+				4=>x.flatten::<4>(a,b-1).into(),
+				5=>x.flatten::<5>(a,b-1).into(),
+				6=>x.flatten::<6>(a,b-1).into(),
+				7=>x.flatten::<7>(a,b-1).into(),
 				8=>x.into(),
 				_=>"invalid flatten".into()
 			}
