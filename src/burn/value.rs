@@ -121,7 +121,7 @@ impl<B:Backend> Flatten<Range<usize>> for Value<B>{
 	fn flatten(self,args:Range<usize>)->Self::Output{
 		fn f<B:Backend,K:'static+BasicOps<B>+TensorKind<B>,const N:usize>(args:Range<usize>,x:Tensor<B,N,K>)->Value<B>{
 			let a=args.start;
-			let b=args.end+1;
+			let b=args.end-1;
 
 			match x.dims().len()-args.len(){
 				1=>x.flatten::<1>(a,b).into(),
