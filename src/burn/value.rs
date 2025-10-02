@@ -119,33 +119,50 @@ impl<B:Backend,K:'static+TensorKind<B>,const N:usize> TryFrom<Value<B>> for Tens
 }
 impl<B:Backend> Flatten<Range<usize>> for Value<B>{
 	fn flatten(self,args:Range<usize>)->Self::Output{
+		fn f<B:Backend,K:'static+BasicOps<B>+TensorKind<B>,const N:usize>(args:Range<usize>,x:Tensor<B,N,K>)->Value<B>{
+			let a=args.start;
+			let b=args.end+1;
+
+			match x.dims().len()-args.len(){
+				1=>x.flatten::<1>(a,b).into(),
+				2=>x.flatten::<2>(a,b).into(),
+				3=>x.flatten::<3>(a,b).into(),
+				4=>x.flatten::<4>(a,b).into(),
+				5=>x.flatten::<5>(a,b).into(),
+				6=>x.flatten::<6>(a,b).into(),
+				7=>x.flatten::<7>(a,b).into(),
+				8=>x.into(),
+				_=>"invalid flatten".into()
+			}
+		}
+
 		match self{
-			B1(x)=>B1(x.flatten(args.start,args.end)),
-			B2(x)=>B2(x.flatten(args.start,args.end)),
-			B3(x)=>B3(x.flatten(args.start,args.end)),
-			B4(x)=>B4(x.flatten(args.start,args.end)),
-			B5(x)=>B5(x.flatten(args.start,args.end)),
-			B6(x)=>B6(x.flatten(args.start,args.end)),
-			B7(x)=>B7(x.flatten(args.start,args.end)),
-			B8(x)=>B8(x.flatten(args.start,args.end)),
-			F1(x)=>F1(x.flatten(args.start,args.end)),
-			F2(x)=>F2(x.flatten(args.start,args.end)),
-			F3(x)=>F3(x.flatten(args.start,args.end)),
-			F4(x)=>F4(x.flatten(args.start,args.end)),
-			F5(x)=>F5(x.flatten(args.start,args.end)),
-			F6(x)=>F6(x.flatten(args.start,args.end)),
-			F7(x)=>F7(x.flatten(args.start,args.end)),
-			F8(x)=>F8(x.flatten(args.start,args.end)),
-			I1(x)=>I1(x.flatten(args.start,args.end)),
-			I2(x)=>I2(x.flatten(args.start,args.end)),
-			I3(x)=>I3(x.flatten(args.start,args.end)),
-			I4(x)=>I4(x.flatten(args.start,args.end)),
-			I5(x)=>I5(x.flatten(args.start,args.end)),
-			I6(x)=>I6(x.flatten(args.start,args.end)),
-			I7(x)=>I7(x.flatten(args.start,args.end)),
-			I8(x)=>I8(x.flatten(args.start,args.end)),
+			B1(x)=>f(args,x),
+			B2(x)=>f(args,x),
+			B3(x)=>f(args,x),
+			B4(x)=>f(args,x),
+			B5(x)=>f(args,x),
+			B6(x)=>f(args,x),
+			B7(x)=>f(args,x),
+			B8(x)=>f(args,x),
+			F1(x)=>f(args,x),
+			F2(x)=>f(args,x),
+			F3(x)=>f(args,x),
+			F4(x)=>f(args,x),
+			F5(x)=>f(args,x),
+			F6(x)=>f(args,x),
+			F7(x)=>f(args,x),
+			F8(x)=>f(args,x),
+			I1(x)=>f(args,x),
+			I2(x)=>f(args,x),
+			I3(x)=>f(args,x),
+			I4(x)=>f(args,x),
+			I5(x)=>f(args,x),
+			I6(x)=>f(args,x),
+			I7(x)=>f(args,x),
+			I8(x)=>f(args,x),
 			Value::Incompatible(e)=>e.into(),
-			Value::Multi(v)=>v.into_iter().map(|x|x.flatten(args.clone())).collect()
+			Value::Multi(v)=>v.into_iter().map(|x|x.flatten(args.clone())).collect(),
 		}
 	}
 	type Output=Self;
