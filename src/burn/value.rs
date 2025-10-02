@@ -123,7 +123,7 @@ impl<B:Backend> Flatten<Range<usize>> for Value<B>{
 			let a=args.start;
 			let b=args.end-1;
 
-			match x.dims().len()-args.len(){
+			match x.dims().len()-args.len()+1{
 				1=>x.flatten::<1>(a,b).into(),
 				2=>x.flatten::<2>(a,b).into(),
 				3=>x.flatten::<3>(a,b).into(),
