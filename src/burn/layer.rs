@@ -237,6 +237,9 @@ impl From<ReshapeLayer<Reshape>> for Config{
 impl From<RotaryEncodingConfig> for Config{
 	fn from(value:RotaryEncodingConfig)->Self{Config::Rotary(value)}
 }
+impl From<ScaleShiftConfig> for Config{
+	fn from(value:ScaleShiftConfig)->Self{Config::ScaleShift(value)}
+}
 impl From<SqueezeLayer> for Config{
 	fn from(value:SqueezeLayer)->Self{Config::Squeeze(value)}
 }
@@ -533,6 +536,9 @@ impl<B:Backend> From<ReshapeLayer<Reshape>> for Layer<B>{
 }
 impl<B:Backend> From<RotaryEncoding<B>> for Layer<B>{
 	fn from(value:RotaryEncoding<B>)->Self{Layer::Rotary(value)}
+}
+impl<B:Backend> From<ScaleShift<B>> for Layer<B>{
+	fn from(value:ScaleShift<B>)->Self{Layer::ScaleShift(value)}
 }
 impl<B:Backend> From<SqueezeLayer> for Layer<B>{
 	fn from(value:SqueezeLayer)->Self{Layer::Squeeze(Ignored(value))}
