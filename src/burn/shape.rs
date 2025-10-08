@@ -7,6 +7,30 @@ impl Default for Reshape{
 impl Default for Shape{
 	fn default()->Self{Self::Recursive(Vec::new())}
 }
+impl From<[isize;1]> for Reshape{
+	fn from(dims:[isize;1])->Self{R1(dims)}
+}
+impl From<[isize;2]> for Reshape{
+	fn from(dims:[isize;2])->Self{R2(dims)}
+}
+impl From<[isize;3]> for Reshape{
+	fn from(dims:[isize;3])->Self{R3(dims)}
+}
+impl From<[isize;4]> for Reshape{
+	fn from(dims:[isize;4])->Self{R4(dims)}
+}
+impl From<[isize;5]> for Reshape{
+	fn from(dims:[isize;5])->Self{R5(dims)}
+}
+impl From<[isize;6]> for Reshape{
+	fn from(dims:[isize;6])->Self{R6(dims)}
+}
+impl From<[isize;7]> for Reshape{
+	fn from(dims:[isize;7])->Self{R7(dims)}
+}
+impl From<[isize;8]> for Reshape{
+	fn from(dims:[isize;8])->Self{R8(dims)}
+}
 impl From<[usize;1]> for Reshape{
 	fn from(dims:[usize;1])->Self{R1(dims.map(|d|d as isize))}
 }
