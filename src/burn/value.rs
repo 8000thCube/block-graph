@@ -1227,6 +1227,46 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn rank(&self)->Option<usize>{
 		match self{B1(_x)=>Some(1),B2(_x)=>Some(2),B3(_x)=>Some(3),B4(_x)=>Some(4),B5(_x)=>Some(5),B6(_x)=>Some(6),B7(_x)=>Some(7),B8(_x)=>Some(8),F1(_x)=>Some(1),F2(_x)=>Some(2),F3(_x)=>Some(3),F4(_x)=>Some(4),F5(_x)=>Some(5),F6(_x)=>Some(6),F7(_x)=>Some(7),F8(_x)=>Some(8),I1(_x)=>Some(1),I2(_x)=>Some(2),I3(_x)=>Some(3),I4(_x)=>Some(4),I5(_x)=>Some(5),I6(_x)=>Some(6),I7(_x)=>Some(7),I8(_x)=>Some(8),Value::Incompatible(_x)=>None,Value::Multi(_x)=>None}
 	}
+	/// scatter
+	pub fn scatter(self,dim:i32,indices:Value<B>,values:Value<B>)->Self{
+		//fn b<B:Backend,const N:usize>(d:i32,data:Tensor<B,N,Bool>,indices:Tensor<B,N,Int>,values:Tensor<B,N,Int>)->Value<B>{f(d,data.int(),indices,values.int())}
+		fn f<B:Backend,K:'static+BasicOps<B>+Numeric<B>+TensorKind<B>,const N:usize>(d:i32,data:Tensor<B,N,K>,indices:Tensor<B,N,Int>,values:Tensor<B,N,K>)->Value<B>{
+			let d=if d<0{N-((-d) as usize)}else{d as usize};
+			if d>=N{format!("dim {d} must be less than rank {N}").into()}else{data.scatter(d,indices,values).into()}
+		}
+
+		match (self,indices,values){
+			(B1(x),I1(i),B1(y))=>f(dim,x.int(),i,y.int()),
+			(B2(x),I2(i),B2(y))=>f(dim,x.int(),i,y.int()),
+			(B3(x),I3(i),B3(y))=>f(dim,x.int(),i,y.int()),
+			(B4(x),I4(i),B4(y))=>f(dim,x.int(),i,y.int()),
+			(B5(x),I5(i),B5(y))=>f(dim,x.int(),i,y.int()),
+			(B6(x),I6(i),B6(y))=>f(dim,x.int(),i,y.int()),
+			(B7(x),I7(i),B7(y))=>f(dim,x.int(),i,y.int()),
+			(B8(x),I8(i),B8(y))=>f(dim,x.int(),i,y.int()),
+			(F1(x),I1(i),F1(y))=>f(dim,x,i,y),
+			(F2(x),I2(i),F2(y))=>f(dim,x,i,y),
+			(F3(x),I3(i),F3(y))=>f(dim,x,i,y),
+			(F4(x),I4(i),F4(y))=>f(dim,x,i,y),
+			(F5(x),I5(i),F5(y))=>f(dim,x,i,y),
+			(F6(x),I6(i),F6(y))=>f(dim,x,i,y),
+			(F7(x),I7(i),F7(y))=>f(dim,x,i,y),
+			(F8(x),I8(i),F8(y))=>f(dim,x,i,y),
+			(I1(x),I1(i),I1(y))=>f(dim,x,i,y),
+			(I2(x),I2(i),I2(y))=>f(dim,x,i,y),
+			(I3(x),I3(i),I3(y))=>f(dim,x,i,y),
+			(I4(x),I4(i),I4(y))=>f(dim,x,i,y),
+			(I5(x),I5(i),I5(y))=>f(dim,x,i,y),
+			(I6(x),I6(i),I6(y))=>f(dim,x,i,y),
+			(I7(x),I7(i),I7(y))=>f(dim,x,i,y),
+			(I8(x),I8(i),I8(y))=>f(dim,x,i,y),
+			(Value::Incompatible(e),_,_)=>e.into(),
+			(_,Value::Incompatible(e),_)=>e.into(),
+			(_,_,Value::Incompatible(e))=>e.into(),
+			(Value::Multi(u),Value::Multi(v),Value::Multi(y))=>u.into_iter().zip(v).zip(y).map(|((u,v),y)|u.scatter(dim,v,y)).collect(),
+			_=>"scatter is only available for tensors of matching dimensions with int indices".into()
+		}
+	}
 	/// gets the shape of the tensor. Use the recursive version to recursively get the multi shape
 	pub fn shape(&self)->Shape{
 		match self{B1(x)=>Shape::X1(x.dims()),B2(x)=>Shape::X2(x.dims()),B3(x)=>Shape::X3(x.dims()),B4(x)=>Shape::X4(x.dims()),B5(x)=>Shape::X5(x.dims()),B6(x)=>Shape::X6(x.dims()),B7(x)=>Shape::X7(x.dims()),B8(x)=>Shape::X8(x.dims()),F1(x)=>Shape::X1(x.dims()),F2(x)=>Shape::X2(x.dims()),F3(x)=>Shape::X3(x.dims()),F4(x)=>Shape::X4(x.dims()),F5(x)=>Shape::X5(x.dims()),F6(x)=>Shape::X6(x.dims()),F7(x)=>Shape::X7(x.dims()),F8(x)=>Shape::X8(x.dims()),I1(x)=>Shape::X1(x.dims()),I2(x)=>Shape::X2(x.dims()),I3(x)=>Shape::X3(x.dims()),I4(x)=>Shape::X4(x.dims()),I5(x)=>Shape::X5(x.dims()),I6(x)=>Shape::X6(x.dims()),I7(x)=>Shape::X7(x.dims()),I8(x)=>Shape::X8(x.dims()),Value::Incompatible(x)=>Shape::Incompatible(x.clone()),Value::Multi(x)=>Shape::Multi(x.len())}
