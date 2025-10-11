@@ -1137,6 +1137,26 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn len_recursive(&self)->usize{
 		if let Value::Multi(v)=self{v.iter().map(Value::len_recursive).sum()}else{1}
 	}
+	/// applies a function to each multi tensor value whose maximum distance to a leaf is depth. The depth for empty is 0, single is 1, multi containing only empty or single is 2, etc
+	pub fn map_multi<F:FnMut(Value<B>)->Value<B>>(self,depth:usize,mut f:F)->Self{
+		fn recur<B:Backend,F:FnMut(Value<B>)->Value<B>>(depth:usize,f:&mut F,x:Value<B>)->(Value<B>,usize){
+			if x.is_empty(){
+				(if depth==0{f(x)}else{x},0)
+			}else if x.is_multi(){
+				let mut height=1;
+				let y=x.into_iter().map(|x|{
+					let (y,h)=recur(depth,f,x);
+					height=height.max(h);
+					y
+				}).collect();
+				height+=1;
+				(if depth==height{f(y)}else{y},height)
+			}else{
+				(if depth==1{f(x)}else{x},1)
+			}
+		}
+		recur(depth,&mut f,self).0
+	}
 	/// applies a function to each single tensor value
 	pub fn map_values<F:FnMut(Value<B>)->Value<B>>(self,mut f:F)->Self{
 		fn recur<B:Backend,F:FnMut(Value<B>)->Value<B>>(f:&mut F,x:Value<B>)->Value<B>{
@@ -1387,14 +1407,20 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn zeros_like(&self)->Value<B>{// TODO this could be more efficient for bool
 		match self{B1(x)=>B1(x.clone().int().zeros_like().bool()),B2(x)=>B2(x.clone().int().zeros_like().bool()),B3(x)=>B3(x.clone().int().zeros_like().bool()),B4(x)=>B4(x.clone().int().zeros_like().bool()),B5(x)=>B5(x.clone().int().zeros_like().bool()),B6(x)=>B6(x.clone().int().zeros_like().bool()),B7(x)=>B7(x.clone().int().zeros_like().bool()),B8(x)=>B8(x.clone().int().zeros_like().bool()),F1(x)=>F1(x.zeros_like()),F2(x)=>F2(x.zeros_like()),F3(x)=>F3(x.zeros_like()),F4(x)=>F4(x.zeros_like()),F5(x)=>F5(x.zeros_like()),F6(x)=>F6(x.zeros_like()),F7(x)=>F7(x.zeros_like()),F8(x)=>F8(x.zeros_like()),I1(x)=>I1(x.zeros_like()),I2(x)=>I2(x.zeros_like()),I3(x)=>I3(x.zeros_like()),I4(x)=>I4(x.zeros_like()),I5(x)=>I5(x.zeros_like()),I6(x)=>I6(x.zeros_like()),I7(x)=>I7(x.zeros_like()),I8(x)=>I8(x.zeros_like()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.iter().map(Value::zeros_like).collect()}
 	}
-	/*
-	/// attempts to zip the values together so that if they have the same recursive shape each
+	/// takes in a multi value and zips the leaves of each inner value together. If this input is empty or single it is returned unchanged. Mismatched structures will become incompatible at the point of mismatch
 	pub fn zip(self)->Self{// TODO unzip
-		fn build
+		fn build<B:Backend>(input:Vec<Value<B>>)->Value<B>{
+			if !input.iter().any(Value::is_multi){return input.into()}
+			if !input.iter().all(Value::is_multi){return "structural mismatch on zip".into()}
 
-		if self.len()<=1||self.iter().all(|v|v.len()<=1){return self}
+			let len=input[0].len();
+			if !input.iter().all(|x|x.len()==len){return "structural mismatch on zip".into()}
 
-	}*/
+			let mut iters:Vec<_>=input.into_iter().map(Value::into_iter).collect();
+			(0..len).map(|_|build(iters.iter_mut().map(|v|v.next().unwrap()).collect())).collect()
+		}
+		match self{Value::Multi(v)=>build(v),x=>x}
+	}
 	try_unwrap!(Tensor<B,1,Bool>,try_b1,unwrap_b1);
 	try_unwrap!(Tensor<B,2,Bool>,try_b2,unwrap_b2);
 	try_unwrap!(Tensor<B,3,Bool>,try_b3,unwrap_b3);
