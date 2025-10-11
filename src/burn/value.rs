@@ -1137,6 +1137,13 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn len_recursive(&self)->usize{
 		if let Value::Multi(v)=self{v.iter().map(Value::len_recursive).sum()}else{1}
 	}
+	/// applies a function to each single tensor value
+	pub fn map_values<F:FnMut(Value<B>)->Value<B>>(self,mut f:F)->Self{
+		fn recur<B:Backend,F:FnMut(Value<B>)->Value<B>>(f:&mut F,x:Value<B>)->Value<B>{
+			if let Value::Multi(v)=x{v.into_iter().map(|x|recur(f,x)).collect()}else{f(x)}
+		}
+		recur(&mut f,self)
+	}
 	/// mask filling
 	pub fn mask_fill(self,mask:Value<B>,v:f32)->Self{
 		let (x,mask)=self.promote_rank(mask.bool());
@@ -1380,21 +1387,14 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn zeros_like(&self)->Value<B>{// TODO this could be more efficient for bool
 		match self{B1(x)=>B1(x.clone().int().zeros_like().bool()),B2(x)=>B2(x.clone().int().zeros_like().bool()),B3(x)=>B3(x.clone().int().zeros_like().bool()),B4(x)=>B4(x.clone().int().zeros_like().bool()),B5(x)=>B5(x.clone().int().zeros_like().bool()),B6(x)=>B6(x.clone().int().zeros_like().bool()),B7(x)=>B7(x.clone().int().zeros_like().bool()),B8(x)=>B8(x.clone().int().zeros_like().bool()),F1(x)=>F1(x.zeros_like()),F2(x)=>F2(x.zeros_like()),F3(x)=>F3(x.zeros_like()),F4(x)=>F4(x.zeros_like()),F5(x)=>F5(x.zeros_like()),F6(x)=>F6(x.zeros_like()),F7(x)=>F7(x.zeros_like()),F8(x)=>F8(x.zeros_like()),I1(x)=>I1(x.zeros_like()),I2(x)=>I2(x.zeros_like()),I3(x)=>I3(x.zeros_like()),I4(x)=>I4(x.zeros_like()),I5(x)=>I5(x.zeros_like()),I6(x)=>I6(x.zeros_like()),I7(x)=>I7(x.zeros_like()),I8(x)=>I8(x.zeros_like()),Value::Incompatible(e)=>e.into(),Value::Multi(v)=>v.iter().map(Value::zeros_like).collect()}
 	}
+	/*
 	/// attempts to zip the values together so that if they have the same recursive shape each
-	pub fn zip(self)->Self{// TODO unzip // TODO test
+	pub fn zip(self)->Self{// TODO unzip
+		fn build
+
 		if self.len()<=1||self.iter().all(|v|v.len()<=1){return self}
 
-		let mut iters:Vec<_>=self.into_iter().map(Value::into_iter).collect();
-
-		let cols=iters.len();
-		let rows=iters.iter().map(ExactSizeIterator::len).max().expect("should not be empty at this point");
-		let transposed:Vec<Value<B>>=(0..rows).map(|_|{
-			let v:Value<B>=(0..cols).map(|c|iters[c].next().unwrap_or_default()).collect();
-			v.zip()
-		}).collect();
-
-		Value::Multi(transposed)
-	}
+	}*/
 	try_unwrap!(Tensor<B,1,Bool>,try_b1,unwrap_b1);
 	try_unwrap!(Tensor<B,2,Bool>,try_b2,unwrap_b2);
 	try_unwrap!(Tensor<B,3,Bool>,try_b3,unwrap_b3);
