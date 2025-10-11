@@ -70,7 +70,10 @@ fn deserialize_max_pool_2d<'a,D:Deserializer<'a>>(deserializer:D)->Result<MaxPoo
 	let config=MaxPool2dConfig::deserialize(deserializer)?;
 	Ok(config.init())
 }
-fn deserialize_nothing<'a,D:Deserializer<'a>,T:Default>(_deserializer:D)->Result<T,D::Error>{Ok(T::default())}
+fn deserialize_nothing<'a,D:Deserializer<'a>,T:Default>(deserializer:D)->Result<T,D::Error>{
+	let _x:()=Deserialize::deserialize(deserializer)?;
+	Ok(T::default())
+}
 fn deserialize_param<'a,B:Backend,D:Deserializer<'a>,const N:usize>(deserializer:D)->Result<Param<Tensor<B,N>>,D::Error>{
 	let data:Value<B>=Value::deserialize(deserializer)?;
 	if let Ok(t)=data.try_into(){Ok(Param::from_tensor(t))}else{Err(derror(format!("expected parameter to be a rank {N} float")))}
