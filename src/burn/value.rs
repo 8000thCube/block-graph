@@ -1351,7 +1351,7 @@ impl<B:Backend> Value<B>{//TODO scalars
 			if dim>=N as i32||dim<(-(N as i32)){return format!("rank {N} is too low to split along dimension {dim}").into()}
 			let dim=if dim<0{N-((-dim) as usize)}else{dim as usize};
 
-			tensor.split(dim,size).into_iter().map(Value::from).collect()
+			tensor.split(size,dim).into_iter().map(Value::from).collect()
 		}
 		let c=if chunksize==0{return "cannot split into chunks of 0 size".into()}else{chunksize};
 
