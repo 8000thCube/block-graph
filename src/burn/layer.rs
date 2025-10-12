@@ -155,6 +155,8 @@ impl Config{
 	pub fn batch_norm(countfeatures:usize,epsilon:f32,momentum:f32)->Self{Self::BatchNorm(BatchNormConfig::new(countfeatures).with_epsilon(epsilon as f64).with_momentum(momentum as f64))}
 	/// creates a bias config
 	pub fn bias(dim:usize)->Self{Self::Bias(BiasConfig::new(dim))}
+		/// creates a dropout config
+	pub fn dropout(chance:f32)->Self{Self::Dropout(DropoutConfig::new(chance as f64))}
 	/// creates a embedding config
 	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
 	/// creates a flatten config
@@ -559,8 +561,14 @@ impl<B:Backend> From<UnsqueezeLayer> for Layer<B>{
 	fn from(value:UnsqueezeLayer)->Self{Layer::Unsqueeze(Ignored(value))}
 }
 impl<B:Backend> Layer<B>{
+	/// creates an attention config
+	pub fn attention(heads:usize,mask:AttentionMask)->Self{Config::attention(heads,mask).init(&Default::default())}
 	/// creates a batch norm layer
 	pub fn batch_norm(countfeatures:usize,epsilon:f32,momentum:f32)->Self{Config::batch_norm(countfeatures,epsilon,momentum).init(&Default::default())}
+	/// creates a bias config
+	pub fn bias(dim:usize)->Self{Config::bias(dim).init(&Default::default())}
+	/// creates a dropout layer
+	pub fn dropout(chance:f32)->Self{Config::dropout(chance).init(&Default::default())}
 	/// creates a embedding layer
 	pub fn embedding(input:usize,output:usize,wscale:f32)->Self{
 		let mut l=EmbeddingConfig::new(input,output);
