@@ -677,8 +677,8 @@ impl<B:Backend> AI<(Value<B>,usize),(Value<B>,usize)> for RotaryEncoding<B>{
 			let sign=Tensor::<B,2>::from_floats([[1.0,0.0,0.0,1.0],[0.0,-1.0,1.0,0.0]],&device).unsqueeze();
 
 			let chunks=input.chunk(group.div_ceil(MAX_KERNEL),0).into_iter().map(|x|{
-				let smaller=x.dims()[0];
-				let x=x.matmul(sign.clone()).reshape([smaller,context,head,2])*freq.clone().slice([offset..context+offset]).unsqueeze();
+				let small=x.dims()[0];
+				let x=x.matmul(sign.clone()).reshape([small,context,head,2])*freq.clone().slice([offset..context+offset]).unsqueeze();
 				x.sum_dim(3)
 			}).collect();
 			Tensor::cat(chunks,0).reshape([big,heads,context,head]).swap_dims(1,2).reshape::<D,_>(shape).into()
