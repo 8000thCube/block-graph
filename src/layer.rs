@@ -155,7 +155,9 @@ impl Config{
 	pub fn batch_norm(countfeatures:usize,epsilon:f32,momentum:f32)->Self{Self::BatchNorm(BatchNormConfig::new(countfeatures).with_epsilon(epsilon as f64).with_momentum(momentum as f64))}
 	/// creates a bias config
 	pub fn bias(dim:usize)->Self{Self::Bias(BiasConfig::new(dim))}
-		/// creates a dropout config
+	/// creates a cache config
+	pub fn cache(limit:usize)->Self{Self::Cache(CacheConfig::new(limit))}
+	/// creates a dropout config
 	pub fn dropout(chance:f32)->Self{Self::Dropout(DropoutConfig::new(chance as f64))}
 	/// creates a embedding config
 	pub fn embedding(input:usize,output:usize)->Self{Self::Embedding(EmbeddingConfig::new(input,output))}
@@ -167,7 +169,7 @@ impl Config{
 	}
 	/// initializes the layer
 	pub fn init<B:Backend>(&self,device:&B::Device)->Layer<B>{
-		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::Cache(limit)=>Layer::Cache(Cache::new(*limit)),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::Flatten(c)=>Layer::Flatten(Ignored(c.clone())),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::MaxPool2d(c)=>Layer::MaxPool2d(c.init()),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Reshape(c)=>Layer::Reshape(Ignored(c.clone())),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(Ignored(*d)),Config::Squeeze(c)=>Layer::Squeeze(Ignored(*c)),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new()),Config::Unsqueeze(c)=>Layer::Unsqueeze(Ignored(*c))}
+		match self{Config::Attention(c)=>Layer::Attention(c.init(device)),Config::BatchNorm(c)=>Layer::BatchNorm(c.init(device)),Config::Bias(c)=>Layer::Bias(c.init(device)),Config::Cache(c)=>Layer::Cache(Cache::new(c.limit)),Config::Cat(c)=>Layer::Cat(Ignored(*c)),Config::Conv2d(c)=>Layer::Conv2d(c.init(device)),Config::Dropout(c)=>Layer::Dropout(c.init()),Config::Embedding(c)=>Layer::Embedding(c.init(device)),Config::Flatten(c)=>Layer::Flatten(Ignored(c.clone())),Config::LayerNorm(c)=>Layer::LayerNorm(c.init(device)),Config::Linear(c)=>Layer::Linear(c.init(device)),Config::KQV(c)=>Layer::KQV(c.init(device)),Config::CrossEntropy(c)=>Layer::CrossEntropy(c.init(device)),Config::MaxPool2d(c)=>Layer::MaxPool2d(c.init()),Config::Mse=>Layer::Mse(MseLoss),Config::Relu=>Layer::Relu(Relu::new()),Config::Reshape(c)=>Layer::Reshape(Ignored(c.clone())),Config::Rotary(c)=>Layer::Rotary(c.init(device)),Config::ScaleShift(c)=>Layer::ScaleShift(c.init(device)),Config::Stack(d)=>Layer::Stack(Ignored(*d)),Config::Squeeze(c)=>Layer::Squeeze(Ignored(*c)),Config::Sum(c)=>Layer::Sum(Ignored(*c)),Config::Tanh=>Layer::Tanh(Tanh::new()),Config::Unsqueeze(c)=>Layer::Unsqueeze(Ignored(*c))}
 	}
 	/// creates a layer norm config
 	pub fn layer_norm(dim:usize)->Self{Self::LayerNorm(LayerNormConfig::new(dim))}
@@ -183,6 +185,15 @@ impl Config{
 	pub fn rotary(distance:usize,head:usize)->Self{Self::Rotary(RotaryEncodingConfig::new(distance,head))}
 	/// creates a scale shift config
 	pub fn scale_shift()->Self{Self::ScaleShift(ScaleShiftConfig::new())}
+	/// sets the dropout if this is an attention layer
+	pub fn set_attention_dropout(&mut self,dropout:f32)->bool{
+		if let Config::Attention(c)=self{
+			c.dropout=dropout;
+			true
+		}else{
+			false
+		}
+	}
 	/// creates a tanh config
 	pub fn tanh()->Self{Self::Tanh}
 	/// scales the initializer
@@ -205,6 +216,9 @@ impl From<BatchNormConfig> for Config{
 }
 impl From<BiasConfig> for Config{
 	fn from(value:BiasConfig)->Self{Self::Bias(value)}
+}
+impl<B:Backend> From<Cache<B>> for Layer<B>{
+	fn from(value:Cache<B>)->Self{Self::Cache(value)}
 }
 impl From<CatLayer> for Config{
 	fn from(value:CatLayer)->Self{Config::Cat(value)}
@@ -475,6 +489,9 @@ impl<B:Backend> AI<Value<B>,Value<B>> for ScaleShift<B>{
 		input*a+b
 	}
 }
+impl<B:Backend> From<Attention<B>> for Layer<B>{
+	fn from(value:Attention<B>)->Self{Self::Attention(value)}
+}
 impl<B:Backend> Cache<B>{
 	fn new(limit:usize)->Self{
 		let cache=Value::default();
@@ -548,6 +565,18 @@ impl<B:Backend> Layer<B>{
 	pub fn batch_norm(countfeatures:usize,epsilon:f32,momentum:f32)->Self{Config::batch_norm(countfeatures,epsilon,momentum).init(&Default::default())}
 	/// creates a bias config
 	pub fn bias(dim:usize)->Self{Config::bias(dim).init(&Default::default())}
+	/// creates a cache layer
+	pub fn cache(limit:usize)->Self{Self::Cache(Cache::new(limit))}
+	/// clears the cache if the layer has one
+	pub fn clear_cache(&mut self)->bool{
+		match self{
+			Self::Cache(c)=>{
+				c.cache=Default::default();
+				true
+			},
+			_=>false
+		}
+	}
 	/// creates a dropout layer
 	pub fn dropout(chance:f32)->Self{Config::dropout(chance).init(&Default::default())}
 	/// creates a embedding layer
@@ -592,7 +621,7 @@ impl<B:Backend> Op for Layer<B>{
 pub enum AttentionMask{Causal,None,Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
-pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),Cache(usize),Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),Flatten(FlattenLayer<Range<isize>>),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Reshape(ReshapeLayer<Reshape>),Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Squeeze(SqueezeLayer),Stack(StackLayer),Sum(SumLayer),Tanh,Unsqueeze(UnsqueezeLayer)}
+pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),Cache(CacheConfig),Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),Flatten(FlattenLayer<Range<isize>>),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Reshape(ReshapeLayer<Reshape>),Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Squeeze(SqueezeLayer),Stack(StackLayer),Sum(SumLayer),Tanh,Unsqueeze(UnsqueezeLayer)}
 #[derive(Debug,Deserialize,Module,Serialize)]//TODO more layers
 #[serde(bound="")]
 /// enumerates some burn layers
@@ -725,6 +754,8 @@ pub struct Bias<B:Backend>{
 #[serde(bound="")]
 /// layer for caching kv values from kqv when run mutably. cats along d1 and outputs the concatenated keys and values.
 pub struct Cache<B:Backend>{cache:Value<B>,limit:usize}
+#[derive(Config,Debug)]
+pub struct CacheConfig{limit:usize}
 #[derive(Debug,Deserialize,Module,Serialize)]
 #[serde(bound="")]
 /// layer for linear splitting into [key,query,value] for attention purposes
