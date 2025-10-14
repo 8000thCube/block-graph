@@ -677,8 +677,8 @@ impl<B:Backend> AI<(Value<B>,usize),(Value<B>,usize)> for RotaryEncoding<B>{
 			let sign=Tensor::<B,2>::from_floats([[1.0,0.0,0.0,1.0],[0.0,-1.0,1.0,0.0]],&device).unsqueeze();
 
 			let chunks=input.chunk(group.div_ceil(MAX_KERNEL),0).into_iter().map(|x|{
-				let smaller=x.dims()[0];
-				let x=x.matmul(sign.clone()).reshape([smaller,context,head,2])*freq.clone().slice([offset..context+offset]).unsqueeze();
+				let small=x.dims()[0];
+				let x=x.matmul(sign.clone()).reshape([small,context,head,2])*freq.clone().slice([offset..context+offset]).unsqueeze();
 				x.sum_dim(3)
 			}).collect();
 			Tensor::cat(chunks,0).reshape([big,heads,context,head]).swap_dims(1,2).reshape::<D,_>(shape).into()
@@ -1107,6 +1107,10 @@ impl<B:Backend> Value<B>{//TODO scalars
 
 		match self.int(){I1(x)=>to_vec(x),I2(x)=>to_vec(x),I3(x)=>to_vec(x),I4(x)=>to_vec(x),I5(x)=>to_vec(x),I6(x)=>to_vec(x),I7(x)=>to_vec(x),I8(x)=>to_vec(x),Value::Incompatible(_e)=>Vec::new(),Value::Multi(v)=>v.into_iter().map(Value::into_int_vec).reduce(cat_vec).unwrap_or_default(),_=>panic!("internal error")}
 	}
+	/// returns the maximum recursive depth of the value tree (its height). Returns 0 for empty or single
+	pub fn height(&self)->usize{
+		if let Value::Multi(v)=self{v.iter().map(Value::height).max()}else{None}.unwrap_or(0)
+	}
 	/// tests if the tensor is empty. incompatible isn't considered empty for the purposes of this function
 	pub fn is_empty(&self)->bool{self.len()==0}
 	/// tests if the tensor represents the result of an incompatible input and operation
@@ -1117,9 +1121,9 @@ impl<B:Backend> Value<B>{//TODO scalars
 	pub fn into_multi(self)->Vec<Value<B>>{
 		if let Value::Multi(v)=self{v}else{vec![self]}
 	}
-	/// tests if this is a multiple tensor
+	/// tests if this is a multiple tensor. also returns true for empty and multi that only have one value
 	pub fn is_multi(&self)->bool{
-		if let Value::Multi(_x)=self{true}else{false}
+		if let Value::Multi(_v)=self{true}else{false}
 	}
 	/// shallow iteration over the contained values
 	pub fn iter(&self)->SliceIter<'_,Self>{
@@ -1324,7 +1328,7 @@ impl<B:Backend> Value<B>{//TODO scalars
 		match self{B1(x)=>b(d,n,v,x),B2(x)=>b(d,n,v,x),B3(x)=>b(d,n,v,x),B4(x)=>b(d,n,v,x),B5(x)=>b(d,n,v,x),B6(x)=>b(d,n,v,x),B7(x)=>b(d,n,v,x),B8(x)=>b(d,n,v,x),F1(x)=>f(d,n,v,x),F2(x)=>f(d,n,v,x),F3(x)=>f(d,n,v,x),F4(x)=>f(d,n,v,x),F5(x)=>f(d,n,v,x),F6(x)=>f(d,n,v,x),F7(x)=>f(d,n,v,x),F8(x)=>f(d,n,v,x),I1(x)=>f(d,n,v,x),I2(x)=>f(d,n,v,x),I3(x)=>f(d,n,v,x),I4(x)=>f(d,n,v,x),I5(x)=>f(d,n,v,x),I6(x)=>f(d,n,v,x),I7(x)=>f(d,n,v,x),I8(x)=>f(d,n,v,x),Value::Incompatible(e)=>e.into(),Value::Multi(x)=>x.into_iter().map(|x|x.shift(d,n,v)).collect()}
 	}
 	/// returns a value containing the elements selected from the given ranges. If this is a multi tensor the slice will be applied to each sub tensor
-	pub fn slice<A:AsRef<[R]>,R:RangeBounds<usize>>(self,ranges:A)->Self{
+	pub fn slice<A:AsRef<[R]>,R:RangeBounds<usize>>(self,ranges:A)->Self{// TODO allow mixed bounded unbounded ranges
 		let ranges=ranges.as_ref();
 		let len=ranges.len();
 		if let Value::Incompatible(x)=self{return x.into()}
