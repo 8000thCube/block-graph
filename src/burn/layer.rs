@@ -308,15 +308,16 @@ impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{
 		}
 		fn f_3d<B:Backend>(dropout:f32,heads:usize,mask:AttentionMask,k:Tensor<B,3>,q:Tensor<B,3>,v:Tensor<B,3>)->Result<Tensor<B,3>,String>{
 			let (kdims,qdims,vdims)=(k.dims(),q.dims(),v.dims());
+			let (kseq,qseq,vseq)=(kdims[1],qdims[1],vdims[1]);
 
 			if kdims[0]!=qdims[0]{return Err("mismatched dims".into())}
 			if kdims[2]!=qdims[2]{return Err("mismatched dims".into())}
 			if kdims!=vdims{return Err("mismatched dims".into())}
-			let [batch,sequence,embed]=kdims;
+			let [batch,_sequence,embed]=kdims;
 			let dropout=Dropout{prob:dropout as f64};
 			let head=if embed%heads==0{embed/heads}else{return Err("embed must be a multiple of heads".into())};
 
-			let (k,q,v)=(k.reshape([batch,sequence,heads,head]).swap_dims(1,2),q.reshape([batch,sequence,heads,head]).swap_dims(1,2),v.reshape([batch,sequence,heads,head]).swap_dims(1,2));
+			let (k,q,v)=(k.reshape([batch,kseq,heads,head]).swap_dims(1,2),q.reshape([batch,qseq,heads,head]).swap_dims(1,2),v.reshape([batch,vseq,heads,head]).swap_dims(1,2));
 			let a=activation::softmax(apply_mask(q.matmul(k.transpose())/(head as f32).sqrt(),mask,-9999.0),3);
 			let a=dropout.forward(a);
 			let s=a.matmul(v).swap_dims(1,2).reshape([0,0,-1]);
