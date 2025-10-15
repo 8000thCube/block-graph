@@ -667,7 +667,7 @@ impl<B:Backend> AI<(Value<B>,usize),(Value<B>,usize)> for RotaryEncoding<B>{
 			let (context,key)=(shape.dims[D-2],shape.dims[D-1]);
 			let [distance,head,_2]=freq.dims();
 
-			if context>distance{return "context length must not exceed rotary distance".into()}
+			if context>distance{return format!("context length must not exceed rotary distance. context: {context}, distance: {distance}").into()}
 			if key%head!=0{return "input dimension must be a multiple of head".into()}
 			let count=shape.num_elements();
 			let big=count/(context*key);
