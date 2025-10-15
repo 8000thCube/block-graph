@@ -353,7 +353,7 @@ impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{
 		match match (k.float(),q.float(),v.float()){
 			(Value::F3(k),Value::F3(q),Value::F3(v))=>f_3d(dropout,heads,mask,k,q,v).map(Into::into),
 			(Value::Multi(k),Value::Multi(q),Value::Multi(v))=>if k.len()==q.len()&&q.len()==v.len(){Ok(k.into_iter().zip(q).zip(v).map(|((k,q),v)|self.forward((k,q,v))).collect())}else{Err("incompatible lengths".into())}
-			_=>Err("attention is currently only supported for 3d float inputs [batch, seq, embed]".into())
+			(k,q,v)=>Err(format!("attention is currently only supported for 3d float inputs [batch, seq, embed], k: {:?}, q: {:?}, v: {:?}",k.shape_recursive(),q.shape_recursive(),v.shape_recursive()))
 		}{
 			Err(e)=>e.into(),
 			Ok(x)=>x
