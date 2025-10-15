@@ -309,7 +309,8 @@ impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{
 		fn f_3d<B:Backend>(dropout:f32,heads:usize,mask:AttentionMask,k:Tensor<B,3>,q:Tensor<B,3>,v:Tensor<B,3>)->Result<Tensor<B,3>,String>{
 			let (kdims,qdims,vdims)=(k.dims(),q.dims(),v.dims());
 
-			if kdims!=qdims{return Err("mismatched dims".into())}
+			if kdims[0]!=qdims[0]{return Err("mismatched dims".into())}
+			if kdims[2]!=qdims[2]{return Err("mismatched dims".into())}
 			if kdims!=vdims{return Err("mismatched dims".into())}
 			let [batch,sequence,embed]=kdims;
 			let dropout=Dropout{prob:dropout as f64};
