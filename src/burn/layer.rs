@@ -127,9 +127,10 @@ fn serialize_param<B:Backend,S:Serializer,const N:usize>(data:&Param<Tensor<B,N>
 }
 fn serialize_rotary<B:Backend,S:Serializer>(data:&RotaryEncoding<B>,serializer:S)->Result<S::Ok,S::Error>{
 	let [distance,head,_2]=data.freq_complex.dims();
-	let theta:f32=data.theta.clone().into_scalar().elem();
+	//let theta:f32=data.theta.clone().into_scalar().elem();// TODO determine theta somehow
 
-	RotaryEncodingConfig::new(distance,head).with_theta(theta).serialize(serializer)
+	//RotaryEncodingConfig::new(distance,head).with_theta(theta).serialize(serializer)
+	RotaryEncodingConfig::new(distance,head).serialize(serializer)
 }
 impl AttentionConfig{
 	pub fn init<B:Backend>(&self,_device:&B::Device)->Attention<B>{
