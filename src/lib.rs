@@ -9,5 +9,5 @@ pub mod burn;
 /// operator like traits for common tensor operations
 pub mod ops;
 pub use {
-	ai::{AI,Decompose,Inner,IntoSequence,Op,UnwrapInner},graph::{ConnectionEditor,ConnectionInfo,Graph,Label,Merge,Unvec}
+	ai::{AI,Decompose,Inner,IntoSequence,Op,UnwrapInner},graph::{ConnectionEditor,ConnectionInfo,Graph,Extendable,Label,Merge,Unvec}
 };
