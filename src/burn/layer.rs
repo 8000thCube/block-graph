@@ -604,6 +604,10 @@ pub fn generate_power_attention_mask<B:Backend>(block:usize,k:usize,q:usize,wind
 	let sink=kx.lower_elem(block as i64);
 	let window=bx.lower_elem(window as i64);
 
+	assert_eq!(causal.dims(),power.dims());
+	assert_eq!(causal.dims(),sink.dims());
+	assert_eq!(causal.dims(),window.dims());
+
 	causal.bool_and(power.bool_or(sink).bool_or(window)).bool_not()
 }
 
