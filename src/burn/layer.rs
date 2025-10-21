@@ -602,7 +602,7 @@ pub fn generate_power_attention_mask<B:Backend>(block:usize,k:usize,q:usize,wind
 	let causal=qx.greater_equal(kx.clone());
 	let power=bx.clone().bitwise_and(bx.clone()-1).equal_elem(0);
 	let sink=kx.lower_elem(block as i64);
-	let window=bx.lower_elem(window as i64);
+	let window=bx.lower_elem((window/block) as i64);
 
 	//causal.bool_and(power.bool_or(sink).bool_or(window)).bool_not()
 
