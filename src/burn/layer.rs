@@ -304,7 +304,7 @@ impl<B:Backend,const N:usize> From<BatchNorm<B,N>> for Layer<B>{
 impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{
 	fn forward(&self,(k,q,v):(Value<B>,Value<B>,Value<B>))->Value<B>{// TODO support for other numbers of dimensions
 		fn apply_mask<B:Backend,const D:usize>(a:Tensor<B,D>,mask:AttentionMask,value:f32)->Tensor<B,D>{
-			match mask{AttentionMask::Causal=>mask_causal(a,value as f64),AttentionMask::None=>a,AttentionMask::Window(n)=>mask_window(a,n,value as f64)}
+			match mask{AttentionMask::Causal=>mask_causal(a,value as f64),AttentionMask::None=>a,AttentionMask::Power(n)=>mask_power(a,n,value as f64),AttentionMask::Window(n)=>mask_window(a,n,value as f64)}
 		}
 		fn f_3d<B:Backend>(dropout:f32,heads:usize,mask:AttentionMask,k:Tensor<B,3>,q:Tensor<B,3>,v:Tensor<B,3>)->Result<Tensor<B,3>,String>{
 			let (kdims,qdims,vdims)=(k.dims(),q.dims(),v.dims());
@@ -334,6 +334,16 @@ impl<B:Backend> AI<(Value<B>,Value<B>,Value<B>),Value<B>> for Attention<B>{
 			let causal:Tensor<B,2,Bool>=Tensor::tril_mask([query,key],extrakeys as i64,&device);
 			let a=a.mask_fill(causal.unsqueeze(),value);
 			a
+		}
+		fn mask_power<B:Backend,const D:usize>(a:Tensor<B,D>,info:PowerMaskInfo,value:f64)->Tensor<B,D>{
+			if D<2{return mask_power::<B,2>(a.unsqueeze(),info,value).squeeze(0)}
+			let (block,window)=(info.block,info.window);
+			let dims=a.dims();
+
+			let (key,query)=(dims[D-1],dims[D-2]);
+			let mask=generate_power_attention_mask(block,key,query,window);
+
+			a.mask_fill(mask.unsqueeze(),value)
 		}
 		/// fills the attention tensor with the value where the query position is less than the key position minus length, or greater than the key position. Assumes attention dimensions are [.., query, key]
 		fn mask_window<B:Backend,const D:usize>(a:Tensor<B,D>,length:usize,value:f64)->Tensor<B,D>{
@@ -561,6 +571,44 @@ impl<B:Backend> From<Tanh> for Layer<B>{
 impl<B:Backend> From<UnsqueezeLayer> for Layer<B>{
 	fn from(value:UnsqueezeLayer)->Self{Layer::Unsqueeze(Ignored(value))}
 }
+
+/*
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_small_mask() {
+		type B=burn::backend::NdArray;
+
+        let mask = generate_power_attention_mask::<B>(1,15,10,2).int();
+
+        // Print mask for debugging
+        println!("{:?}", mask.clone());
+		assert!(false);
+    }
+}*/
+
+
+pub fn generate_power_attention_mask<B:Backend>(block:usize,k:usize,q:usize,window:usize)->Tensor<B,2,Bool>{
+	let device=Default::default();
+	let kx:Tensor<B,1,Int>=Tensor::arange(0..k as i64,&device);
+	let qx:Tensor<B,1,Int>=Tensor::arange(0..q as i64,&device);
+
+	let kx:Tensor<B,2,Int>=kx.unsqueeze_dim(0).repeat_dim(0,q);
+	let qx:Tensor<B,2,Int>=qx.unsqueeze_dim(1).repeat_dim(1,k);
+
+	let bx=qx.clone()/block as i64-kx.clone()/block as i64;
+	let causal=qx.greater_equal(kx.clone());
+	let power=bx.clone().bitwise_and(bx.clone()-1).equal_elem(0);
+	let sink=kx.lower_elem(block as i64);
+	let window=bx.lower_elem(window as i64);
+
+	causal.bool_and(power.bool_or(sink).bool_or(window)).bool_not()
+}
+
+
+
 impl<B:Backend> Layer<B>{
 	/// creates an attention config
 	pub fn attention(heads:usize,mask:AttentionMask)->Self{Config::attention(heads,mask).init(&Default::default())}
@@ -621,7 +669,7 @@ impl<B:Backend> Op for Layer<B>{
 	type Output=Value<B>;
 }
 #[derive(Clone,Copy,Debug,Deserialize,Serialize)]
-pub enum AttentionMask{Causal,None,Window(usize)}
+pub enum AttentionMask{Causal,None,Power(PowerMaskInfo),Window(usize)}
 #[derive(Config)]
 /// enumerates config for some burn layers
 pub enum Config{Attention(AttentionConfig),BatchNorm(BatchNormConfig),Bias(BiasConfig),Cache(CacheConfig),Cat(CatLayer),Conv2d(Conv2dConfig),CrossEntropy(CrossEntropyLossConfig),Dropout(DropoutConfig),Embedding(EmbeddingConfig),Flatten(FlattenLayer<Range<isize>>),KQV(KQVConfig),LayerNorm(LayerNormConfig),Linear(LinearConfig),MaxPool2d(MaxPool2dConfig),Mse,Relu,Reshape(ReshapeLayer<Reshape>),Rotary(RotaryEncodingConfig),ScaleShift(ScaleShiftConfig),Squeeze(SqueezeLayer),Stack(StackLayer),Sum(SumLayer),Tanh,Unsqueeze(UnsqueezeLayer)}
@@ -773,6 +821,9 @@ pub struct KQV<B:Backend>{
 	#[serde(serialize_with="serialize_linear")]
 	value:Linear<B>
 }
+#[derive(Clone,Copy,Debug,Deserialize,Serialize)]
+/// power mask information
+pub struct PowerMaskInfo{pub block:usize,pub window:usize}
 #[derive(Debug,Deserialize,Module,Serialize)]
 #[serde(bound="")]
 /// layer that applies a componentwise scalar affine transformation: f(x)=ax+b where a and b are tunable scalars
