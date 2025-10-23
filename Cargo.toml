@@ -6,7 +6,7 @@ edition = "2024"
 license = "MIT"
 name = "block-graph"
 repository = "https://github.com/8000thCube/block-graph"
-version = "0.2.0"
+version = "0.3.0"
 
 [dependencies]
 burn = { version = "0.18", features = ["fusion","ndarray","train"]}
