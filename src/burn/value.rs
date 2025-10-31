@@ -55,15 +55,17 @@ fn slice_slice<B:Backend,K:BasicOps<B>+TensorKind<B>,const N:usize>(ranges:&[Ran
 fn soft_choose_burn_1<B:Backend,const N:usize>(dim:i32,logits:Tensor<B,N>,temperature:f32)->u32{
 	let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
 	let logits=if dim==N-1{logits}else{logits.movedim(dim,N-1)};
+
+	let chunk=logits.dims()[N-1];
 	let distribution=softmax(logits/temperature,N-1).into_data();
-	distribution.iter().scan(random(),|choice:&mut f32,weight:f32|Some(*choice-=weight).filter(|_|*choice>=0.0)).count() as u32
+	distribution.iter().scan(random(),|choice:&mut f32,weight:f32|Some(*choice-=weight).filter(|_|*choice>=0.0)).count().min(chunk-1) as u32
 }
 fn soft_choose_burn_multi<B:Backend,const N:usize>(dim:i32,logits:Tensor<B,N>,temperature:f32)->Vec<u32>{
 	let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
 	let logits=if dim==N-1{logits}else{logits.movedim(dim,N-1)};
 	let chunk=logits.dims()[N-1];
 	let distribution=softmax(logits/temperature,N-1).into_data().to_vec().unwrap();
-	distribution.chunks_exact(chunk).map(|d|d.iter().scan(random(),|choice:&mut f32,weight:&f32|Some(*choice-=weight).filter(|_|*choice>=0.0)).count() as u32).collect()
+	distribution.chunks_exact(chunk).map(|d|d.iter().scan(random(),|choice:&mut f32,weight:&f32|Some(*choice-=weight).filter(|_|*choice>=0.0)).count().min(chunk-1) as u32).collect()
 }
 fn soft_choose_burn_tensor<B:Backend,const N:usize>(dim:i32,logits:Tensor<B,N>,temperature:f32)->Tensor<B,N,Int>{//TODO test this
 	let dim=if dim<0{N-(-dim) as usize}else{dim as usize};
